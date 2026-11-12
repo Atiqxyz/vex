@@ -108,5 +108,17 @@
         }
       }
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Atiqxyz/vex.git",
+    "directory": "editors/vscode"
+  },
+  "files": [
+    "extension.js",
+    "language-configuration.json",
+    "snippets/**",
+    "syntaxes/**",
+    "README.md"
+  ]
 }
