@@ -58,21 +58,21 @@ vex::IRFunction simple_integer_function() {
 
 void test_source_to_verified_ir_lowering(TestContext& tests) {
     const vex::SourceFile source{"lowering.vex",
-        "make scale(value: float) -> float {\\n"
-        "    return value * 2.0\\n"
-        "}\\n"
-        "make main() {\\n"
-        "    let result = scale(3)\\n"
-        "    if result > 1.0 {\\n"
-        "        result = result + 1.0\\n"
-        "    } else {\\n"
-        "        result = result - 1.0\\n"
-        "    }\\n"
-        "    repeat 2 times {\\n"
-        "        result = result + 1.0\\n"
-        "    }\\n"
-        "    say(result)\\n"
-        "}\\n"};
+        "make scale(value: float) -> float {\n"
+        "    return value * 2.0\n"
+        "}\n"
+        "make main() {\n"
+        "    let result = scale(3)\n"
+        "    if result > 1.0 {\n"
+        "        result = result + 1.0\n"
+        "    } else {\n"
+        "        result = result - 1.0\n"
+        "    }\n"
+        "    repeat 2 times {\n"
+        "        result = result + 1.0\n"
+        "    }\n"
+        "    say(result)\n"
+        "}\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
     const vex::SemanticResult semantic =
