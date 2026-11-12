@@ -22,8 +22,33 @@ if(NOT emitter_result EQUAL 0)
 endif()
 
 if(C_COMPILER_ID STREQUAL "MSVC")
+    find_program(VSWHERE_EXECUTABLE vswhere
+        HINTS
+            "$ENV{ProgramFiles}/Microsoft Visual Studio/Installer"
+            "$ENV{ProgramFiles(x86)}/Microsoft Visual Studio/Installer"
+    )
+    if(NOT VSWHERE_EXECUTABLE)
+        message(FATAL_ERROR "vswhere.exe is required to initialize the MSVC C compiler environment")
+    endif()
+
     execute_process(
-        COMMAND "${C_COMPILER}" /nologo /std:c11 /TC "${generated_c}" "/Fe:${generated_executable}"
+        COMMAND "${VSWHERE_EXECUTABLE}" -latest -products "*" 
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64
+            -property installationPath
+        OUTPUT_VARIABLE vs_installation_path
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE vswhere_result
+    )
+    if(NOT vswhere_result EQUAL 0 OR vs_installation_path STREQUAL "")
+        message(FATAL_ERROR "Could not locate a Visual Studio C++ toolchain installation")
+    endif()
+
+    set(vsdevcmd "${vs_installation_path}/Common7/Tools/VsDevCmd.bat")
+    set(msvc_command
+        "call \"${vsdevcmd}\" -arch=x64 -host_arch=x64 && cl /nologo /std:c11 /TC \"${generated_c}\" \"/Fe:${generated_executable}\""
+    )
+    execute_process(
+        COMMAND cmd /D /C "${msvc_command}"
         RESULT_VARIABLE compiler_result
         OUTPUT_VARIABLE compiler_output
         ERROR_VARIABLE compiler_error
