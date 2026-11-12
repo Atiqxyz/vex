@@ -24,20 +24,13 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
-
-      - name: Diagnose Linux test failure
-        if: failure() && runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gdb
-          gdb -batch -ex run -ex 'info line *$pc' -ex 'frame 0' -ex 'info args' -ex 'info locals' -ex bt --args build/vex_tests
 
       - name: Validate VS Code extension
         run: |
