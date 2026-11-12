@@ -40,6 +40,11 @@ jobs:
           node --check editors/vscode/extension.js
           node editors/vscode/validate.mjs
 
+      - name: Set up Node.js for extension packaging
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Package VS Code extension
         working-directory: editors/vscode
-        run: npx --yes @vscode/vsce package --no-dependencies --out "${{ runner.temp }}/vex-language.vsix"
+        run: npx --yes @vscode/vsce@4.0.0 package --no-dependencies --out "${{ runner.temp }}/vex-language.vsix"
