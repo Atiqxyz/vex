@@ -71,7 +71,56 @@ if(NOT program_result EQUAL 0)
 endif()
 
 string(REPLACE "\r\n" "\n" program_output "${program_output}")
-set(expected_output "30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n")
+set(expected_output "30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n")
 if(NOT "${program_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "Generated VEX program produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${program_output}")
+endif()
+
+# Exercise the public native-build command independently of the manual backend
+# pipeline above. This verifies compiler discovery, generated C compilation,
+# output path handling, and execution of the resulting native binary.
+if(WIN32)
+    set(native_executable "${WORK_DIR}/vex_build_output.exe")
+else()
+    set(native_executable "${WORK_DIR}/vex_build_output")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" build "${SOURCE_FILE}" -o "${native_executable}"
+    RESULT_VARIABLE build_result
+    OUTPUT_VARIABLE build_output
+    ERROR_VARIABLE build_error
+)
+if(NOT build_result EQUAL 0)
+    message(FATAL_ERROR "vex build failed (${build_result}): ${build_output}${build_error}")
+endif()
+
+execute_process(
+    COMMAND "${native_executable}"
+    RESULT_VARIABLE native_result
+    OUTPUT_VARIABLE native_output
+    ERROR_VARIABLE native_error
+)
+if(NOT native_result EQUAL 0)
+    message(FATAL_ERROR "Native VEX executable exited with ${native_result}: ${native_error}")
+endif()
+string(REPLACE "\r\n" "\n" native_output "${native_output}")
+if(NOT "${native_output}" STREQUAL "${expected_output}")
+    message(FATAL_ERROR "vex build executable produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${native_output}")
+endif()
+
+# The run command builds in an isolated temporary directory, executes the
+# binary, forwards its stdout, and cleans up the temporary artifacts.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run "${SOURCE_FILE}"
+    RESULT_VARIABLE run_result
+    OUTPUT_VARIABLE run_output
+    ERROR_VARIABLE run_error
+)
+if(NOT run_result EQUAL 0)
+    message(FATAL_ERROR "vex run failed (${run_result}): ${run_output}${run_error}")
+endif()
+string(REPLACE "\r\n" "\n" run_output "${run_output}")
+if(NOT "${run_output}" STREQUAL "${expected_output}")
+    message(FATAL_ERROR "vex run produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${run_output}")
 endif()
