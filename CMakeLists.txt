@@ -22,6 +22,7 @@ add_library(vex_frontend STATIC
     src/parser.cpp
     src/semantic.cpp
     src/ir.cpp
+    src/lowering.cpp
 )
 target_include_directories(vex_frontend PUBLIC include)
 target_compile_features(vex_frontend PUBLIC cxx_std_20)
