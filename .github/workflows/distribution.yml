@@ -1,0 +1,100 @@
+name: VEX Distribution
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-cli:
+    name: Build CLI (\${{ matrix.platform }})
+    runs-on: \${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: macos-26-intel
+            platform: macos-x64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Install distribution files
+        run: cmake --install build --config Release --prefix dist/vex
+
+      - name: Archive CLI
+        shell: bash
+        run: |
+          cd dist
+          cmake -E tar cf vex-\${{ matrix.platform }}.zip --format=zip vex
+
+      - name: Upload CLI archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: vex-\${{ matrix.platform }}
+          path: dist/vex-\${{ matrix.platform }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  package-vscode:
+    name: Package VS Code extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Validate extension
+        run: |
+          node --check editors/vscode/extension.js
+          node editors/vscode/validate.mjs
+
+      - name: Package VSIX
+        working-directory: editors/vscode
+        run: npx --yes @vscode/vsce package --no-dependencies --out vex-language-0.1.0.vsix
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vex-vscode-extension
+          path: editors/vscode/vex-language-0.1.0.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-cli, package-vscode]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vex-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: dist/*
