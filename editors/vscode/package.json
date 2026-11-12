@@ -1,7 +1,7 @@
 {
   "name": "vex-language",
   "displayName": "VEX Language Support",
-  "description": "Language support for the VEX programming language.",
+  "description": "Language support and compiler actions for the VEX programming language.",
   "version": "0.1.0",
   "publisher": "Atiqxyz",
   "license": "MIT",
@@ -16,6 +16,12 @@
     "vex",
     "language",
     "systems programming"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:vex",
+    "onCommand:vex.checkCurrentFile",
+    "onCommand:vex.emitCPreview"
   ],
   "contributes": {
     "languages": [
@@ -43,6 +49,42 @@
         "language": "vex",
         "path": "./snippets/vex.json"
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "vex.checkCurrentFile",
+        "title": "VEX: Check Current File",
+        "icon": "$(check)"
+      },
+      {
+        "command": "vex.emitCPreview",
+        "title": "VEX: Generate C Preview",
+        "icon": "$(file-code)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vex.checkCurrentFile",
+          "when": "editorLangId == vex",
+          "group": "navigation"
+        },
+        {
+          "command": "vex.emitCPreview",
+          "when": "editorLangId == vex",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "VEX",
+      "properties": {
+        "vex.compilerPath": {
+          "type": "string",
+          "default": "vex",
+          "description": "Path to the VEX compiler executable. Use an absolute path if VEX is not available on PATH."
+        }
+      }
+    }
   }
 }
