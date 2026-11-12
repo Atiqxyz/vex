@@ -9,20 +9,10 @@
 namespace vex {
 namespace {
 
-enum class Type { Error, Unknown, Any, Void, Int, Float, Bool, String };
+using Type = SemanticType;
 
 const char* type_name(const Type type) noexcept {
-    switch (type) {
-    case Type::Error: return "<error>";
-    case Type::Unknown: return "<unknown>";
-    case Type::Any: return "any";
-    case Type::Void: return "void";
-    case Type::Int: return "int";
-    case Type::Float: return "float";
-    case Type::Bool: return "bool";
-    case Type::String: return "string";
-    }
-    return "<unknown>";
+    return semantic_type_name(type);
 }
 
 bool is_numeric(const Type type) noexcept {
@@ -46,6 +36,7 @@ Type common_numeric_type(const Type left, const Type right) noexcept {
 }
 
 struct Symbol {
+    SemanticBindingId id{0};
     Type type{Type::Unknown};
     bool immutable{false};
     bool is_function{false};
@@ -68,7 +59,7 @@ public:
         for (const StmtPtr& statement : program_.statements) {
             if (statement) analyze_statement(*statement);
         }
-        return SemanticResult{std::move(diagnostics_)};
+        return SemanticResult{std::move(diagnostics_), std::move(model_)};
     }
 
 private:
@@ -111,6 +102,7 @@ private:
             if (!function) continue;
 
             Symbol signature;
+            signature.id = next_binding_id_++;
             signature.is_function = true;
             signature.declaration = function->name;
             signature.type = function->return_type
@@ -137,6 +129,12 @@ private:
             } else {
                 scopes_.front().emplace(name, signature);
             }
+            SemanticFunctionSignature public_signature;
+            public_signature.name = name;
+            public_signature.parameter_types = signature.parameters;
+            public_signature.return_type = signature.type;
+            public_signature.declaration = function->name;
+            model_.functions.emplace(function, std::move(public_signature));
             signatures_.emplace(function, std::move(signature));
         }
     }
@@ -150,18 +148,31 @@ private:
     }
 
     [[nodiscard]] bool define(const std::string& name, Symbol symbol,
-                              const SourceSpan declaration) {
+                              const SourceSpan declaration,
+                              SemanticBindingId* assigned_id = nullptr) {
         Scope& current = scopes_.back();
         if (current.find(name) != current.end()) {
             report("SEM002", "duplicate declaration of '" + name +
                    "' in the same scope", declaration);
             return false;
         }
+        if (symbol.id == 0) symbol.id = next_binding_id_++;
+        if (assigned_id) *assigned_id = symbol.id;
+        model_.bindings.emplace(symbol.id, SemanticBinding{
+            symbol.id, name, symbol.type, !symbol.immutable && !symbol.is_function,
+            declaration
+        });
         current.emplace(name, std::move(symbol));
         return true;
     }
 
     [[nodiscard]] Type analyze_expression(const Expr& expression) {
+        const Type result = analyze_expression_impl(expression);
+        model_.expression_types[&expression] = result;
+        return result;
+    }
+
+    [[nodiscard]] Type analyze_expression_impl(const Expr& expression) {
         if (const auto* literal = std::get_if<LiteralExpr>(&expression.data)) {
             switch (literal->token_kind) {
             case TokenKind::Integer: return Type::Int;
@@ -187,6 +198,7 @@ private:
                        name->name);
                 return Type::Error;
             }
+            if (symbol->id != 0) model_.resolved_names[name] = symbol->id;
             return symbol->type;
         }
 
@@ -307,6 +319,7 @@ private:
                 }
                 return Type::Error;
             }
+            model_.assignment_targets[assignment] = symbol->id;
             const Type value = assignment->value
                 ? analyze_expression(*assignment->value) : Type::Error;
             if (symbol->immutable) {
@@ -356,6 +369,7 @@ private:
             }
 
             if (!function) return Type::Error;
+            if (name) model_.resolved_calls[call] = spelling(name->name);
             if (argument_types.size() != function->parameters.size()) {
                 report("SEM020", "function expects " +
                        std::to_string(function->parameters.size()) +
@@ -405,8 +419,11 @@ private:
         symbol.type = declared;
         symbol.immutable = variable.immutable;
         symbol.declaration = variable.name;
-        static_cast<void>(define(spelling(variable.name), std::move(symbol),
-                                 variable.name));
+        SemanticBindingId binding_id = 0;
+        if (define(spelling(variable.name), std::move(symbol),
+                   variable.name, &binding_id)) {
+            model_.variable_bindings[&variable] = binding_id;
+        }
     }
 
     void analyze_function(const FunctionDeclStmt& function,
@@ -424,8 +441,11 @@ private:
             Symbol symbol;
             symbol.type = index < count ? signature.parameters[index] : Type::Unknown;
             symbol.declaration = parameter.name;
-            static_cast<void>(define(spelling(parameter.name), std::move(symbol),
-                                     parameter.name));
+            SemanticBindingId binding_id = 0;
+            if (define(spelling(parameter.name), std::move(symbol),
+                       parameter.name, &binding_id)) {
+                model_.parameter_bindings[&parameter] = binding_id;
+            }
         }
 
         const bool was_in_function = inside_function_;
@@ -566,11 +586,27 @@ private:
     std::vector<Diagnostic> diagnostics_;
     std::vector<Scope> scopes_;
     std::unordered_map<const FunctionDeclStmt*, Symbol> signatures_;
+    SemanticModel model_;
+    SemanticBindingId next_binding_id_{1};
     bool inside_function_{false};
     Type current_return_type_{Type::Void};
 };
 
 } // namespace
+
+const char* semantic_type_name(const SemanticType type) noexcept {
+    switch (type) {
+    case SemanticType::Error: return "<error>";
+    case SemanticType::Unknown: return "<unknown>";
+    case SemanticType::Any: return "any";
+    case SemanticType::Void: return "void";
+    case SemanticType::Int: return "int";
+    case SemanticType::Float: return "float";
+    case SemanticType::Bool: return "bool";
+    case SemanticType::String: return "string";
+    }
+    return "<unknown>";
+}
 
 bool SemanticResult::has_errors() const noexcept {
     return std::any_of(diagnostics.begin(), diagnostics.end(),
