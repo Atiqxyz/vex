@@ -1,0 +1,10 @@
+make main() {
+    let radius = 12.0
+    let area_factor = pow(radius, 2.0)
+    let root = sqrt(area_factor)
+
+    say(root)
+    say(sin(0.0))
+    say(cos(0.0))
+    say(abs(-5.0))
+}

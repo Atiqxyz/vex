@@ -92,6 +92,20 @@ private:
         say.parameters.push_back(Type::Any);
         say.declaration = {0, 0};
         scopes_.front().emplace("say", std::move(say));
+
+        const auto add_math = [this](const char* name, const std::size_t arity) {
+            Symbol function;
+            function.type = Type::Float;
+            function.is_function = true;
+            function.parameters.assign(arity, Type::Float);
+            function.declaration = {0, 0};
+            scopes_.front().emplace(name, std::move(function));
+        };
+        add_math("sqrt", 1);
+        add_math("sin", 1);
+        add_math("cos", 1);
+        add_math("pow", 2);
+        add_math("abs", 1);
     }
 
     void collect_function_signatures() {

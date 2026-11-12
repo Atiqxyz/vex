@@ -85,6 +85,17 @@ void test_functions_and_calls(TestContext& tests) {
                 "function body contains its declaration and call statements");
 }
 
+void test_unary_expression_in_call_argument(TestContext& tests) {
+    const vex::SourceFile source{"unary_call_argument.vex",
+        "make main() {\n"
+        "    let magnitude = abs(-5.0)\n"
+        "    say(magnitude)\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(),
+                "unary minus inside a function-call argument parses");
+}
+
 void test_multiline_expression(TestContext& tests) {
     const vex::SourceFile source{"multiline.vex",
         "let force = [\n"
@@ -174,6 +185,7 @@ void test_invalid_syntax_and_newline_rules(TestContext& tests) {
 void run_parser_tests(TestContext& tests) {
     test_operator_precedence(tests);
     test_functions_and_calls(tests);
+    test_unary_expression_in_call_argument(tests);
     test_multiline_expression(tests);
     test_control_flow_and_assignment(tests);
     test_if_without_else_preserves_next_statement(tests);

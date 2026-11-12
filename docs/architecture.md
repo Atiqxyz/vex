@@ -63,7 +63,7 @@ The initial type model covers `int`, `float`, `bool`, `string`, and `void` retur
 
 The current numeric conversion rule permits widening from `int` to `float`; narrowing is rejected. Nested blocks have lexical scopes and can shadow outer bindings. `const` bindings cannot be assigned after declaration.
 
-The `say(value)` intrinsic is registered for semantic checking and is implemented in the initial generated-C runtime. The parser accepts `for-in`, but semantic analysis reports that collection types are not implemented yet. Arrays, structures, pointers, modules, generic types, and function values remain future work.
+The `say(value)` intrinsic is registered for semantic checking and is implemented in the initial generated-C runtime. The first mathematical standard-library functions (`sqrt`, `sin`, `cos`, `pow`, and `abs`) are registered with typed signatures, lowered to explicit math IR instructions, verified, and emitted as C math-library calls. The C bootstrap build links the platform math library where required. The parser accepts `for-in`, but semantic analysis reports that collection types are not implemented yet. Arrays, structures, pointers, modules, generic types, and function values remain future work.
 
 ### Typed semantic model and SSA IR
 

@@ -170,6 +170,28 @@ void test_semantic_model_exposes_typed_resolutions(TestContext& tests) {
     }
 }
 
+void test_math_standard_library_signatures(TestContext& tests) {
+    const vex::SourceFile source{"math_builtins.vex",
+        "make main() {\n"
+        "    let root = sqrt(144)\n"
+        "    let wave = sin(0.0) + cos(0.0)\n"
+        "    let scaled = pow(2.0, 3.0)\n"
+        "    let magnitude = abs(-5.0)\n"
+        "    say(root + wave + scaled + magnitude)\n"
+        "}\n"};
+    const vex::SemanticResult valid = analyze(source);
+    tests.check(!valid.has_errors(),
+                "math builtins accept numeric arguments and return float");
+
+    const vex::SourceFile invalid{"bad_math_builtins.vex",
+        "make main() {\n"
+        "    let invalid = sqrt(true)\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM021"),
+                "math builtins reject arguments with incompatible types");
+}
+
 void test_unimplemented_iteration_is_explicit(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
@@ -194,5 +216,6 @@ void run_semantic_tests(TestContext& tests) {
     test_operator_and_condition_types(tests);
     test_function_signatures_and_returns(tests);
     test_semantic_model_exposes_typed_resolutions(tests);
+    test_math_standard_library_signatures(tests);
     test_unimplemented_iteration_is_explicit(tests);
 }
