@@ -1,0 +1,79 @@
+{
+  "Main function": {
+    "prefix": "main",
+    "body": [
+      "make main() {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Create the VEX program entry point."
+  },
+  "Function": {
+    "prefix": "make",
+    "body": [
+      "make ${1:name}(${2}) -> ${3:int} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Declare a VEX function."
+  },
+  "Mutable binding": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name} = ${2:value}$0"
+    ],
+    "description": "Declare a mutable local binding."
+  },
+  "Immutable binding": {
+    "prefix": "const",
+    "body": [
+      "const ${1:name}: ${2:int} = ${3:value}$0"
+    ],
+    "description": "Declare an immutable local binding."
+  },
+  "If / else": {
+    "prefix": "ifelse",
+    "body": [
+      "if ${1:condition} {",
+      "\t$2",
+      "} else {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Create an if / else statement."
+  },
+  "Repeat loop": {
+    "prefix": "repeat",
+    "body": [
+      "repeat ${1:count} times {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Repeat a block a fixed number of times."
+  },
+  "For-in loop": {
+    "prefix": "forin",
+    "body": [
+      "for ${1:item} in ${2:items} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Insert the currently parsed for-in syntax (semantic support is not implemented yet)."
+  },
+  "Say output": {
+    "prefix": "say",
+    "body": [
+      "say(${1:value})$0"
+    ],
+    "description": "Print a supported primitive value."
+  },
+  "Multiline expression": {
+    "prefix": "multiline",
+    "body": [
+      "[",
+      "\t${1:expression}",
+      "]$0"
+    ],
+    "description": "Group one expression across multiple physical lines."
+  }
+}
