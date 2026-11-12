@@ -1,6 +1,6 @@
 # VEX compiler architecture
 
-The current development build implements source management, diagnostics, lexing, parsing, an initial AST, and a first semantic-analysis pass.
+The current development build implements source management, diagnostics, lexing, parsing, an initial AST, semantic analysis with a reusable typed model, and verified SSA IR lowering for the supported language subset.
 
 ## Intended pipeline
 
@@ -18,9 +18,12 @@ Parser -----------------> AST + syntax diagnostics
     |
     v
 Semantic analysis ------> scopes, resolved names, inferred types, diagnostics
+    |                     + typed semantic model
+    v
+IR lowering ------------> typed SSA values, CFG, source spans
     |
     v
-Typed intermediate representation
+IR verifier ------------> verified module or IR diagnostics
     |
     +--------------------> C bootstrap backend (candidate)
     |
@@ -61,6 +64,16 @@ The current numeric conversion rule permits widening from `int` to `float`; narr
 
 The `say(value)` intrinsic is registered for semantic checking but has no runtime implementation. The parser accepts `for-in`, but semantic analysis reports that collection types are not implemented yet. Arrays, structures, pointers, modules, generic types, function values, and code generation remain future work.
 
+### Typed semantic model and SSA IR
+
+Semantic analysis now returns a `SemanticModel` alongside diagnostics. It records expression types, resolved variable and assignment bindings, parameter and local binding identities, resolved direct-call names, and function signatures. The model is tied to the lifetime of the AST it describes.
+
+The initial IR is backend-independent and uses SSA values. Functions contain basic blocks with explicit terminators. Block parameters receive values from incoming branches and serve as control-flow merge points. The IR keeps the supported primitive types explicit and retains source spans for diagnostics.
+
+The AST-to-IR lowerer consumes the semantic model. It currently handles function parameters, constants, name references, assignments, primitive operators, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, and counted `repeat` loops. Integer-to-float widening becomes an explicit conversion instruction. Constructs that are parsed but not semantically supported, such as `for-in`, are not lowered.
+
+The independent verifier checks instruction and call types, unique SSA definitions, operand uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs or generate target code.
+
 ## Design constraints
 
 - Use byte offsets internally; convert them to one-based line and column values for display.
@@ -90,10 +103,10 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Identifier resolution and duplicate declaration diagnostics
 - [x] Local primitive type inference and annotation checking
 - [x] Operator, condition, assignment, call, and return type checking
-- [x] Command-line semantic-check command
+- [x] Command-line semantic-check and verified IR-inspection commands
 - [x] Cross-platform CMake build and CI configuration
 - [ ] Collections and iterable type checking
-- [ ] Typed intermediate representation
+- [x] Typed SSA intermediate representation, semantic metadata, verifier, and AST-to-IR lowering
 - [ ] Code-generation backend
 - [ ] Runtime and standard library
 - [ ] Language server and editor tooling

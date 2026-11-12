@@ -190,11 +190,26 @@ No default tracing garbage collector is currently planned. This is a preference,
 1. Source management, diagnostics, and lexing.
 2. Parser and AST.
 3. Initial name resolution and static type checking.
-4. Typed, backend-independent intermediate representation.
+4. Typed, backend-independent intermediate representation (initial SSA IR, verifier, and lowering implemented).
 5. Initial code-generation backend.
 6. Runtime, standard library, and memory model implementation.
 7. Native toolchain integration and editor tooling.
 8. Optimization, releases, and eventual self-hosting research.
+
+### Initial typed IR implemented
+
+The compiler now exposes a typed, backend-independent SSA intermediate representation for the currently supported language subset.
+
+- Values have explicit primitive IR types and unique SSA identifiers.
+- Functions contain ordered basic blocks; each block has one explicit terminator.
+- Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
+- The initial instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, direct calls, and the `say` intrinsic.
+- The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
+- `if` branches, short-circuit logical expressions, and `repeat` loops lower into explicit control-flow graphs.
+- The verifier checks instruction and call types, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
+- Source spans are retained on IR values and instructions for diagnostics.
+
+The `vex ir <file.vex>` command prints verified IR. This is an inspection/debugging command: it does not execute the program or generate machine code. Unsupported constructs, including `for-in`, are rejected during lowering rather than silently miscompiled.
 
 ## 8. Open language-design questions
 

@@ -21,6 +21,8 @@ add_library(vex_frontend STATIC
     src/ast.cpp
     src/parser.cpp
     src/semantic.cpp
+    src/ir.cpp
+    src/lowering.cpp
 )
 target_include_directories(vex_frontend PUBLIC include)
 target_compile_features(vex_frontend PUBLIC cxx_std_20)
@@ -35,6 +37,7 @@ if(BUILD_TESTING)
         tests/lexer_tests.cpp
         tests/parser_tests.cpp
         tests/semantic_tests.cpp
+        tests/ir_tests.cpp
     )
     target_link_libraries(vex_tests PRIVATE vex_frontend vex_build_options)
     add_test(NAME vex_frontend_tests COMMAND vex_tests)
