@@ -80,6 +80,31 @@ function activate(context) {
       }
     })
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerTextEditorCommand("vex.buildCurrentFile", async (editor) => {
+      const result = await runCompilerCommand("build", editor.document);
+      if (!result) return;
+      if (result.code === 0) {
+        vscode.window.showInformationMessage("VEX build completed. See the VEX output channel for the executable path.");
+      } else if (result.code !== null) {
+        vscode.window.showErrorMessage("VEX build failed. See the VEX output channel.");
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerTextEditorCommand("vex.runCurrentFile", async (editor) => {
+      const result = await runCompilerCommand("run", editor.document);
+      if (!result) return;
+      if (result.code === 0) {
+        vscode.window.showInformationMessage("VEX program finished successfully.");
+      } else if (result.code !== null) {
+        vscode.window.showErrorMessage(`VEX program exited with code ${result.code}. See the VEX output channel.`);
+      }
+    })
+  );
+
 }
 
 function deactivate() {}
