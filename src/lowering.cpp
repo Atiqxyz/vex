@@ -495,6 +495,36 @@ private:
             return std::nullopt;
         }
 
+        const bool is_math_builtin =
+            target->second == "sqrt" || target->second == "sin" ||
+            target->second == "cos" || target->second == "pow" ||
+            target->second == "abs";
+        if (is_math_builtin) {
+            const std::size_t expected_arity = target->second == "pow" ? 2u : 1u;
+            if (arguments.size() != expected_arity) {
+                report("IR126", "mathematical function has an unexpected argument count",
+                       expression.span);
+                return std::nullopt;
+            }
+            std::vector<IRValueId> operands;
+            operands.reserve(arguments.size());
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                const auto converted = convert(arguments[index], IRType::Float,
+                                               call.arguments[index]->span);
+                if (!converted) return std::nullopt;
+                operands.push_back(converted->id);
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::Math;
+            instruction.operands = std::move(operands);
+            instruction.callee = target->second;
+            instruction.result = make_value(IRType::Float, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
+
         const auto signature = signatures_.find(target->second);
         if (signature == signatures_.end()) {
             report("IR120", "resolved function signature is missing for '" +
