@@ -119,13 +119,13 @@ void test_function_signatures_and_returns(TestContext& tests) {
 
 void test_semantic_model_exposes_typed_resolutions(TestContext& tests) {
     const vex::SourceFile source{"semantic_model.vex",
-        "make add(left: int, right: int) -> int {\\n"
-        "    return left + right\\n"
-        "}\\n"
-        "make main() {\\n"
-        "    let total = add(2, 3)\\n"
-        "    total = total + 1\\n"
-        "}\\n"};
+        "make add(left: int, right: int) -> int {\n"
+        "    return left + right\n"
+        "}\n"
+        "make main() {\n"
+        "    let total = add(2, 3)\n"
+        "    total = total + 1\n"
+        "}\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
     const vex::SemanticResult result =
@@ -143,7 +143,7 @@ void test_semantic_model_exposes_typed_resolutions(TestContext& tests) {
     tests.check(!result.model.functions.empty(),
                 "semantic analysis exposes typed function signatures");
 
-    if (!parsed.program.statements.empty()) {
+    if (parsed.program.statements.size() > 1) {
         const auto* main_function =
             std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements[1]->data);
         if (main_function && main_function->body) {
