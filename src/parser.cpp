@@ -137,11 +137,16 @@ StmtPtr Parser::parse_if(const Token& start) {
     ExprPtr condition = parse_expression();
     StmtPtr then_branch = parse_block();
     if (!then_branch) return nullptr;
+    const std::size_t after_then_branch = current_;
     while (match(TokenKind::Newline)) {}
     StmtPtr else_branch;
     if (match(TokenKind::KwElse)) {
         if (match(TokenKind::KwIf)) else_branch = parse_if(previous());
         else else_branch = parse_block();
+    } else {
+        // Newlines belong to the surrounding statement list unless they
+        // introduce an else branch.
+        current_ = after_then_branch;
     }
     const std::size_t end = else_branch ? else_branch->span.end : then_branch->span.end;
     return std::make_unique<Statement>(Statement{

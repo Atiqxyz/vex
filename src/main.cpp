@@ -2,6 +2,7 @@
 #include "vex/diagnostic.hpp"
 #include "vex/lexer.hpp"
 #include "vex/parser.hpp"
+#include "vex/semantic.hpp"
 #include "vex/source.hpp"
 #include "vex/token.hpp"
 #include <fstream>
@@ -20,9 +21,10 @@ void print_help() {
         << "Usage:\n"
         << "  vex lex <file.vex>   Tokenize a VEX source file\n"
         << "  vex parse <file.vex> Parse a VEX source file and print its AST\n"
+        << "  vex check <file.vex> Resolve names and check static types\n"
         << "  vex --version        Show compiler version\n"
         << "  vex --help           Show this help message\n\n"
-        << "Parsing builds an AST; semantic analysis and code generation are not implemented yet.\n";
+        << "VEX check validates the supported static semantics; it does not execute code.\n";
 }
 bool read_source_file(const std::string& path, std::string& contents) {
     std::ifstream input(path, std::ios::binary);
@@ -68,6 +70,27 @@ int run_parser(const std::string& path) {
     vex::print_ast(std::cout, source, parsed.program);
     return 0;
 }
+int run_check(const std::string& path) {
+    std::string contents;
+    if (!read_source_file(path, contents)) return 2;
+    const vex::SourceFile source(path, std::move(contents));
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    if (lexed.has_errors()) {
+        vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
+        return 1;
+    }
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    if (parsed.has_errors()) {
+        vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
+        return 1;
+    }
+    const vex::SemanticResult checked =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    vex::print_diagnostics(std::cerr, source, checked.diagnostics);
+    if (checked.has_errors()) return 1;
+    std::cout << "Semantic analysis passed.\n";
+    return 0;
+}
 } // namespace
 int main(const int argc, char* argv[]) {
     if (argc == 2) {
@@ -85,6 +108,7 @@ int main(const int argc, char* argv[]) {
         const std::string command = argv[1];
         if (command == "lex") return run_lexer(argv[2]);
         if (command == "parse") return run_parser(argv[2]);
+        if (command == "check") return run_check(argv[2]);
     }
     print_help();
     return 2;

@@ -8,18 +8,19 @@ VEX is an independent project for experimentation and practical learning. It is 
 
 ## Status
 
-VEX is in its early compiler-foundation stage. The current C++20 development build has:
+The current C++20 development build has:
 
-- immutable source buffers with byte-based source spans;
-- a lexer with stable token kinds and structured diagnostics;
-- a token-inspection CLI;
-- cross-platform CMake builds and frontend tests.
+- immutable source buffers, byte-based source spans, and structured diagnostics;
+- a lexer, parser, and initial abstract syntax tree;
+- a semantic checker for lexical scopes, name resolution, primitive type inference, and static type validation;
+- a command-line interface for token inspection, AST printing, and semantic checking;
+- unit tests and a Linux, Windows, and macOS CI matrix.
 
-A parser, AST, semantic analysis, intermediate representation, code generation, and executable runtime are not implemented yet. Language syntax and semantics may change.
+VEX does **not** execute programs or generate C, object files, or machine code yet. Collection types, a runtime, and the memory model are not implemented.
 
 ## Design direction
 
-- Static typing with local type inference.
+- Static typing with inferred local binding types.
 - Newlines separate statements; semicolons are not used.
 - Curly braces delimit blocks; indentation is not semantic.
 - Function calls use parentheses.
@@ -32,42 +33,50 @@ These are design goals, not claims that every feature already exists.
 
 Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC).
 
-```sh
+~~~sh
 cmake -S . -B build
 cmake --build build --config Release
 ctest --test-dir build --config Release --output-on-failure
-```
+~~~
 
-## Inspect tokens
+## Compiler commands
 
 On Windows with a multi-configuration CMake generator:
 
-```powershell
+~~~powershell
 .\build\Release\vex.exe --help
 .\build\Release\vex.exe --version
 .\build\Release\vex.exe lex examples\hello.vex
-```
+.\build\Release\vex.exe parse examples\hello.vex
+.\build\Release\vex.exe check examples\hello.vex
+~~~
 
 On Linux or macOS:
 
-```sh
+~~~sh
 ./build/vex --help
 ./build/vex --version
 ./build/vex lex examples/hello.vex
-```
+./build/vex parse examples/hello.vex
+./build/vex check examples/hello.vex
+~~~
 
-The `lex` command prints token kinds and source positions. It does not parse or execute VEX programs.
+- `lex` prints token kinds and source positions.
+- `parse` prints the parsed abstract syntax tree.
+- `check` resolves identifiers and validates the supported static type rules.
+
+None of these commands executes the program.
 
 ## Example syntax direction
 
-```vex
+~~~vex
 make main() {
     let message = "Hello, VEX!"
     say(message)
 }
-```
+~~~
 
-This illustrates the current design direction only. It is not executable in the current compiler build.
+The checker recognizes `say(value)` as a built-in output intrinsic for type checking. No output runtime or executable backend exists yet.
 
 ## Project documents
 

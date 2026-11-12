@@ -1,10 +1,10 @@
 # VEX compiler architecture
 
-This document describes the compiler boundaries VEX is being built around. The current development build implements source management, diagnostics, lexing, parsing, and an initial AST.
+The current development build implements source management, diagnostics, lexing, parsing, an initial AST, and a first semantic-analysis pass.
 
 ## Intended pipeline
 
-\`\`\`text
+~~~text
 Source files
     |
     v
@@ -17,7 +17,7 @@ Lexer ------------------> tokens + lexical diagnostics
 Parser -----------------> AST + syntax diagnostics
     |
     v
-Semantic analysis ------> resolved names, scopes, types, diagnostics
+Semantic analysis ------> scopes, resolved names, inferred types, diagnostics
     |
     v
 Typed intermediate representation
@@ -25,7 +25,7 @@ Typed intermediate representation
     +--------------------> C bootstrap backend (candidate)
     |
     +--------------------> native/LLVM backend (future option)
-\`\`\`
+~~~
 
 The frontend should not depend on a particular output backend. In particular, the parser should not emit C text directly. A typed, backend-independent representation gives VEX room to change its native code-generation strategy without rewriting the language frontend.
 
@@ -33,11 +33,11 @@ The frontend should not depend on a particular output backend. In particular, th
 
 ### Source management
 
-\`SourceFile\` owns an immutable source buffer and its path. A \`SourceSpan\` stores a half-open byte range into that buffer. Line starts are indexed once, allowing token and diagnostic locations to be recovered without copying token spelling.
+`SourceFile` owns an immutable source buffer and its path. A `SourceSpan` stores a half-open byte range into that buffer. Line starts are indexed once, allowing token and diagnostic locations to be recovered without copying token spelling.
 
 ### Diagnostics
 
-Diagnostics carry a severity, stable code, message, and source span. The command-line renderer displays the source line and a caret. Lexer and parser diagnostics share the same model.
+Diagnostics carry a severity, stable code, message, and source span. The command-line renderer displays the source line and a caret. Lexer, parser, and semantic diagnostics share the same model.
 
 ### Lexing
 
@@ -51,7 +51,15 @@ AST nodes retain source spans instead of copying every identifier or literal spe
 
 The initial AST represents function declarations, bindings, returns, blocks, conditionals, loops, expression statements, literals, names, unary/binary operations, assignments, calls, grouping, and explicit multiline expressions.
 
-The parser reports syntax diagnostics and attempts to recover at statement boundaries. It does not resolve names, infer types, validate function signatures, execute code, or generate machine code.
+### Semantic analysis
+
+The semantic checker is a separate pass over the AST. It first registers top-level function signatures, allowing forward function calls, then checks statements and expressions in lexical scopes.
+
+The initial type model covers `int`, `float`, `bool`, `string`, and `void` returns. Local bindings can infer their type from an initializer. Explicit annotations, assignments, arithmetic and logical operators, conditions, repeat counts, function argument counts and types, return statements, duplicate declarations, and undefined names are checked.
+
+The current numeric conversion rule permits widening from `int` to `float`; narrowing is rejected. Nested blocks have lexical scopes and can shadow outer bindings. `const` bindings cannot be assigned after declaration.
+
+The `say(value)` intrinsic is registered for semantic checking but has no runtime implementation. The parser accepts `for-in`, but semantic analysis reports that collection types are not implemented yet. Arrays, structures, pointers, modules, generic types, function values, and code generation remain future work.
 
 ## Design constraints
 
@@ -60,7 +68,7 @@ The parser reports syntax diagnostics and attempts to recover at statement bound
 - Keep diagnostics independent of terminal formatting so editor/LSP clients can reuse them.
 - Keep syntax parsing, semantic analysis, and code generation in separate components.
 - Add tests for each layer, including malformed input and release builds.
-- Keep language design decisions in \`SPEC.md\`; do not silently turn provisional examples into language guarantees.
+- Keep language design decisions in `SPEC.md`; do not silently turn provisional examples into language guarantees.
 
 ## Reference points
 
@@ -77,8 +85,14 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Precedence-aware expression parser
 - [x] Initial AST and AST printer
 - [x] Parser syntax diagnostics and recovery
+- [x] Lexical scopes and nested shadowing
+- [x] Top-level function signature collection and forward calls
+- [x] Identifier resolution and duplicate declaration diagnostics
+- [x] Local primitive type inference and annotation checking
+- [x] Operator, condition, assignment, call, and return type checking
+- [x] Command-line semantic-check command
 - [x] Cross-platform CMake build and CI configuration
-- [ ] Name resolution and type checking
+- [ ] Collections and iterable type checking
 - [ ] Typed intermediate representation
 - [ ] Code-generation backend
 - [ ] Runtime and standard library

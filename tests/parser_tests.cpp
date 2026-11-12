@@ -131,6 +131,19 @@ void test_control_flow_and_assignment(TestContext& tests) {
                 "if/else, assignment, repeat, and for statements parse");
 }
 
+void test_if_without_else_preserves_next_statement(TestContext& tests) {
+    const vex::SourceFile source{"if_separator.vex",
+        "make main() {\n"
+        "    if true {\n"
+        "        say(\"inside\")\n"
+        "    }\n"
+        "    say(\"after\")\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(),
+                "an if without else preserves the newline before the next statement");
+}
+
 void test_invalid_syntax_and_newline_rules(TestContext& tests) {
     const vex::SourceFile missing_expression{"missing.vex", "let value =\n"};
     const vex::LexResult missing_lex = vex::Lexer(missing_expression).scan();
@@ -163,5 +176,6 @@ void run_parser_tests(TestContext& tests) {
     test_functions_and_calls(tests);
     test_multiline_expression(tests);
     test_control_flow_and_assignment(tests);
+    test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }
