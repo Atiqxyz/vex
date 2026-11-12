@@ -28,7 +28,10 @@ void print_help() {
         << "  vex check <file.vex>    Resolve names and check static types\n"
         << "  vex ir <file.vex>       Lower a valid program to typed SSA IR\n"
         << "  vex emit-c <file.vex>   Emit portable C11 from verified VEX IR\n"
-        << "  vex build <file.vex>    Build a native executable\\n"\n        << "  vex build <file.vex> -o <output>  Choose executable path\\n"\n        << "  vex run <file.vex>      Build and execute a VEX program\\n"\n        << "  vex --version           Show compiler version\n"
+        << "  vex build <file.vex>    Build a native executable\\n"
+        << "  vex build <file.vex> -o <output>  Choose executable path\\n"
+        << "  vex run <file.vex>      Build and execute a VEX program\\n"
+        << "  vex --version           Show compiler version\n"
         << "  vex --help              Show this help message\n\n"
         << "emit-c writes generated C source to standard output. build and run require a C11 compiler.\n";
 }
