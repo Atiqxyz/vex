@@ -215,26 +215,30 @@ int build_to_output(
     std::string last_error = "no usable C11 compiler was found";
     for (const std::string& compiler : compilers) {
         ProcessResult result;
-#if defined(_WIN32) && defined(VEX_DEFAULT_C_COMPILER_ID) && \
-    defined(VEX_DEFAULT_C_COMPILER)
-        if (compiler == VEX_DEFAULT_C_COMPILER &&
-            std::string(VEX_DEFAULT_C_COMPILER_ID) == "MSVC") {
+#ifdef _WIN32
+        const bool configured_msvc =
+            compiler == VEX_DEFAULT_C_COMPILER &&
+            std::string(VEX_DEFAULT_C_COMPILER_ID) == "MSVC";
+        const bool named_msvc =
+            fs::path(compiler).filename().string() == "cl.exe";
+        if (configured_msvc) {
             result = compile_with_msvc(
                 compiler, generated_c, output_absolute, temporary_directory);
-        } else
-#endif
-        {
-#ifdef _WIN32
+        } else if (named_msvc) {
             result = run_process(compiler, {
                 "/nologo", "/std:c11", "/TC", generated_c.string(),
                 "/Fe:" + output_absolute.string()
             });
-#else
+        } else {
             result = run_process(compiler, {
                 "-std=c11", generated_c.string(), "-o", output_absolute.string()
             });
-#endif
         }
+#else
+        result = run_process(compiler, {
+            "-std=c11", generated_c.string(), "-o", output_absolute.string()
+        });
+#endif
 
         if (!result.started) {
             last_error = result.error;
