@@ -78,8 +78,8 @@ bool generate_c(const std::string& path, std::string& generated_source) {
         std::cerr << "error: could not open source file: " << path << '\n';
         return false;
     }
-    std::string contents(
-        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    std::string contents{
+        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
     if (input.bad()) {
         std::cerr << "error: failed while reading source file: " << path << '\n';
         return false;
