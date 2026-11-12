@@ -32,6 +32,9 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Validate staged CLI installation
+        run: cmake --install build --prefix build/install --config Release
+
       - name: Validate VS Code extension
         run: |
           node --check editors/vscode/extension.js
