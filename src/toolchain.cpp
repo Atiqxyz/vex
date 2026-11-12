@@ -192,7 +192,8 @@ ProcessResult compile_with_msvc(
 int build_to_output(
     const std::string& source_path,
     const fs::path& output_path,
-    const fs::path& temporary_directory) {
+    const fs::path& temporary_directory,
+    const bool announce = true) {
     std::string generated_source;
     if (!generate_c(source_path, generated_source)) return 1;
 
@@ -249,7 +250,9 @@ int build_to_output(
                       << result.exit_code << '\n';
             return result.exit_code == 0 ? 1 : result.exit_code;
         }
-        std::cout << "Built " << output_absolute.string() << '\n';
+        if (announce) {
+            std::cout << "Built " << output_absolute.string() << '\n';
+        }
         return 0;
     }
 
@@ -288,7 +291,7 @@ int run_program(const std::string& source_path) {
     executable += ".exe";
 #endif
     const int build_status =
-        build_to_output(source_path, executable, temporary.path);
+        build_to_output(source_path, executable, temporary.path, false);
     if (build_status != 0) return build_status;
 
     const ProcessResult result = run_process(executable.string(), {});
