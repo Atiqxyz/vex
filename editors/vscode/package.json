@@ -104,9 +104,19 @@
         "vex.compilerPath": {
           "type": "string",
           "default": "vex",
-          "description": "Path to the VEX compiler executable. Use an absolute path if VEX is not available on PATH."
+          "description": "Path to the VEX compiler executable. Use an absolute path if VEX is not available on PATH.",
+          "scope": "machine"
         }
       }
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Atiqxyz/vex.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/Atiqxyz/vex#readme",
+  "bugs": {
+    "url": "https://github.com/Atiqxyz/vex/issues"
   }
 }
