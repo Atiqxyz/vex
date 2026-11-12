@@ -21,7 +21,9 @@
   "activationEvents": [
     "onLanguage:vex",
     "onCommand:vex.checkCurrentFile",
-    "onCommand:vex.emitCPreview"
+    "onCommand:vex.emitCPreview",
+    "onCommand:vex.buildCurrentFile",
+    "onCommand:vex.runCurrentFile"
   ],
   "contributes": {
     "languages": [
@@ -60,6 +62,16 @@
         "command": "vex.emitCPreview",
         "title": "VEX: Generate C Preview",
         "icon": "$(file-code)"
+      },
+      {
+        "command": "vex.buildCurrentFile",
+        "title": "VEX: Build Current File",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "vex.runCurrentFile",
+        "title": "VEX: Run Current File",
+        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -71,6 +83,16 @@
         },
         {
           "command": "vex.emitCPreview",
+          "when": "editorLangId == vex",
+          "group": "navigation"
+        },
+        {
+          "command": "vex.buildCurrentFile",
+          "when": "editorLangId == vex",
+          "group": "navigation"
+        },
+        {
+          "command": "vex.runCurrentFile",
           "when": "editorLangId == vex",
           "group": "navigation"
         }
