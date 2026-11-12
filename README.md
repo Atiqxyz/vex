@@ -12,11 +12,12 @@ The current C++20 development build has:
 
 - immutable source buffers, byte-based source spans, and structured diagnostics;
 - a lexer, parser, and initial abstract syntax tree;
-- a semantic checker for lexical scopes, name resolution, primitive type inference, and static type validation;
-- a command-line interface for token inspection, AST printing, and semantic checking;
+- a semantic checker that produces typed expression information, resolved bindings, and function signatures;
+- a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
+- a command-line interface for token inspection, AST printing, semantic checking, and IR inspection;
 - unit tests and a Linux, Windows, and macOS CI matrix.
 
-VEX does **not** execute programs or generate C, object files, or machine code yet. Collection types, a runtime, and the memory model are not implemented.
+VEX can lower supported source programs into verified typed IR, but it does **not** execute programs or generate C, object files, or machine code yet. Collection types, a runtime, and the memory model are not implemented.
 
 ## Design direction
 
@@ -59,11 +60,13 @@ On Linux or macOS:
 ./build/vex lex examples/hello.vex
 ./build/vex parse examples/hello.vex
 ./build/vex check examples/hello.vex
+./build/vex ir examples/hello.vex
 ~~~
 
 - `lex` prints token kinds and source positions.
 - `parse` prints the parsed abstract syntax tree.
 - `check` resolves identifiers and validates the supported static type rules.
+- `ir` lowers a semantically valid program into typed SSA IR, verifies it, and prints the result.
 
 None of these commands executes the program.
 
@@ -76,7 +79,7 @@ make main() {
 }
 ~~~
 
-The checker recognizes `say(value)` as a built-in output intrinsic for type checking. No output runtime or executable backend exists yet.
+The semantic checker recognizes `say(value)` as a built-in output intrinsic, and IR lowering represents it as an IR operation. No output runtime or executable backend exists yet.
 
 ## Project documents
 
