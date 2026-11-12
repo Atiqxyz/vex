@@ -14,7 +14,7 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
-- an initial C11 source backend for the complete current IR instruction set, including functions, control flow, primitive values, and the `say` intrinsic;
+- an initial C11 source backend for the complete current IR instruction set, including functions, control flow, primitive values, the `say` output intrinsic, and an initial mathematical standard-library surface (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, native builds, and program execution;
 - cross-platform process launching and temporary-build management for the bootstrap toolchain;
 - unit tests plus a cross-platform integration test that builds and executes VEX programs through the public CLI.
