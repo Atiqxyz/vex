@@ -27,7 +27,7 @@ ProcessResult run_process(
     argv.push_back(executable.c_str());
     for (const std::string& argument : arguments) argv.push_back(argument.c_str());
     argv.push_back(nullptr);
-    const intptr_t status = _spawnvp(
+    const std::intptr_t status = _spawnvp(
         _P_WAIT, executable.c_str(), argv.data());
     if (status == -1) {
         result.error = "could not start '" + executable + "'";
