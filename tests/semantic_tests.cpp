@@ -185,7 +185,7 @@ void test_math_standard_library_signatures(TestContext& tests) {
 
     const vex::SourceFile invalid{"bad_math_builtins.vex",
         "make main() {\n"
-        "    let invalid = sqrt(\"not numeric\")\n"
+        "    let invalid = sqrt(true)\n"
         "}\n"};
     const vex::SemanticResult rejected = analyze(invalid);
     tests.check(has_code(rejected, "SEM021"),
