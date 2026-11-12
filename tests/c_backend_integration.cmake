@@ -34,11 +34,16 @@ if(C_COMPILER_ID STREQUAL "MSVC")
         message(FATAL_ERROR "Could not find VsDevCmd.bat beside the configured MSVC installation")
     endif()
 
-    set(msvc_command
-        "call \"${vsdevcmd}\" -arch=x64 -host_arch=x64 && cl /nologo /std:c11 /TC \"${generated_c}\" \"/Fe:${generated_executable}\""
+    set(msvc_script "${WORK_DIR}/compile_generated_c.bat")
+    file(WRITE "${msvc_script}"
+        "@echo off\n"
+        "call \"${vsdevcmd}\" -arch=x64 -host_arch=x64\n"
+        "if errorlevel 1 exit /b 1\n"
+        "cl /nologo /std:c11 /TC \"${generated_c}\" \"/Fe:${generated_executable}\"\n"
+        "exit /b %errorlevel%\n"
     )
     execute_process(
-        COMMAND cmd /D /C "${msvc_command}"
+        COMMAND cmd /D /C "${msvc_script}"
         RESULT_VARIABLE compiler_result
         OUTPUT_VARIABLE compiler_output
         ERROR_VARIABLE compiler_error
