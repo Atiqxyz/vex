@@ -36,3 +36,7 @@ jobs:
         run: |
           node --check editors/vscode/extension.js
           node editors/vscode/validate.mjs
+
+      - name: Package VS Code extension
+        working-directory: editors/vscode
+        run: npx --yes @vscode/vsce package --no-dependencies --out "${{ runner.temp }}/vex-language.vsix"
