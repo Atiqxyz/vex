@@ -27,9 +27,19 @@ The extension follows the VEX specification in this repository. It does not reus
 
 The extension uses only Node.js built-ins and the VS Code API; no npm dependencies are required.
 
+## Install a packaged extension
+
+1. Download the `vex-language-*.vsix` file from [VEX GitHub Releases](https://github.com/Atiqxyz/vex/releases).
+2. In VS Code, open the Extensions view.
+3. Open the Extensions view menu (`...`) and choose **Install from VSIX...**.
+4. Select the downloaded file and reload VS Code if prompted.
+5. Install the VEX command-line compiler and ensure it is available on `PATH`, or set `vex.compilerPath` to its full path.
+
+The extension package is distributed through GitHub Releases. Marketplace publication is not implied.
+
 ## Packaging
 
-To create a VSIX package for local installation or distribution, install the VS Code Extension Manager (`@vscode/vsce`) and run its package command from this directory. Marketplace publishing is a separate release step.
+The release workflow packages this extension with `@vscode/vsce`. To package locally, run `npx --yes @vscode/vsce package --no-dependencies` from this directory.
 
 ## Related project files
 
