@@ -21,6 +21,19 @@ The current C++20 development build has:
 
 VEX can emit portable C11, build native executables through an installed C11 compiler, and run VEX source files through temporary native builds. The current native toolchain is a bootstrap path through C11, not a self-hosted compiler or a direct native-code backend. Collection types, a complete runtime, and the memory model are not implemented.
 
+## Install a release
+
+Prebuilt CLI packages for Windows x64, Linux x64, and Intel macOS, plus a VS Code extension VSIX, are produced by the tagged-release workflow and published on the [GitHub Releases page](https://github.com/Atiqxyz/vex/releases).
+
+1. Download and extract the CLI archive for your operating system.
+2. Add its bin directory to PATH, or set the full executable path in the VS Code setting vex.compilerPath.
+3. In VS Code, open Extensions → … → Install from VSIX… and select the vex-language VSIX from the same release.
+4. Open a .vex file and use VEX: Check Current File, VEX: Build Current File, or VEX: Run Current File.
+
+The CLI archive does not bundle a C compiler. Frontend commands and emit-c work without one; build and run require a C11 compiler available on PATH or selected through the VEX_CC environment variable. See [the installation guide](docs/install.md).
+
+Release automation is triggered by pushing a version tag such as v0.1.0. It packages the VS Code extension for manual VSIX installation; Marketplace publishing is not automated.
+
 ## Design direction
 
 - Static typing with inferred local binding types.
