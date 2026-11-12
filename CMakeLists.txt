@@ -38,6 +38,11 @@ target_link_libraries(vex_frontend PRIVATE vex_build_options)
 add_executable(vex src/main.cpp)
 target_link_libraries(vex PRIVATE vex_frontend vex_build_options)
 target_compile_definitions(vex PRIVATE VEX_VERSION="${PROJECT_VERSION}")
+
+include(GNUInstallDirs)
+install(TARGETS vex RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES README.md LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
+install(FILES docs/installation.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 if(CMAKE_C_COMPILER)
     file(TO_CMAKE_PATH "${CMAKE_C_COMPILER}" VEX_DEFAULT_C_COMPILER_PATH)
     target_compile_definitions(vex_frontend PRIVATE
