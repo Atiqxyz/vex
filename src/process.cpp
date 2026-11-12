@@ -1,0 +1,70 @@
+#include "vex/process.hpp"
+
+#include <cerrno>
+#include <string>
+#include <vector>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char** environ;
+#endif
+
+namespace vex {
+
+ProcessResult run_process(
+    const std::string& executable,
+    const std::vector<std::string>& arguments) {
+    ProcessResult result;
+    std::vector<const char*> raw_arguments;
+    raw_arguments.reserve(arguments.size() + 2);
+    raw_arguments.push_back(executable.c_str());
+    for (const std::string& argument : arguments) {
+        raw_arguments.push_back(argument.c_str());
+    }
+    raw_arguments.push_back(nullptr);
+
+#ifdef _WIN32
+    std::vector<const char*> argv = raw_arguments;
+    const intptr_t status = _spawnvp(
+        _P_WAIT, executable.c_str(), argv.data());
+    if (status == -1) {
+        result.error = "could not start '" + executable + "'";
+        return result;
+    }
+    result.started = true;
+    result.exit_code = static_cast<int>(status);
+#else
+    pid_t process = 0;
+    const int spawn_status = posix_spawnp(
+        &process, executable.c_str(), nullptr, nullptr,
+        const_cast<char* const*>(raw_arguments.data()), environ);
+    if (spawn_status != 0) {
+        result.error = "could not start '" + executable + "': ";
+        result.error += std::strerror(spawn_status);
+        return result;
+    }
+
+    result.started = true;
+    int status = 0;
+    while (waitpid(process, &status, 0) == -1) {
+        if (errno == EINTR) continue;
+        result.error = "failed while waiting for '" + executable + "'";
+        result.started = false;
+        return result;
+    }
+    if (WIFEXITED(status)) {
+        result.exit_code = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        result.exit_code = 128 + WTERMSIG(status);
+    } else {
+        result.exit_code = 1;
+    }
+#endif
+    return result;
+}
+
+} // namespace vex
