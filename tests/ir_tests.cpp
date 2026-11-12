@@ -1,6 +1,10 @@
 #include "test_support.hpp"
 
 #include "vex/ir.hpp"
+#include "vex/lexer.hpp"
+#include "vex/lowering.hpp"
+#include "vex/parser.hpp"
+#include "vex/semantic.hpp"
 
 #include <sstream>
 #include <string_view>
@@ -49,6 +53,77 @@ vex::IRFunction simple_integer_function() {
     function.entry_block = 0;
     function.blocks.push_back(entry);
     return function;
+}
+
+
+void test_source_to_verified_ir_lowering(TestContext& tests) {
+    const vex::SourceFile source{"lowering.vex",
+        "make scale(value: float) -> float {\\n"
+        "    return value * 2.0\\n"
+        "}\\n"
+        "make main() {\\n"
+        "    let result = scale(3)\\n"
+        "    if result > 1.0 {\\n"
+        "        result = result + 1.0\\n"
+        "    } else {\\n"
+        "        result = result - 1.0\\n"
+        "    }\\n"
+        "    repeat 2 times {\\n"
+        "        result = result + 1.0\\n"
+        "    }\\n"
+        "    say(result)\\n"
+        "}\\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() &&
+                !semantic.has_errors(),
+                "lowering fixture passes lexing, parsing, and semantic analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(),
+                "valid VEX functions lower into typed SSA IR");
+    if (lowered.has_errors()) return;
+
+    const vex::IRVerificationResult verified =
+        vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(),
+                "lowered functions pass the independent IR verifier");
+    tests.check(lowered.module.functions.size() == 2,
+                "IR module contains every top-level function");
+
+    bool has_conversion = false;
+    bool has_conditional_branch = false;
+    bool has_loop_backedge = false;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::IntToFloat) has_conversion = true;
+            }
+            if (block.terminator) {
+                if (std::holds_alternative<vex::IRConditionalBranch>(
+                        block.terminator->data)) {
+                    has_conditional_branch = true;
+                }
+                if (const auto* branch =
+                        std::get_if<vex::IRBranch>(&block.terminator->data)) {
+                    if (branch->target == block.id ||
+                        branch->target < block.id) {
+                        has_loop_backedge = true;
+                    }
+                }
+            }
+        }
+    }
+    tests.check(has_conversion,
+                "lowering inserts explicit int-to-float widening conversions");
+    tests.check(has_conditional_branch,
+                "if and repeat statements lower to conditional control flow");
+    tests.check(has_loop_backedge,
+                "repeat lowers to a loop with an explicit back edge");
 }
 
 void test_valid_typed_function(TestContext& tests) {
@@ -218,6 +293,7 @@ void test_dominance_and_call_signatures(TestContext& tests) {
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
+    test_source_to_verified_ir_lowering(tests);
     test_valid_typed_function(tests);
     test_block_arguments_and_control_flow(tests);
     test_invalid_ir_is_rejected(tests);
