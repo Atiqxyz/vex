@@ -116,6 +116,60 @@ void test_function_signatures_and_returns(TestContext& tests) {
                 "non-void functions must return on every control-flow path");
 }
 
+
+void test_semantic_model_exposes_typed_resolutions(TestContext& tests) {
+    const vex::SourceFile source{"semantic_model.vex",
+        "make add(left: int, right: int) -> int {\\n"
+        "    return left + right\\n"
+        "}\\n"
+        "make main() {\\n"
+        "    let total = add(2, 3)\\n"
+        "    total = total + 1\\n"
+        "}\\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult result =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+
+    tests.check(!result.has_errors(), "semantic model test program is valid");
+    tests.check(!result.model.expression_types.empty(),
+                "semantic analysis records expression types");
+    tests.check(!result.model.variable_bindings.empty(),
+                "semantic analysis assigns stable binding identifiers");
+    tests.check(!result.model.resolved_names.empty(),
+                "semantic analysis records resolved variable references");
+    tests.check(!result.model.resolved_calls.empty(),
+                "semantic analysis records resolved function calls");
+    tests.check(!result.model.functions.empty(),
+                "semantic analysis exposes typed function signatures");
+
+    if (!parsed.program.statements.empty()) {
+        const auto* main_function =
+            std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements[1]->data);
+        if (main_function && main_function->body) {
+            const auto* body = std::get_if<vex::BlockStmt>(&main_function->body->data);
+            if (body && !body->statements.empty()) {
+                const auto* variable =
+                    std::get_if<vex::VariableDeclStmt>(&body->statements[0]->data);
+                if (variable && variable->initializer) {
+                    const auto* call =
+                        std::get_if<vex::CallExpr>(&variable->initializer->data);
+                    if (call) {
+                        const auto type = result.model.expression_types.find(variable->initializer.get());
+                        tests.check(type != result.model.expression_types.end() &&
+                                    type->second == vex::SemanticType::Int,
+                                    "function-call expression carries its inferred return type");
+                        const auto target = result.model.resolved_calls.find(call);
+                        tests.check(target != result.model.resolved_calls.end() &&
+                                    target->second == "add",
+                                    "call expression retains its resolved callee name");
+                    }
+                }
+            }
+        }
+    }
+}
+
 void test_unimplemented_iteration_is_explicit(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
@@ -139,5 +193,6 @@ void run_semantic_tests(TestContext& tests) {
     test_name_resolution_and_mutability(tests);
     test_operator_and_condition_types(tests);
     test_function_signatures_and_returns(tests);
+    test_semantic_model_exposes_typed_resolutions(tests);
     test_unimplemented_iteration_is_explicit(tests);
 }
