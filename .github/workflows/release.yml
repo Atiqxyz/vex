@@ -54,7 +54,7 @@ jobs:
         run: cmake --install build --prefix package --config Release
 
       - name: Create CLI archive
-        run: python -c "import shutil; shutil.make_archive('vex-cli-${{ matrix.platform }}', 'zip', root_dir='.', base_dir='package')"
+        run: python -c "import shutil; shutil.make_archive('vex-cli-${{ matrix.platform }}', 'zip', root_dir='package')"
 
       - name: Upload CLI archive
         uses: actions/upload-artifact@v4
