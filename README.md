@@ -32,6 +32,12 @@ VEX can emit portable C11, build native executables through an installed C11 com
 
 These are design goals, not claims that every feature already exists.
 
+## Install prebuilt releases
+
+Prebuilt command-line binaries for Windows, Linux, and macOS, plus the VS Code extension package, are published on the [GitHub Releases page](https://github.com/Atiqxyz/vex/releases). See [the installation guide](docs/installation.md) for setup instructions.
+
+The command-line binary does not bundle a C compiler. `vex check`, `vex lex`, `vex parse`, `vex ir`, and `vex emit-c` work without one; `vex build` and `vex run` require a C11 compiler available on the user machine. VEX searches `VEX_CC`, `CC`, its configured compiler fallback, and common compiler names on PATH.
+
 ## Build
 
 Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is required for `build` and `run`; CMake detects and records the configured C compiler when available. You can override compiler discovery with the `VEX_CC` environment variable. The frontend-only commands and `emit-c` do not invoke a C compiler.
