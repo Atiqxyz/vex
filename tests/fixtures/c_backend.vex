@@ -17,8 +17,16 @@ make main() {
     repeat 2 times {
         say("tick")
     }
+
+    let x = 12
+    let result = square(x)
+    say(result)
 }
 
 make combine(left: int, right: int) -> int {
     return left + right
+}
+
+make square(x: int) -> int {
+    return x * x
 }
