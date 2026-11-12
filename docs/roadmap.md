@@ -4,7 +4,7 @@
 **Scope:** Compiler, runtime, standard library, scientific-computing capabilities, and developer ecosystem  
 **Guiding goal:** Make VEX a general-purpose systems language that is also genuinely useful for scientific and engineering work.
 
-This roadmap is a plan, not a claim that the listed features already exist. Milestones should be completed through tested, reviewable changes on `dev`, then promoted to `main) only after CI and review pass.
+This roadmap is a plan, not a claim that the listed features already exist. Milestones should be completed through tested, reviewable changes on `dev`, then promoted to `main` only after CI and review pass.
 
 ## Product goals
 
