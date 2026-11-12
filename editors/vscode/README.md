@@ -20,7 +20,7 @@ The extension follows the VEX specification in this repository. It does not reus
 
 Download the vex-language-<version>.vsix asset from the [VEX GitHub Releases page](https://github.com/Atiqxyz/vex/releases). In VS Code, open the Extensions view, select its … menu, choose Install from VSIX…, and select the downloaded file.
 
-Install the matching VEX CLI archive from the same release. Add its bin directory to PATH, or set the vex.compilerPath VS Code setting to the executable's full path. The CLI build and run commands also require a C11 compiler; see [the installation guide](../../docs/install.md).
+Install the matching VEX CLI archive from the same release. Add its bin directory to PATH, or set the vex.compilerPath VS Code setting to the executable's full path. The CLI build and run commands also require a C11 compiler; see [the installation guide](https://github.com/Atiqxyz/vex/blob/main/docs/install.md).
 
 ## Try the extension locally
 
@@ -38,12 +38,12 @@ The extension uses only Node.js built-ins and the VS Code API at runtime.
 From this directory, invoke the VS Code Extension Manager (@vscode/vsce):
 
 ~~~sh
-npx --yes @vscode/vsce package --no-dependencies
+npx --yes @vscode/vsce@4.0.0 package --no-dependencies
 ~~~
 
 This produces a VSIX package for local installation or distribution. The release workflow builds the VSIX automatically. Marketplace publishing is a separate release step and is not performed automatically.
 
 ## Related project files
 
-- [VEX language specification](../../SPEC.md)
-- [VEX compiler README](../../README.md)
+- [VEX language specification](https://github.com/Atiqxyz/vex/blob/main/SPEC.md)
+- [VEX compiler README](https://github.com/Atiqxyz/vex/blob/main/README.md)
