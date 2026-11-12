@@ -8,6 +8,7 @@
 #include "vex/semantic.hpp"
 #include "vex/source.hpp"
 #include "vex/token.hpp"
+#include "vex/toolchain.hpp"
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -27,9 +28,12 @@ void print_help() {
         << "  vex check <file.vex>    Resolve names and check static types\n"
         << "  vex ir <file.vex>       Lower a valid program to typed SSA IR\n"
         << "  vex emit-c <file.vex>   Emit portable C11 from verified VEX IR\n"
+        << "  vex build <file.vex>    Build a native executable\\n"
+        << "  vex build <file.vex> -o <output>  Choose executable path\\n"
+        << "  vex run <file.vex>      Build and execute a VEX program\\n"
         << "  vex --version           Show compiler version\n"
         << "  vex --help              Show this help message\n\n"
-        << "emit-c writes generated C source to standard output; it does not compile or run it.\n";
+        << "emit-c writes generated C source to standard output. build and run require a C11 compiler.\n";
 }
 bool read_source_file(const std::string& path, std::string& contents) {
     std::ifstream input(path, std::ios::binary);
@@ -180,6 +184,12 @@ int main(const int argc, char* argv[]) {
         if (command == "check") return run_check(argv[2]);
         if (command == "ir") return run_ir(argv[2]);
         if (command == "emit-c") return run_emit_c(argv[2]);
+        if (command == "build") return vex::build_program(argv[2]);
+        if (command == "run") return vex::run_program(argv[2]);
+    }
+    if (argc == 5 && std::string(argv[1]) == "build" &&
+        std::string(argv[3]) == "-o") {
+        return vex::build_program(argv[2], argv[4]);
     }
     print_help();
     return 2;
