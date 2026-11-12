@@ -1,0 +1,4 @@
+make main() {
+    let message = "Hello, VEX!"
+    say(message)
+}
