@@ -237,7 +237,7 @@ int build_to_output(
         }
 #else
         result = run_process(compiler, {
-            "-std=c11", generated_c.string(), "-o", output_absolute.string()
+            "-std=c11", generated_c.string(), "-o", output_absolute.string(), "-lm"
         });
 #endif
 
