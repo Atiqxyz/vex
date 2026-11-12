@@ -37,13 +37,29 @@ cmake --build build --config Release
 
 ### Run the lexer
 
+On Windows with the Visual Studio CMake generator (PowerShell):
+
+```powershell
+.\build\Release\vex.exe --help
+.\build\Release\vex.exe --version
+.\build\Release\vex.exe lex examples\hello.vex
+```
+
+On Linux or macOS:
+
 ```sh
-vex --help
-vex --version
-vex lex examples/hello.vex
+./build/vex --help
+./build/vex --version
+./build/vex lex examples/hello.vex
 ```
 
 The lexer prints the token stream with source locations. This is a compiler-development command, not yet a way to execute VEX programs.
+
+### Run tests
+
+```sh
+ctest --test-dir build -C Release --output-on-failure
+```
 
 ## Example of the intended syntax
 
