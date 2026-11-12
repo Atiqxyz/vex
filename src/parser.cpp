@@ -262,8 +262,8 @@ ExprPtr Parser::parse_prefix(const bool allow_newlines) {
             report_current("PAR008", "expected an expression after the unary operator");
             return nullptr;
         }
-        return make_expression(SourceSpan{op.span.begin, operand->span.end},
-                               UnaryExpr{op.kind, std::move(operand)});
+        const SourceSpan span{op.span.begin, operand->span.end};
+        return make_expression(span, UnaryExpr{op.kind, std::move(operand)});
     }
     if (match(TokenKind::LeftParen)) {
         const Token opening = previous();
