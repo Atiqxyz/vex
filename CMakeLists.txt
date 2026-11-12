@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(VEX VERSION 0.1.0 LANGUAGES CXX)
 include(CTest)
 include(CheckLanguage)
+include(GNUInstallDirs)
 check_language(C)
 if(CMAKE_C_COMPILER)
     enable_language(C)
@@ -9,6 +10,8 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+option(VEX_EMBED_DEFAULT_C_COMPILER
+    "Embed the C compiler configured by CMake as a runtime fallback" ON)
 add_library(vex_build_options INTERFACE)
 if(MSVC)
     target_compile_options(vex_build_options INTERFACE /W4 /permissive- /Zc:__cplusplus)
@@ -38,13 +41,21 @@ target_link_libraries(vex_frontend PRIVATE vex_build_options)
 add_executable(vex src/main.cpp)
 target_link_libraries(vex PRIVATE vex_frontend vex_build_options)
 target_compile_definitions(vex PRIVATE VEX_VERSION="${PROJECT_VERSION}")
-if(CMAKE_C_COMPILER)
+if(CMAKE_C_COMPILER AND VEX_EMBED_DEFAULT_C_COMPILER)
     file(TO_CMAKE_PATH "${CMAKE_C_COMPILER}" VEX_DEFAULT_C_COMPILER_PATH)
     target_compile_definitions(vex_frontend PRIVATE
         VEX_DEFAULT_C_COMPILER="${VEX_DEFAULT_C_COMPILER_PATH}"
         VEX_DEFAULT_C_COMPILER_ID="${CMAKE_C_COMPILER_ID}"
     )
 endif()
+
+install(TARGETS vex
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(FILES README.md LICENSE docs/install.md
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}
+)
+
 if(BUILD_TESTING)
     add_executable(vex_tests
         tests/test_main.cpp
