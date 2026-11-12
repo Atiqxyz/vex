@@ -1,6 +1,7 @@
 #include "vex/process.hpp"
 
 #include <cerrno>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -19,16 +20,12 @@ ProcessResult run_process(
     const std::string& executable,
     const std::vector<std::string>& arguments) {
     ProcessResult result;
-    std::vector<const char*> raw_arguments;
-    raw_arguments.reserve(arguments.size() + 2);
-    raw_arguments.push_back(executable.c_str());
-    for (const std::string& argument : arguments) {
-        raw_arguments.push_back(argument.c_str());
-    }
-    raw_arguments.push_back(nullptr);
-
 #ifdef _WIN32
-    std::vector<const char*> argv = raw_arguments;
+    std::vector<const char*> argv;
+    argv.reserve(arguments.size() + 2);
+    argv.push_back(executable.c_str());
+    for (const std::string& argument : arguments) argv.push_back(argument.c_str());
+    argv.push_back(nullptr);
     const intptr_t status = _spawnvp(
         _P_WAIT, executable.c_str(), argv.data());
     if (status == -1) {
@@ -39,9 +36,15 @@ ProcessResult run_process(
     result.exit_code = static_cast<int>(status);
 #else
     pid_t process = 0;
+    std::vector<char*> argv;
+    argv.reserve(arguments.size() + 2);
+    argv.push_back(const_cast<char*>(executable.c_str()));
+    for (const std::string& argument : arguments) {
+        argv.push_back(const_cast<char*>(argument.c_str()));
+    }
+    argv.push_back(nullptr);
     const int spawn_status = posix_spawnp(
-        &process, executable.c_str(), nullptr, nullptr,
-        const_cast<char* const*>(raw_arguments.data()), environ);
+        &process, executable.c_str(), nullptr, nullptr, argv.data(), environ);
     if (spawn_status != 0) {
         result.error = "could not start '" + executable + "': ";
         result.error += std::strerror(spawn_status);
