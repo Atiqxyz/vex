@@ -29,6 +29,8 @@ add_library(vex_frontend STATIC
     src/ir.cpp
     src/lowering.cpp
     src/c_backend.cpp
+    src/process.cpp
+    src/toolchain.cpp
 )
 target_include_directories(vex_frontend PUBLIC include)
 target_compile_features(vex_frontend PUBLIC cxx_std_20)
@@ -36,6 +38,13 @@ target_link_libraries(vex_frontend PRIVATE vex_build_options)
 add_executable(vex src/main.cpp)
 target_link_libraries(vex PRIVATE vex_frontend vex_build_options)
 target_compile_definitions(vex PRIVATE VEX_VERSION="${PROJECT_VERSION}")
+if(CMAKE_C_COMPILER)
+    file(TO_CMAKE_PATH "${CMAKE_C_COMPILER}" VEX_DEFAULT_C_COMPILER_PATH)
+    target_compile_definitions(vex_frontend PRIVATE
+        VEX_DEFAULT_C_COMPILER="${VEX_DEFAULT_C_COMPILER_PATH}"
+        VEX_DEFAULT_C_COMPILER_ID="${CMAKE_C_COMPILER_ID}"
+    )
+endif()
 if(BUILD_TESTING)
     add_executable(vex_tests
         tests/test_main.cpp
