@@ -1,0 +1,48 @@
+{
+  "name": "vex-language",
+  "displayName": "VEX Language Support",
+  "description": "Language support for the VEX programming language.",
+  "version": "0.1.0",
+  "publisher": "Atiqxyz",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "vex",
+    "language",
+    "systems programming"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "vex",
+        "aliases": [
+          "VEX",
+          "vex"
+        ],
+        "extensions": [
+          ".vex"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vex",
+        "scopeName": "source.vex",
+        "path": "./syntaxes/vex.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "vex",
+        "path": "./snippets/vex.json"
+      }
+    ]
+  }
+}
