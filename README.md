@@ -15,10 +15,11 @@ The current C++20 development build has:
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
 - an initial C11 source backend for the complete current IR instruction set, including functions, control flow, primitive values, and the `say` intrinsic;
-- a command-line interface for token inspection, AST printing, semantic checking, IR inspection, and C source emission;
-- unit tests plus a cross-platform integration test that compiles and runs generated C when a C compiler is available.
+- a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, native builds, and program execution;
+- cross-platform process launching and temporary-build management for the bootstrap toolchain;
+- unit tests plus a cross-platform integration test that builds and executes VEX programs through the public CLI.
 
-VEX can now emit portable C11 source from verified IR. It does **not** yet invoke a C compiler, produce executables, or directly execute VEX programs. Collection types, a complete runtime, and the memory model are not implemented.
+VEX can emit portable C11, build native executables through an installed C11 compiler, and run VEX source files through temporary native builds. The current native toolchain is a bootstrap path through C11, not a self-hosted compiler or a direct native-code backend. Collection types, a complete runtime, and the memory model are not implemented.
 
 ## Design direction
 
@@ -33,7 +34,7 @@ These are design goals, not claims that every feature already exists.
 
 ## Build
 
-Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is optional for the generated-code integration test; `emit-c` itself does not invoke one.
+Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is required for `build` and `run`; CMake detects and records the configured C compiler when available. You can override compiler discovery with the `VEX_CC` environment variable. The frontend-only commands and `emit-c` do not invoke a C compiler.
 
 ~~~sh
 cmake -S . -B build
@@ -65,6 +66,9 @@ On Linux or macOS:
 ./build/vex check examples/hello.vex
 ./build/vex ir examples/hello.vex
 ./build/vex emit-c examples/hello.vex > hello.c
+./build/vex build examples/hello.vex
+./build/vex build examples/hello.vex -o hello
+./build/vex run examples/hello.vex
 ~~~
 
 - `lex` prints token kinds and source positions.
@@ -72,8 +76,10 @@ On Linux or macOS:
 - `check` resolves identifiers and validates the supported static type rules.
 - `ir` lowers a semantically valid program into typed SSA IR, verifies it, and prints the result.
 - `emit-c` runs the frontend, lowers and verifies IR, then emits C11 source to standard output.
+- `build` compiles a VEX source file into a native executable. By default the executable is written beside the source file; use `-o` to choose another path.
+- `run` builds a VEX source file in a temporary directory, executes it, forwards its output and exit status, then removes the temporary build artifacts.
 
-The generated C can be compiled with a system C compiler, but VEX does not yet provide a `build` or `run` command.
+The current `build` and `run` commands use a C11 compiler as the bootstrap backend. VEX itself handles the VEX frontend, IR verification, C generation, compiler invocation, and program launching; users do not need to manually generate or compile C.
 
 ## Example syntax direction
 
