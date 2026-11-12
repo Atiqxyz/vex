@@ -26,7 +26,7 @@ make main() {
     say(sin(0.0))
     say(cos(0.0))
     say(pow(2.0, 3.0))
-    say(abs(0.0 - 5.0))
+    say(abs(-5.0))
 }
 
 make combine(left: int, right: int) -> int {
