@@ -31,3 +31,7 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Validate VS Code extension
+        run: |
+          node --check editors/vscode/extension.js
+          node editors/vscode/validate.mjs
