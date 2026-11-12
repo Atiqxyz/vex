@@ -27,7 +27,7 @@ make main() {
     say(root)
     say(sin(0.0))
     say(cos(0.0))
-    say(abs(-5.0))
+    say(abs(0.0 - 5.0))
 }
 ```
 
