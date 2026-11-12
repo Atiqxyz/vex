@@ -40,7 +40,7 @@ target_link_libraries(vex PRIVATE vex_frontend vex_build_options)
 target_compile_definitions(vex PRIVATE VEX_VERSION="${PROJECT_VERSION}")
 if(CMAKE_C_COMPILER)
     file(TO_CMAKE_PATH "${CMAKE_C_COMPILER}" VEX_DEFAULT_C_COMPILER_PATH)
-    target_compile_definitions(vex PRIVATE
+    target_compile_definitions(vex_frontend PRIVATE
         VEX_DEFAULT_C_COMPILER="${VEX_DEFAULT_C_COMPILER_PATH}"
         VEX_DEFAULT_C_COMPILER_ID="${CMAKE_C_COMPILER_ID}"
     )
