@@ -16,7 +16,7 @@ This document distinguishes current project decisions from provisional syntax an
 - **Calls:** function calls use parentheses, including standard-library calls such as `say("Hello")`.
 - **Multiline expressions:** square brackets explicitly wrap one expression that spans multiple physical lines. They are grouping syntax, not array literals or indexing in this initial grammar.
 - **Compiler implementation:** the initial compiler is written in C++20. This does not constrain the language implementation forever.
-- **Backend direction:** C code generation is a possible first bootstrap route, not an implemented feature or a permanent architectural constraint.
+- **Backend direction:** the IR is backend-independent; the first implemented source-generation target is portable C11. C is a bootstrap backend, not the language definition.
 
 ## 2. Provisional syntax
 
@@ -26,7 +26,7 @@ The examples below describe the current design direction. The parser implements 
 
 ~~~vex
 make main() {
-    let name = "VEX"
+    let message = "Hello, VEX!"
     let version = 1
     const gravity: float = 9.81
 
@@ -41,8 +41,8 @@ make main() {
 - Type annotations use `name: type` syntax and may be omitted on local bindings when inference is possible.
 - Function parameters require explicit type annotations in the current semantic checker.
 - A function without a return type annotation is treated as returning `void`; value-returning functions must declare a return type.
-- `main` is the proposed program entry point.
-- `say(...)` is recognized as a built-in output intrinsic for type checking. Its runtime implementation does not exist yet.
+- `main` is the proposed entry point for generated C programs.
+- The built-in `say(value)` accepts one supported primitive value and is implemented by the initial C backend runtime.
 
 ### Functions with parameters and return types
 
@@ -151,9 +151,7 @@ The numeric storage widths are design targets; code generation and runtime repre
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
 - Function parameters require explicit types. Function signatures are registered before body checking, enabling forward calls. Argument count and types are checked.
 - A function without a return annotation is treated as `void`. A non-void function must return a compatible value on every control-flow path recognized by the current checker.
-- The built-in `say(value)` accepts one value of any supported type and returns `void`. This is a semantic intrinsic only; it has no runtime implementation yet.
-
-The checker does not yet implement arrays, collections, structures, pointers, modules, function overloading, generic types, or user-defined types. Although `for-in` is parsed, it cannot be semantically checked until an iterable type system exists. Function values and calling through variables are not supported.
+- The built-in `say(value)` accepts one value of any supported type and returns `void`.
 
 ## 5. Lexical rules implemented in the current frontend
 
@@ -191,14 +189,14 @@ No default tracing garbage collector is currently planned. This is a preference,
 2. Parser and AST.
 3. Initial name resolution and static type checking.
 4. Typed, backend-independent intermediate representation (initial SSA IR, verifier, and lowering implemented).
-5. Initial code-generation backend.
+5. Initial C source-generation backend (implemented); executable generation and native code generation remain future work.
 6. Runtime, standard library, and memory model implementation.
 7. Native toolchain integration and editor tooling.
 8. Optimization, releases, and eventual self-hosting research.
 
 ### Initial typed IR implemented
 
-The compiler now exposes a typed, backend-independent SSA intermediate representation for the currently supported language subset.
+The compiler exposes a typed, backend-independent SSA intermediate representation for the currently supported language subset.
 
 - Values have explicit primitive IR types and unique SSA identifiers.
 - Functions contain ordered basic blocks; each block has one explicit terminator.
@@ -207,13 +205,25 @@ The compiler now exposes a typed, backend-independent SSA intermediate represent
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
 - `if` branches, short-circuit logical expressions, and `repeat` loops lower into explicit control-flow graphs.
 - The verifier checks instruction and call types, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
-- Source spans are retained on IR values and instructions for diagnostics.
+- Source spans are retained on IR values and instructions.
 
-The `vex ir <file.vex>` command prints verified IR. This is an inspection/debugging command: it does not execute the program or generate machine code. Unsupported constructs, including `for-in`, are rejected during lowering rather than silently miscompiled.
+### Initial C backend implemented
+
+The `vex emit-c <file.vex>` command runs lexing, parsing, semantic analysis, IR lowering, and IR verification, then emits portable C11 source to standard output.
+
+- Every current IR instruction and terminator has a C representation.
+- VEX `int`, `float`, `bool`, `string`, and `void` map to `int64_t`, `double`, `bool`, a length-aware byte string, and `void`.
+- Basic-block parameters are emitted as local SSA variables with parallel edge-copy temporaries, preserving merge and loop semantics.
+- Direct calls use generated private C symbols, with prototypes emitted before definitions so forward VEX calls work.
+- `say` prints integers, floating-point values, booleans, and strings followed by a newline.
+- A zero-argument VEX `main()` is adapted to the C entry point. It may return `void` or `int`; an integer result must be in the process exit-code range 0 through 255.
+- Signed integer arithmetic is checked. Overflow, division or remainder by zero, and the `INT64_MIN / -1` and `INT64_MIN % -1` cases produce a runtime failure instead of invoking C signed-overflow undefined behavior.
+- String literals are decoded from VEX escapes and emitted as length-aware byte sequences, so embedded NUL bytes are retained.
+
+The backend emits C source only. It does not invoke a C compiler, link an executable, or execute VEX programs. Those are the next integration milestone.
 
 ## 8. Open language-design questions
 
-- exact integer overflow and numeric conversion behavior;
 - whether `const` means immutable binding only or compile-time evaluation;
 - string interpolation and escaping;
 - function overloading and default arguments;

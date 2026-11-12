@@ -1,6 +1,6 @@
 # VEX compiler architecture
 
-The current development build implements source management, diagnostics, lexing, parsing, an initial AST, semantic analysis with a reusable typed model, and verified SSA IR lowering for the supported language subset.
+The current development build implements source management, diagnostics, lexing, parsing, an initial AST, semantic analysis with a reusable typed model, verified SSA IR lowering, and an initial C source backend for the currently supported language subset.
 
 ## Intended pipeline
 
@@ -25,9 +25,10 @@ IR lowering ------------> typed SSA values, CFG, source spans
     v
 IR verifier ------------> verified module or IR diagnostics
     |
-    +--------------------> C bootstrap backend (candidate)
+    v
+C backend --------------> portable C11 source (implemented)
     |
-    +--------------------> native/LLVM backend (future option)
+    +--------------------> native machine-code backend (future option)
 ~~~
 
 The frontend should not depend on a particular output backend. In particular, the parser should not emit C text directly. A typed, backend-independent representation gives VEX room to change its native code-generation strategy without rewriting the language frontend.
@@ -36,7 +37,7 @@ The frontend should not depend on a particular output backend. In particular, th
 
 ### Source management
 
-`SourceFile` owns an immutable source buffer and its path. A `SourceSpan` stores a half-open byte range into that buffer. Line starts are indexed once, allowing token and diagnostic locations to be recovered without copying token spelling.
+`SourceFile` owns an immutable source buffer and its path. A `SourceSpan` stores a half-open byte range into that source buffer. Line starts are indexed once, allowing token and diagnostic locations to be recovered without copying token spelling.
 
 ### Diagnostics
 
@@ -62,17 +63,29 @@ The initial type model covers `int`, `float`, `bool`, `string`, and `void` retur
 
 The current numeric conversion rule permits widening from `int` to `float`; narrowing is rejected. Nested blocks have lexical scopes and can shadow outer bindings. `const` bindings cannot be assigned after declaration.
 
-The `say(value)` intrinsic is registered for semantic checking but has no runtime implementation. The parser accepts `for-in`, but semantic analysis reports that collection types are not implemented yet. Arrays, structures, pointers, modules, generic types, function values, and code generation remain future work.
+The `say(value)` intrinsic is registered for semantic checking and is implemented in the initial generated-C runtime. The parser accepts `for-in`, but semantic analysis reports that collection types are not implemented yet. Arrays, structures, pointers, modules, generic types, and function values remain future work.
 
 ### Typed semantic model and SSA IR
 
-Semantic analysis now returns a `SemanticModel` alongside diagnostics. It records expression types, resolved variable and assignment bindings, parameter and local binding identities, resolved direct-call names, and function signatures. The model is tied to the lifetime of the AST it describes.
+Semantic analysis returns a `SemanticModel` alongside diagnostics. It records expression types, resolved variable and assignment bindings, parameter and local binding identities, resolved direct-call names, and function signatures. The model is tied to the lifetime of the AST it describes.
 
 The initial IR is backend-independent and uses SSA values. Functions contain basic blocks with explicit terminators. Block parameters receive values from incoming branches and serve as control-flow merge points. The IR keeps the supported primitive types explicit and retains source spans for diagnostics.
 
 The AST-to-IR lowerer consumes the semantic model. It currently handles function parameters, constants, name references, assignments, primitive operators, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, and counted `repeat` loops. Integer-to-float widening becomes an explicit conversion instruction. Constructs that are parsed but not semantically supported, such as `for-in`, are not lowered.
 
-The independent verifier checks instruction and call types, unique SSA definitions, operand uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs or generate target code.
+The independent verifier checks instruction and call types, SSA definitions and uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs.
+
+### C source backend
+
+The initial C backend consumes only verified IR. It emits C11 source without mixing backend logic into parsing or semantic analysis.
+
+- Values use fixed-width C types where available. VEX strings use a pointer-plus-length representation, preserving embedded NUL bytes.
+- Function symbols are mangled into a private generated namespace. All prototypes precede definitions, supporting forward calls.
+- Basic-block parameters are represented by local variables. Each control-flow edge uses temporaries to implement parallel copies before a `goto`, so loop-carried values and branch merges are not corrupted by sequential assignment.
+- Integer arithmetic uses checked helper functions to avoid C signed-overflow undefined behavior. Runtime failure is reported for overflow and invalid integer division/remainder.
+- The output helpers print the current primitive types. The generated `main` adapter accepts a zero-argument VEX `main()` returning `void` or `int`.
+
+The `vex emit-c` command runs lexing, parsing, semantic analysis, IR lowering, verification, and C emission. It writes C11 source to standard output; it does not invoke the C compiler or produce an executable.
 
 ## Design constraints
 
@@ -107,6 +120,8 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Cross-platform CMake build and CI configuration
 - [ ] Collections and iterable type checking
 - [x] Typed SSA intermediate representation, semantic metadata, verifier, and AST-to-IR lowering
-- [ ] Code-generation backend
-- [ ] Runtime and standard library
+- [x] Initial C11 code-generation backend
+- [ ] C compiler integration and executable generation
+- [ ] Runtime and standard library expansion
+- [ ] Native machine-code backend
 - [ ] Language server and editor tooling
