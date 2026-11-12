@@ -50,7 +50,7 @@ if(C_COMPILER_ID STREQUAL "MSVC")
     )
 else()
     execute_process(
-        COMMAND "${C_COMPILER}" -std=c11 "${generated_c}" -o "${generated_executable}"
+        COMMAND "${C_COMPILER}" -std=c11 "${generated_c}" -o "${generated_executable}" -lm
         RESULT_VARIABLE compiler_result
         OUTPUT_VARIABLE compiler_output
         ERROR_VARIABLE compiler_error
@@ -71,7 +71,7 @@ if(NOT program_result EQUAL 0)
 endif()
 
 string(REPLACE "\r\n" "\n" program_output "${program_output}")
-set(expected_output "30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n")
+set(expected_output "30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n")
 if(NOT "${program_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "Generated VEX program produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${program_output}")
 endif()
