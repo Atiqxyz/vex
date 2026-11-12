@@ -96,6 +96,7 @@ The initial C backend supplies a small output runtime for `int`, `float`, `bool`
 
 - [Working language specification](SPEC.md)
 - [Compiler architecture](docs/architecture.md)
+- [Standard library status](docs/standard-library.md)
 - [Compiler design review and references](docs/compiler-design-review.md)
 
 ## License
