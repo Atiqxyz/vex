@@ -14,10 +14,11 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
-- a command-line interface for token inspection, AST printing, semantic checking, and IR inspection;
-- unit tests and a Linux, Windows, and macOS CI matrix.
+- an initial C11 source backend for the complete current IR instruction set, including functions, control flow, primitive values, and the `say` intrinsic;
+- a command-line interface for token inspection, AST printing, semantic checking, IR inspection, and C source emission;
+- unit tests plus a cross-platform integration test that compiles and runs generated C when a C compiler is available.
 
-VEX can lower supported source programs into verified typed IR, but it does **not** execute programs or generate C, object files, or machine code yet. Collection types, a runtime, and the memory model are not implemented.
+VEX can now emit portable C11 source from verified IR. It does **not** yet invoke a C compiler, produce executables, or directly execute VEX programs. Collection types, a complete runtime, and the memory model are not implemented.
 
 ## Design direction
 
@@ -26,13 +27,13 @@ VEX can lower supported source programs into verified typed IR, but it does **no
 - Curly braces delimit blocks; indentation is not semantic.
 - Function calls use parentheses.
 - A hybrid memory-management model is the selected direction, but ownership, borrowing, and allocation semantics remain open.
-- Native compilation and a backend-independent compiler architecture are long-term goals.
+- The C backend is a bootstrap target; the IR and frontend remain independent of it. A native backend is a future goal.
 
 These are design goals, not claims that every feature already exists.
 
 ## Build
 
-Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC).
+Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is optional for the generated-code integration test; `emit-c` itself does not invoke one.
 
 ~~~sh
 cmake -S . -B build
@@ -50,6 +51,8 @@ On Windows with a multi-configuration CMake generator:
 .\build\Release\vex.exe lex examples\hello.vex
 .\build\Release\vex.exe parse examples\hello.vex
 .\build\Release\vex.exe check examples\hello.vex
+.\build\Release\vex.exe ir examples\hello.vex
+.\build\Release\vex.exe emit-c examples\hello.vex
 ~~~
 
 On Linux or macOS:
@@ -61,14 +64,16 @@ On Linux or macOS:
 ./build/vex parse examples/hello.vex
 ./build/vex check examples/hello.vex
 ./build/vex ir examples/hello.vex
+./build/vex emit-c examples/hello.vex > hello.c
 ~~~
 
 - `lex` prints token kinds and source positions.
 - `parse` prints the parsed abstract syntax tree.
 - `check` resolves identifiers and validates the supported static type rules.
 - `ir` lowers a semantically valid program into typed SSA IR, verifies it, and prints the result.
+- `emit-c` runs the frontend, lowers and verifies IR, then emits C11 source to standard output.
 
-None of these commands executes the program.
+The generated C can be compiled with a system C compiler, but VEX does not yet provide a `build` or `run` command.
 
 ## Example syntax direction
 
@@ -79,7 +84,7 @@ make main() {
 }
 ~~~
 
-The semantic checker recognizes `say(value)` as a built-in output intrinsic, and IR lowering represents it as an IR operation. No output runtime or executable backend exists yet.
+The initial C backend supplies a small output runtime for `int`, `float`, `bool`, and length-aware UTF-8 strings. It is a bootstrap runtime, not yet the complete VEX standard library or finalized memory model.
 
 ## Project documents
 

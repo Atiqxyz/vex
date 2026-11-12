@@ -1,0 +1,24 @@
+make main() {
+    let total = combine(10, 20)
+    say(total)
+
+    let message = "VEX\ncompiler"
+    say(message)
+
+    let same = "VEX" == "VEX"
+    let enabled = same && total == 30
+    if enabled {
+        say(enabled)
+        say("branch")
+    } else {
+        say(false)
+    }
+
+    repeat 2 times {
+        say("tick")
+    }
+}
+
+make combine(left: int, right: int) -> int {
+    return left + right
+}
