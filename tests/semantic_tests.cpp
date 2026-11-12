@@ -119,13 +119,14 @@ void test_function_signatures_and_returns(TestContext& tests) {
 void test_unimplemented_iteration_is_explicit(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
+        "    let items = 1\n"
         "    for item in items {\n"
         "        say(item)\n"
         "    }\n"
         "}\n"};
     const vex::SemanticResult result = analyze(source);
-    tests.check(has_code(result, "SEM001"),
-                "undeclared collection names are still resolved");
+    tests.check(!has_code(result, "SEM001"),
+                "the declared iteration source resolves by name");
     tests.check(has_code(result, "SEM031"),
                 "for-in type checking is deferred until collection types exist");
 }

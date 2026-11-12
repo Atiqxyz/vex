@@ -1,9 +1,7 @@
 #include "vex/semantic.hpp"
 
 #include <algorithm>
-#include <optional>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -11,16 +9,7 @@
 namespace vex {
 namespace {
 
-enum class Type {
-    Error,
-    Unknown,
-    Any,
-    Void,
-    Int,
-    Float,
-    Bool,
-    String
-};
+enum class Type { Error, Unknown, Any, Void, Int, Float, Bool, String };
 
 const char* type_name(const Type type) noexcept {
     switch (type) {
@@ -42,10 +31,9 @@ bool is_numeric(const Type type) noexcept {
 
 bool is_assignable(const Type destination, const Type source) noexcept {
     if (destination == Type::Error || source == Type::Error ||
-        destination == Type::Unknown || source == Type::Unknown ||
-        destination == Type::Any || source == Type::Any) {
-        return true;
-    }
+        destination == Type::Unknown || source == Type::Unknown) return true;
+    if (source == Type::Void) return false;
+    if (destination == Type::Any) return true;
     return destination == source ||
            (destination == Type::Float && source == Type::Int);
 }
@@ -271,11 +259,14 @@ private:
                 return Type::Bool;
             case TokenKind::EqualEqual:
             case TokenKind::BangEqual:
-                if (!is_assignable(left, right) || !is_assignable(right, left) ||
-                    left == Type::Void || right == Type::Void) {
+                if ((!is_numeric(left) || !is_numeric(right)) && left != right) {
                     report("SEM014", "equality operands must have compatible types; got " +
                            std::string(type_name(left)) + " and " + type_name(right),
                            expression.span);
+                    return Type::Error;
+                }
+                if (left == Type::Void || right == Type::Void) {
+                    report("SEM014", "void values cannot be compared", expression.span);
                     return Type::Error;
                 }
                 return Type::Bool;
@@ -493,8 +484,7 @@ private:
             analyze_variable(*variable);
             return;
         }
-        if (const auto* block = std::get_if<BlockStmt>(&statement.data)) {
-            static_cast<void>(block);
+        if (std::holds_alternative<BlockStmt>(statement.data)) {
             analyze_block(statement, true);
             return;
         }
