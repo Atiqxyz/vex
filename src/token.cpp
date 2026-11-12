@@ -2,8 +2,13 @@
 
 namespace vex {
 
+std::string_view Token::text(const SourceFile& source) const noexcept {
+    return source.slice(span);
+}
+
 std::string_view token_kind_name(const TokenKind kind) noexcept {
     switch (kind) {
+    case TokenKind::Invalid: return "INVALID";
     case TokenKind::EndOfFile: return "EOF";
     case TokenKind::Newline: return "NEWLINE";
     case TokenKind::Identifier: return "IDENTIFIER";
@@ -50,13 +55,15 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::GreaterEqual: return "GREATER_EQUAL";
     case TokenKind::AndAnd: return "AND_AND";
     case TokenKind::OrOr: return "OR_OR";
+    case TokenKind::Count: return "COUNT";
     }
     return "UNKNOWN";
 }
 
 bool token_has_lexeme_value(const TokenKind kind) noexcept {
-    return kind == TokenKind::Identifier || kind == TokenKind::Integer ||
-           kind == TokenKind::Float || kind == TokenKind::String;
+    return kind == TokenKind::Invalid || kind == TokenKind::Identifier ||
+           kind == TokenKind::Integer || kind == TokenKind::Float ||
+           kind == TokenKind::String;
 }
 
 } // namespace vex

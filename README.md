@@ -2,42 +2,45 @@
 
 **Made for fun. Built to run.**
 
-VEX is an experimental, general-purpose systems programming language. It aims to combine readable syntax with static typing, low-level capabilities, and performance-oriented native compilation.
+VEX is an experimental, general-purpose systems programming language. It aims to combine readable syntax with static typing, type inference, low-level capabilities, and performance-oriented native compilation.
 
-VEX is an independent project created for experimentation, learning, and practical use. It is not intended to replace existing programming languages.
+VEX is an independent project for experimentation and practical learning. It is not intended to replace established programming languages.
 
-## Project status
+## Status
 
-VEX is in its early design and implementation stage. The current C++20 development build includes a lexer and token-inspection command. Parsing, type checking, code generation, and native program compilation are not implemented yet. Language features and syntax may change.
+VEX is in its early compiler-foundation stage. The current C++20 development build has:
 
-## Design goals
+- immutable source buffers with byte-based source spans;
+- a lexer with stable token kinds and structured diagnostics;
+- a token-inspection CLI;
+- cross-platform CMake builds and frontend tests.
 
-- Readable, consistent syntax
-- Static typing with type inference
-- Hybrid memory-management model
-- Native compilation with low runtime overhead
-- Cross-platform compiler and developer tooling
-- A compiler architecture that can eventually support self-hosting
+A parser, AST, semantic analysis, intermediate representation, code generation, and executable runtime are not implemented yet. Language syntax and semantics may change.
 
-These are project goals, not claims that all features are currently available.
+## Design direction
 
-## Current development build
+- Static typing with local type inference.
+- Newlines separate statements; semicolons are not used.
+- Curly braces delimit blocks; indentation is not semantic.
+- Function calls use parentheses.
+- A hybrid memory-management model is the selected direction, but ownership, borrowing, and allocation semantics remain open.
+- Native compilation and a backend-independent compiler architecture are long-term goals.
 
-### Requirements
+These are design goals, not claims that every feature already exists.
 
-- CMake 3.20 or newer
-- A C++20 compiler (GCC, Clang, or MSVC)
+## Build
 
-### Build
+Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC).
 
 ```sh
 cmake -S . -B build
 cmake --build build --config Release
+ctest --test-dir build --config Release --output-on-failure
 ```
 
-### Run the lexer
+## Inspect tokens
 
-On Windows with the Visual Studio CMake generator (PowerShell):
+On Windows with a multi-configuration CMake generator:
 
 ```powershell
 .\build\Release\vex.exe --help
@@ -53,15 +56,9 @@ On Linux or macOS:
 ./build/vex lex examples/hello.vex
 ```
 
-The lexer prints the token stream with source locations. This is a compiler-development command, not yet a way to execute VEX programs.
+The `lex` command prints token kinds and source positions. It does not parse or execute VEX programs.
 
-### Run tests
-
-```sh
-ctest --test-dir build -C Release --output-on-failure
-```
-
-## Example of the intended syntax
+## Example syntax direction
 
 ```vex
 make main() {
@@ -70,16 +67,13 @@ make main() {
 }
 ```
 
-This example illustrates the current syntax direction; it is not yet executable in the current build.
+This illustrates the current design direction only. It is not executable in the current compiler build.
 
-## Documentation
+## Project documents
 
 - [Working language specification](SPEC.md)
 - [Compiler architecture](docs/architecture.md)
-
-## Contributing
-
-Bug reports and design discussions are welcome. Please open an issue for proposed language changes so design decisions can be discussed before implementation.
+- [Compiler design review and references](docs/compiler-design-review.md)
 
 ## License
 

@@ -1,4 +1,6 @@
+#include "vex/diagnostic.hpp"
 #include "vex/lexer.hpp"
+#include "vex/source.hpp"
 #include "vex/token.hpp"
 
 #include <fstream>
@@ -6,19 +8,23 @@
 #include <iostream>
 #include <iterator>
 #include <string>
+#include <utility>
+
+#ifndef VEX_VERSION
+#define VEX_VERSION "0.1.0"
+#endif
 
 namespace {
 
-constexpr const char* version = "0.1.0-dev";
-
 void print_help() {
-    std::cout << "VEX compiler " << version << "\n"
-              << "Usage:\n"
-              << "  vex lex <file.vex>   Tokenize a VEX source file\n"
-              << "  vex --version        Show compiler version\n"
-              << "  vex --help           Show this help message\n\n"
-              << "The 0.1 development build provides lexer inspection only;\n"
-              << "parsing and code generation are not implemented yet.\n";
+    std::cout
+        << "VEX compiler " << VEX_VERSION << "\n"
+        << "Usage:\n"
+        << "  vex lex <file.vex>   Tokenize a VEX source file\n"
+        << "  vex --version        Show compiler version\n"
+        << "  vex --help           Show this help message\n\n"
+        << "The current development build provides lexical analysis only.\n"
+        << "Parsing and code generation are not implemented yet.\n";
 }
 
 int run_lexer(const std::string& path) {
@@ -28,26 +34,30 @@ int run_lexer(const std::string& path) {
         return 2;
     }
 
-    const std::string source{std::istreambuf_iterator<char>(input),
-                             std::istreambuf_iterator<char>()};
+    std::string contents{std::istreambuf_iterator<char>(input),
+                         std::istreambuf_iterator<char>()};
+    if (input.bad()) {
+        std::cerr << "error: failed while reading source file: " << path << '\n';
+        return 2;
+    }
+
+    const vex::SourceFile source(path, std::move(contents));
     vex::Lexer lexer(source);
-    vex::LexResult result = lexer.scan();
+    const vex::LexResult result = lexer.scan();
 
     for (const vex::Token& token : result.tokens) {
-        std::cout << token.line << ':' << token.column << "  "
+        const vex::SourcePosition position = source.position(token.span.begin);
+        std::cout << position.line << ':' << position.column << "  "
                   << vex::token_kind_name(token.kind);
+
         if (vex::token_has_lexeme_value(token.kind)) {
-            std::cout << "  " << std::quoted(token.lexeme);
+            std::cout << "  " << std::quoted(std::string(token.text(source)));
         }
         std::cout << '\n';
     }
 
-    for (const vex::Diagnostic& diagnostic : result.diagnostics) {
-        std::cerr << path << ':' << diagnostic.line << ':' << diagnostic.column
-                  << ": error: " << diagnostic.message << '\n';
-    }
-
-    return result.diagnostics.empty() ? 0 : 1;
+    vex::print_diagnostics(std::cerr, source, result.diagnostics);
+    return result.has_errors() ? 1 : 0;
 }
 
 } // namespace
@@ -60,7 +70,7 @@ int main(const int argc, char* argv[]) {
             return 0;
         }
         if (argument == "--version" || argument == "-v") {
-            std::cout << "VEX compiler " << version << '\n';
+            std::cout << "VEX compiler " << VEX_VERSION << '\n';
             return 0;
         }
     }

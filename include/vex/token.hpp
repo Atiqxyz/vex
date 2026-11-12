@@ -1,12 +1,13 @@
 #pragma once
 
-#include <cstddef>
-#include <string>
+#include "vex/source.hpp"
+
 #include <string_view>
 
 namespace vex {
 
 enum class TokenKind {
+    Invalid,
     EndOfFile,
     Newline,
     Identifier,
@@ -55,14 +56,16 @@ enum class TokenKind {
     Greater,
     GreaterEqual,
     AndAnd,
-    OrOr
+    OrOr,
+
+    Count
 };
 
 struct Token {
-    TokenKind kind{TokenKind::EndOfFile};
-    std::string lexeme;
-    std::size_t line{1};
-    std::size_t column{1};
+    TokenKind kind{TokenKind::Invalid};
+    SourceSpan span{};
+
+    [[nodiscard]] std::string_view text(const SourceFile& source) const noexcept;
 };
 
 [[nodiscard]] std::string_view token_kind_name(TokenKind kind) noexcept;
