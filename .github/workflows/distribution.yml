@@ -2,6 +2,8 @@ name: VEX Distribution
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [dev]
   push:
     tags:
       - "v*"
@@ -11,8 +13,8 @@ permissions:
 
 jobs:
   build-cli:
-    name: Build CLI (\${{ matrix.platform }})
-    runs-on: \${{ matrix.os }}
+    name: Build CLI (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -45,13 +47,13 @@ jobs:
         shell: bash
         run: |
           cd dist
-          cmake -E tar cf vex-\${{ matrix.platform }}.zip --format=zip vex
+          cmake -E tar cf vex-${{ matrix.platform }}.zip --format=zip vex
 
       - name: Upload CLI archive
         uses: actions/upload-artifact@v4
         with:
-          name: vex-\${{ matrix.platform }}
-          path: dist/vex-\${{ matrix.platform }}.zip
+          name: vex-${{ matrix.platform }}
+          path: dist/vex-${{ matrix.platform }}.zip
           if-no-files-found: error
           retention-days: 14
 
