@@ -12,13 +12,13 @@ vex::SemanticResult analyze(const vex::SourceFile& source) {
     const vex::LexResult lexed = vex::Lexer(source).scan();
     if (lexed.has_errors()) {
         for (const vex::Diagnostic& diagnostic : lexed.diagnostics)
-            std::cerr << "DEBUG lexer " << diagnostic.code << ": " << diagnostic.message << '\\n';
+            std::cerr << "DEBUG lexer " << diagnostic.code << ": " << diagnostic.message << std::endl;
         return vex::SemanticResult{lexed.diagnostics};
     }
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
     if (parsed.has_errors()) {
         for (const vex::Diagnostic& diagnostic : parsed.diagnostics)
-            std::cerr << "DEBUG parser " << diagnostic.code << ": " << diagnostic.message << '\\n';
+            std::cerr << "DEBUG parser " << diagnostic.code << ": " << diagnostic.message << std::endl;
         return vex::SemanticResult{parsed.diagnostics};
     }
     return vex::SemanticAnalyzer(source, parsed.program).analyze();
