@@ -2,7 +2,7 @@ make main() {
     let total = combine(10, 20)
     say(total)
 
-    let message = "VEX\\ncompiler"
+    let message = "VEX\ncompiler"
     say(message)
 
     let same = "VEX" == "VEX"
