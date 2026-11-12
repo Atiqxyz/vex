@@ -1,6 +1,7 @@
 #include "vex/process.hpp"
 
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -44,7 +45,7 @@ ProcessResult run_process(
     }
     argv.push_back(nullptr);
     const int spawn_status = posix_spawnp(
-        &process, executable.c_str(), nullptr, nullptr, argv.data(), environ);
+        &process, executable.c_str(), nullptr, nullptr, argv.data(), ::environ);
     if (spawn_status != 0) {
         result.error = "could not start '" + executable + "': ";
         result.error += std::strerror(spawn_status);
