@@ -1,67 +1,74 @@
+#include "vex/ast.hpp"
 #include "vex/diagnostic.hpp"
 #include "vex/lexer.hpp"
+#include "vex/parser.hpp"
 #include "vex/source.hpp"
 #include "vex/token.hpp"
-
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <utility>
-
 #ifndef VEX_VERSION
 #define VEX_VERSION "0.1.0"
 #endif
-
 namespace {
-
 void print_help() {
     std::cout
         << "VEX compiler " << VEX_VERSION << "\n"
         << "Usage:\n"
         << "  vex lex <file.vex>   Tokenize a VEX source file\n"
+        << "  vex parse <file.vex> Parse a VEX source file and print its AST\n"
         << "  vex --version        Show compiler version\n"
         << "  vex --help           Show this help message\n\n"
-        << "The current development build provides lexical analysis only.\n"
-        << "Parsing and code generation are not implemented yet.\n";
+        << "Parsing builds an AST; semantic analysis and code generation are not implemented yet.\n";
 }
-
-int run_lexer(const std::string& path) {
+bool read_source_file(const std::string& path, std::string& contents) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
         std::cerr << "error: could not open source file: " << path << '\n';
-        return 2;
+        return false;
     }
-
-    std::string contents{std::istreambuf_iterator<char>(input),
-                         std::istreambuf_iterator<char>()};
+    contents.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
     if (input.bad()) {
         std::cerr << "error: failed while reading source file: " << path << '\n';
-        return 2;
+        return false;
     }
-
+    return true;
+}
+int run_lexer(const std::string& path) {
+    std::string contents;
+    if (!read_source_file(path, contents)) return 2;
     const vex::SourceFile source(path, std::move(contents));
-    vex::Lexer lexer(source);
-    const vex::LexResult result = lexer.scan();
-
+    const vex::LexResult result = vex::Lexer(source).scan();
     for (const vex::Token& token : result.tokens) {
         const vex::SourcePosition position = source.position(token.span.begin);
         std::cout << position.line << ':' << position.column << "  "
                   << vex::token_kind_name(token.kind);
-
-        if (vex::token_has_lexeme_value(token.kind)) {
+        if (vex::token_has_lexeme_value(token.kind))
             std::cout << "  " << std::quoted(std::string(token.text(source)));
-        }
         std::cout << '\n';
     }
-
     vex::print_diagnostics(std::cerr, source, result.diagnostics);
     return result.has_errors() ? 1 : 0;
 }
-
+int run_parser(const std::string& path) {
+    std::string contents;
+    if (!read_source_file(path, contents)) return 2;
+    const vex::SourceFile source(path, std::move(contents));
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    if (lexed.has_errors()) {
+        vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
+        return 1;
+    }
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
+    if (parsed.has_errors()) return 1;
+    vex::print_ast(std::cout, source, parsed.program);
+    return 0;
+}
 } // namespace
-
 int main(const int argc, char* argv[]) {
     if (argc == 2) {
         const std::string argument = argv[1];
@@ -74,11 +81,11 @@ int main(const int argc, char* argv[]) {
             return 0;
         }
     }
-
-    if (argc == 3 && std::string{argv[1]} == "lex") {
-        return run_lexer(argv[2]);
+    if (argc == 3) {
+        const std::string command = argv[1];
+        if (command == "lex") return run_lexer(argv[2]);
+        if (command == "parse") return run_parser(argv[2]);
     }
-
     print_help();
     return 2;
 }
