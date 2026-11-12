@@ -3,16 +3,18 @@ void run_source_tests(TestContext& tests);
 void run_lexer_tests(TestContext& tests);
 void run_parser_tests(TestContext& tests);
 void run_semantic_tests(TestContext& tests);
+void run_ir_tests(TestContext& tests);
 int main() {
     TestContext tests;
     run_source_tests(tests);
     run_lexer_tests(tests);
     run_parser_tests(tests);
     run_semantic_tests(tests);
+    run_ir_tests(tests);
     if (tests.failures != 0) {
         std::cerr << tests.failures << " test(s) failed\n";
         return 1;
     }
-    std::cout << "All VEX frontend and semantic tests passed.\n";
+    std::cout << "All VEX frontend, semantic, and IR tests passed.\n";
     return 0;
 }

@@ -1,6 +1,8 @@
 #include "vex/ast.hpp"
 #include "vex/diagnostic.hpp"
 #include "vex/lexer.hpp"
+#include "vex/ir.hpp"
+#include "vex/lowering.hpp"
 #include "vex/parser.hpp"
 #include "vex/semantic.hpp"
 #include "vex/source.hpp"
@@ -22,6 +24,7 @@ void print_help() {
         << "  vex lex <file.vex>   Tokenize a VEX source file\n"
         << "  vex parse <file.vex> Parse a VEX source file and print its AST\n"
         << "  vex check <file.vex> Resolve names and check static types\n"
+        << "  vex ir <file.vex>    Lower a valid program to typed SSA IR\n"
         << "  vex --version        Show compiler version\n"
         << "  vex --help           Show this help message\n\n"
         << "VEX check validates the supported static semantics; it does not execute code.\n";
@@ -91,6 +94,38 @@ int run_check(const std::string& path) {
     std::cout << "Semantic analysis passed.\n";
     return 0;
 }
+
+int run_ir(const std::string& path) {
+    std::string contents;
+    if (!read_source_file(path, contents)) return 2;
+    const vex::SourceFile source(path, std::move(contents));
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    if (lexed.has_errors()) {
+        vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
+        return 1;
+    }
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    if (parsed.has_errors()) {
+        vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
+        return 1;
+    }
+    const vex::SemanticResult checked =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    vex::print_diagnostics(std::cerr, source, checked.diagnostics);
+    if (checked.has_errors()) return 1;
+
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, checked.model).lower();
+    vex::print_diagnostics(std::cerr, source, lowered.diagnostics);
+    if (lowered.has_errors()) return 1;
+
+    const vex::IRVerificationResult verified = vex::IRVerifier{}.verify(lowered.module);
+    vex::print_diagnostics(std::cerr, source, verified.diagnostics);
+    if (verified.has_errors()) return 1;
+
+    vex::print_ir(std::cout, lowered.module);
+    return 0;
+}
 } // namespace
 int main(const int argc, char* argv[]) {
     if (argc == 2) {
@@ -109,6 +144,7 @@ int main(const int argc, char* argv[]) {
         if (command == "lex") return run_lexer(argv[2]);
         if (command == "parse") return run_parser(argv[2]);
         if (command == "check") return run_check(argv[2]);
+        if (command == "ir") return run_ir(argv[2]);
     }
     print_help();
     return 2;
