@@ -43,6 +43,7 @@ enum class IROp {
     GreaterEqual,
     IntToFloat,
     Call,
+    Math,
     Say
 };
 

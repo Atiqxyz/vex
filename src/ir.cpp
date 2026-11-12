@@ -234,6 +234,27 @@ private:
             }
             check_result(instruction, IRType::Float);
             break;
+        case IROp::Math: {
+            const bool unary_math = instruction.callee == "sqrt" ||
+                instruction.callee == "sin" || instruction.callee == "cos" ||
+                instruction.callee == "abs";
+            const bool binary_math = instruction.callee == "pow";
+            if (!unary_math && !binary_math) {
+                report("IR039", "unknown mathematical intrinsic '" +
+                       instruction.callee + "'", instruction.span);
+                break;
+            }
+            check_arity(instruction, binary_math ? 2u : 1u);
+            for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
+                const auto actual = operand_type(instruction, index);
+                if (actual && *actual != IRType::Float) {
+                    report("IR040", "mathematical intrinsic arguments must be float",
+                           instruction.span);
+                }
+            }
+            check_result(instruction, IRType::Float);
+            break;
+        }
         case IROp::Call: {
             const auto found = functions_.find(instruction.callee);
             if (found == functions_.end()) {
@@ -530,6 +551,7 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::GreaterEqual: return "ge";
     case IROp::IntToFloat: return "int_to_float";
     case IROp::Call: return "call";
+    case IROp::Math: return "math";
     case IROp::Say: return "say";
     }
     return "unknown";
