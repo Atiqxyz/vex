@@ -176,7 +176,7 @@ void test_math_standard_library_signatures(TestContext& tests) {
         "    let root = sqrt(144)\n"
         "    let wave = sin(0.0) + cos(0.0)\n"
         "    let scaled = pow(2.0, 3.0)\n"
-        "    let magnitude = abs(0.0 - 5.0)\n"
+        "    let magnitude = abs(-5.0)\n"
         "    say(root + wave + scaled + magnitude)\n"
         "}\n"};
     const vex::SemanticResult valid = analyze(source);
