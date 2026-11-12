@@ -31,5 +31,7 @@ assert.ok(snippets["Main function"]);
 assert.ok(snippets["Function"]);
 assert.ok(manifest.contributes.commands.some((entry) => entry.command === "vex.checkCurrentFile"));
 assert.ok(manifest.contributes.commands.some((entry) => entry.command === "vex.emitCPreview"));
+assert.ok(manifest.contributes.commands.some((entry) => entry.command === "vex.buildCurrentFile"));
+assert.ok(manifest.contributes.commands.some((entry) => entry.command === "vex.runCurrentFile"));
 
 console.log("VEX VS Code extension metadata and language assets are valid.");
