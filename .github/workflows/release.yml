@@ -81,7 +81,7 @@ jobs:
         working-directory: editors/vscode
         shell: bash
         run: |
-          npx --yes @vscode/vsce package --no-dependencies --out "vex-language-${GITHUB_REF_NAME}.vsix"
+          npx --yes @vscode/vsce@4.0.0 package --no-dependencies --out "vex-language-${GITHUB_REF_NAME}.vsix"
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
