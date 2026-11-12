@@ -42,7 +42,8 @@ if(C_COMPILER_ID STREQUAL "MSVC")
         RESULT_VARIABLE compiler_result
         OUTPUT_VARIABLE compiler_output
         ERROR_VARIABLE compiler_error
-    )else()
+    )
+else()
     execute_process(
         COMMAND "${C_COMPILER}" -std=c11 "${generated_c}" -o "${generated_executable}"
         RESULT_VARIABLE compiler_result
