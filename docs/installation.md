@@ -119,6 +119,6 @@ The complete upstream Zig directory is staged so its compiler libraries and acco
 
 ## Distribution status
 
-The release workflow builds and tests the CLI on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS, downloads the pinned Zig 0.17.1 toolchain for each target, verifies each archive's SHA-256 digest, stages it with VEX, and packages the VS Code extension. Version tags publish the resulting platform archives and VSIX to GitHub Releases.
+The release workflow builds and tests the CLI on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS. It downloads the pinned Zig 0.17.1 toolchain for each target, verifies its SHA-256 digest, stages it with VEX, and bundles the VS Code extension. Version tags publish portable archives, installer scripts, the VSIX, and a SHA-256 manifest to GitHub Releases.
 
-The current delivery is a portable extracted package rather than a native Windows installer, macOS package installer, or Linux system package. Those native installers and automatic VS Code extension setup are a later installation milestone.
+The current installer scripts provide per-user setup on Windows, Linux, and macOS. Native MSI/EXE, macOS PKG, and Linux DEB/RPM installers are not part of this release yet.
