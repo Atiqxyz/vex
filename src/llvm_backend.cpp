@@ -27,8 +27,15 @@ std::string llvm_type(const IRType type) {
     case IRType::Float: return "double";
     case IRType::Bool: return "i1";
     case IRType::String: return "{ ptr, i64 }";
+    case IRType::Array: return "[0 x i8]";
     }
     return "void";
+}
+
+std::string llvm_type(const IRValue& value) {
+    if (value.type != IRType::Array) return llvm_type(value.type);
+    return "[" + std::to_string(value.array_length) + " x " +
+           llvm_type(value.element_type) + "]";
 }
 
 std::string value_slot(const IRValueId id) {
@@ -159,6 +166,7 @@ public:
         emit_string_globals();
         emit_runtime_declarations();
         emit_checked_integer_helpers();
+        emit_checked_array_index_helper();
         for (const IRFunction& function : module_.functions) {
             emit_function(function);
             if (has_errors(diagnostics_)) break;
@@ -288,6 +296,21 @@ private:
         emit_division_helper("rem", "srem");
     }
 
+    void emit_checked_array_index_helper() {
+        output_ << "define internal i64 @vex_checked_array_index(i64 %index, i64 %length) {\n"
+                << "entry:\n"
+                << "  %negative = icmp slt i64 %index, 0\n"
+                << "  %past_end = icmp sge i64 %index, %length\n"
+                << "  %invalid = or i1 %negative, %past_end\n"
+                << "  br i1 %invalid, label %trap, label %ok\n"
+                << "trap:\n"
+                << "  call void @llvm.trap()\n"
+                << "  unreachable\n"
+                << "ok:\n"
+                << "  ret i64 %index\n"
+                << "}\n\n";
+    }
+
     void emit_overflow_helper(const char* name, const char* intrinsic) {
         output_ << "define internal i64 @vex_i64_" << name
                 << "(i64 %left, i64 %right) {\n"
@@ -327,15 +350,15 @@ private:
     void index_values(const IRFunction& function) {
         value_types_.clear();
         for (const IRFunctionParameter& parameter : function.parameters) {
-            value_types_.emplace(parameter.value.id, parameter.value.type);
+            value_types_.emplace(parameter.value.id, parameter.value);
         }
         for (const IRBlock& block : function.blocks) {
             for (const IRValue& parameter : block.parameters) {
-                value_types_.emplace(parameter.id, parameter.type);
+                value_types_.emplace(parameter.id, parameter);
             }
             for (const IRInstruction& instruction : block.instructions) {
                 if (instruction.result) {
-                    value_types_.emplace(instruction.result->id, instruction.result->type);
+                    value_types_.emplace(instruction.result->id, *instruction.result);
                 }
             }
         }
@@ -348,12 +371,12 @@ private:
                 << function_symbol(function.name) << '(';
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
             if (index != 0) output_ << ", ";
-            output_ << llvm_type(function.parameters[index].value.type)
+            output_ << llvm_type(function.parameters[index].value)
                     << " %arg_" << index;
         }
         output_ << ") {\nentry:\n";
 
-        std::vector<std::pair<IRValueId, IRType>> ordered_values(
+        std::vector<std::pair<IRValueId, IRValue>> ordered_values(
             value_types_.begin(), value_types_.end());
         std::sort(ordered_values.begin(), ordered_values.end(),
             [](const auto& left, const auto& right) {
@@ -362,11 +385,11 @@ private:
         for (const auto& [id, type] : ordered_values) {
             output_ << "  " << value_slot(id) << " = alloca "
                     << llvm_type(type) << ", align "
-                    << (type == IRType::Bool ? 1 : 8) << "\n";
+                    << (type.type == IRType::Bool ? 1 : 8) << "\n";
         }
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
             const IRValue& parameter = function.parameters[index].value;
-            output_ << "  store " << llvm_type(parameter.type) << " %arg_" << index
+            output_ << "  store " << llvm_type(parameter) << " %arg_" << index
                     << ", ptr " << value_slot(parameter.id) << "\n";
         }
         output_ << "  br label %" << block_label(function.entry_block) << "\n";
@@ -412,7 +435,7 @@ private:
 
     void store_result(const IRInstruction& instruction, const std::string& value) {
         if (!instruction.result) return;
-        output_ << "  store " << llvm_type(instruction.result->type) << ' '
+        output_ << "  store " << llvm_type(*instruction.result) << ' '
                 << value << ", ptr " << value_slot(instruction.result->id) << "\n";
     }
 
@@ -470,6 +493,9 @@ private:
         }
         case IRType::Void:
             report("LLVM008", "void constant cannot be emitted", instruction.span);
+            return;
+        case IRType::Array:
+            report("LLVM009", "array values must be constructed with array_make", instruction.span);
             return;
         }
         store_result(instruction, result);
@@ -534,7 +560,7 @@ private:
     }
 
     void emit_say(const IRInstruction& instruction, const std::string& value) {
-        const IRType type = value_types_.at(instruction.operands.front());
+        const IRType type = value_types_.at(instruction.operands.front()).type;
         if (type == IRType::Int) {
             output_ << "  call i32 (ptr, ...) @printf(ptr @.vex_fmt_i64, i64 "
                     << value << ")\n";
@@ -613,7 +639,7 @@ private:
         case IROp::Multiply:
         case IROp::Divide:
         case IROp::Remainder: {
-            const IRType type = value_types_.at(instruction.operands.front());
+            const IRType type = value_types_.at(instruction.operands.front()).type;
             std::string result;
             if (type == IRType::Int) {
                 const char* helper = instruction.op == IROp::Add ? "add" :
@@ -635,7 +661,7 @@ private:
             return;
         }
         case IROp::Negate: {
-            const IRType type = value_types_.at(instruction.operands.front());
+            const IRType type = value_types_.at(instruction.operands.front()).type;
             const std::string result = next_temp();
             if (type == IRType::Int) {
                 output_ << "  " << result << " = call i64 @vex_i64_neg(i64 "
@@ -663,7 +689,7 @@ private:
         }
         case IROp::Equal:
         case IROp::NotEqual: {
-            const IRType type = value_types_.at(instruction.operands.front());
+            const IRType type = value_types_.at(instruction.operands.front()).type;
             if (type == IRType::String) {
                 emit_string_comparison(instruction, operands[0], operands[1]);
             } else if (type == IRType::Float) {
@@ -681,7 +707,7 @@ private:
         case IROp::LessEqual:
         case IROp::Greater:
         case IROp::GreaterEqual: {
-            const IRType type = value_types_.at(instruction.operands.front());
+            const IRType type = value_types_.at(instruction.operands.front()).type;
             const std::string result = next_temp();
             if (type == IRType::Float) {
                 const char* predicate = instruction.op == IROp::Less ? "olt" :
@@ -710,7 +736,7 @@ private:
             const std::string result = instruction.result ? next_temp() : std::string{};
             if (instruction.result) {
                 output_ << "  " << result << " = call "
-                        << llvm_type(instruction.result->type) << ' '
+                        << llvm_type(*instruction.result) << ' '
                         << function_symbol(instruction.callee) << '(';
             } else {
                 output_ << "  call void " << function_symbol(instruction.callee) << '(';
@@ -742,6 +768,51 @@ private:
         case IROp::Say:
             emit_say(instruction, operands.front());
             return;
+        case IROp::ArrayMake: {
+            const IRValue& array = *instruction.result;
+            const std::string type = llvm_type(array);
+            std::string aggregate = "poison";
+            for (std::size_t index = 0; index < operands.size(); ++index) {
+                const std::string next = next_temp();
+                output_ << "  " << next << " = insertvalue " << type << ' '
+                        << aggregate << ", " << llvm_type(array.element_type) << ' '
+                        << operands[index] << ", " << index << "\n";
+                aggregate = next;
+            }
+            store_result(instruction, aggregate);
+            return;
+        }
+        case IROp::ArrayGet: {
+            const IRValue& array = value_types_.at(instruction.operands[0]);
+            const std::string checked = next_temp();
+            const std::string pointer = next_temp();
+            const std::string value = next_temp();
+            output_ << "  " << checked << " = call i64 @vex_checked_array_index(i64 "
+                    << operands[1] << ", i64 " << array.array_length << ")\n"
+                    << "  " << pointer << " = getelementptr inbounds "
+                    << llvm_type(array) << ", ptr " << value_slot(instruction.operands[0])
+                    << ", i64 0, i64 " << checked << "\n"
+                    << "  " << value << " = load " << llvm_type(array.element_type)
+                    << ", ptr " << pointer << "\n";
+            store_result(instruction, value);
+            return;
+        }
+        case IROp::ArraySet: {
+            const IRValue& array = value_types_.at(instruction.operands[0]);
+            const IRValue& result_array = *instruction.result;
+            const std::string checked = next_temp();
+            const std::string pointer = next_temp();
+            output_ << "  store " << llvm_type(array) << ' ' << operands[0]
+                    << ", ptr " << value_slot(result_array.id) << "\n"
+                    << "  " << checked << " = call i64 @vex_checked_array_index(i64 "
+                    << operands[1] << ", i64 " << array.array_length << ")\n"
+                    << "  " << pointer << " = getelementptr inbounds "
+                    << llvm_type(result_array) << ", ptr " << value_slot(result_array.id)
+                    << ", i64 0, i64 " << checked << "\n"
+                    << "  store " << llvm_type(array.element_type) << ' ' << operands[2]
+                    << ", ptr " << pointer << "\n";
+            return;
+        }
         }
     }
 
@@ -781,7 +852,7 @@ private:
         if (destination != current_function_->blocks.end()) {
             const std::size_t count = std::min(arguments.size(),
                                                destination->parameters.size());
-            std::vector<std::pair<IRType, std::string>> edge_values;
+            std::vector<std::pair<IRValue, std::string>> edge_values;
             edge_values.reserve(count);
             for (std::size_t index = 0; index < count; ++index) {
                 const IRValueId argument_id = arguments[index];
@@ -825,7 +896,7 @@ private:
     std::vector<Diagnostic> diagnostics_;
     std::vector<StringGlobal> string_globals_;
     std::unordered_map<const IRInstruction*, std::string> string_symbols_;
-    std::unordered_map<IRValueId, IRType> value_types_;
+    std::unordered_map<IRValueId, IRValue> value_types_;
     const IRFunction* entry_{nullptr};
     const IRFunction* current_function_{nullptr};
     std::size_t next_temp_{0};
