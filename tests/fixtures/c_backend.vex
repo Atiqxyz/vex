@@ -1,4 +1,13 @@
 make main() {
+    say(-7 % 3)
+    say(7 % -3)
+    say(-7 % -3)
+    let signed_remainder = -7
+    signed_remainder %= 3
+    say(signed_remainder)
+    let minimum_integer = -9223372036854775807 - 1
+    say(minimum_integer % -1)
+
     say(trace_int(1) - trace_int(2))
     say(combine_values(trace_int(3), trace_int(4)))
     let ordered_values = [trace_int(5), trace_int(6)]

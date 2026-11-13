@@ -89,6 +89,12 @@ void test_operator_and_condition_types(TestContext& tests) {
     const vex::SemanticResult result = analyze(source);
     tests.check(has_code(result, "SEM012"),
                 "arithmetic with non-numeric operands is rejected");
+
+    const vex::SourceFile invalid_remainder{"invalid_remainder.vex",
+        "make main() { let value = 7.5 % 2 }\n"};
+    const vex::SemanticResult remainder_result = analyze(invalid_remainder);
+    tests.check(has_code(remainder_result, "SEM012"),
+                "remainder rejects non-integer operands");
     tests.check(has_code(result, "SEM029"), "non-boolean if conditions are rejected");
     tests.check(has_code(result, "SEM030"), "non-integer repeat counts are rejected");
 }

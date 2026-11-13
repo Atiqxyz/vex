@@ -116,7 +116,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Grouping / multiline expression form | Implemented | Explicit square-bracket grouping behavior is documented. |
 | Bitwise AND / OR / XOR / NOT | Not implemented | Important for systems, cryptography and binary protocols. |
 | Bit shifts and rotates | Not implemented | Need defined behavior for negative counts and overflow. |
-| Modulo semantics for negative operands | Verify | Specify and test exact sign behavior across backends. |
+| Modulo semantics for negative operands | Implemented | Truncating signed remainder; non-zero result follows the dividend's sign; `INT64_MIN % -1` is defined as zero. |
 | Increment / decrement | Deferred | Avoid duplicating \`+= 1\` and \`-= 1\` unless a concrete need appears. |
 | Ternary / conditional expression | Not implemented | Could be unnecessary if expression-oriented \`if\` is later adopted. |
 | Null-coalescing / optional operators | Not implemented | Depends on optional values. |

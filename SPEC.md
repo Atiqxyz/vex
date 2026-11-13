@@ -185,7 +185,7 @@ The implemented numeric representation is signed 64-bit integers and 64-bit floa
 - Local `let` and `const` types are inferred from their initializers when no annotation is present.
 - Explicit local annotations are checked against initializer types.
 - An `int` value may widen to `float`; implicit conversion from `float` to `int` is rejected.
-- Arithmetic operators require numeric operands. The remainder operator `%` requires two `int` operands.
+- Arithmetic operators require numeric operands. The remainder operator `%` requires two `int` operands and uses truncating signed-remainder semantics: the quotient is truncated toward zero and any non-zero remainder has the sign of the left operand (for example, `-7 % 3 == -1`, `7 % -3 == 1`, and `-7 % -3 == -1`). A zero divisor traps. The defined edge case `INT64_MIN % -1` returns `0`; `INT64_MIN / -1` remains a checked division overflow.
 - Relational comparisons require numeric operands. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
 - `repeat` counts require `int`.

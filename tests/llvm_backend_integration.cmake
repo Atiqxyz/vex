@@ -1,5 +1,6 @@
 if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED LLVM_CLANG OR
-   NOT DEFINED SOURCE_FILE OR NOT DEFINED ARRAY_BOUNDS_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED SOURCE_FILE OR NOT DEFINED ARRAY_BOUNDS_SOURCE_FILE OR
+   NOT DEFINED REMAINDER_ZERO_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX LLVM backend integration-test argument")
 endif()
 
@@ -42,7 +43,7 @@ if(NOT program_result EQUAL 0)
 endif()
 
 string(REPLACE "\r\n" "\n" program_output "${program_output}")
-set(expected_output "1\n2\n-1\n3\n4\n34\n5\n6\n11\n0\n7\n7\n10\n11\ntrue\ntrue\n12\n14\n25\n2\n4\n2\n4\n2\n4\n120\ntrue\ntrue\n30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n10\n18\n9\n8\n0\n9223372036854775807\n")
+set(expected_output "-1\n1\n-1\n-1\n0\n1\n2\n-1\n3\n4\n34\n5\n6\n11\n0\n7\n7\n10\n11\ntrue\ntrue\n12\n14\n25\n2\n4\n2\n4\n2\n4\n120\ntrue\ntrue\n30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n10\n18\n9\n8\n0\n9223372036854775807\n")
 if(NOT "${program_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "LLVM-generated program produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${program_output}")
 endif()
@@ -71,4 +72,14 @@ execute_process(
 )
 if(bounds_result EQUAL 0)
     message(FATAL_ERROR "LLVM backend did not reject an out-of-bounds array index")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-llvm "${REMAINDER_ZERO_SOURCE_FILE}"
+    RESULT_VARIABLE remainder_zero_result
+    OUTPUT_VARIABLE remainder_zero_output
+    ERROR_VARIABLE remainder_zero_error
+)
+if(remainder_zero_result EQUAL 0)
+    message(FATAL_ERROR "LLVM backend did not trap on remainder by zero")
 endif()

@@ -332,13 +332,24 @@ private:
         output_ << "define internal i64 @vex_i64_" << name
                 << "(i64 %left, i64 %right) {\n"
                 << "entry:\n"
-                << "  %zero = icmp eq i64 %right, 0\n"
-                << "  %min = icmp eq i64 %left, -9223372036854775808\n"
-                << "  %negative_one = icmp eq i64 %right, -1\n"
-                << "  %overflow = and i1 %min, %negative_one\n"
-                << "  %invalid = or i1 %zero, %overflow\n"
-                << "  br i1 %invalid, label %trap, label %ok\n"
-                << "trap:\n"
+                << "  %zero = icmp eq i64 %right, 0\n";
+        if (std::string_view{name} == "rem") {
+            output_ << "  br i1 %zero, label %trap, label %overflow_check\n"
+                    << "overflow_check:\n"
+                    << "  %min = icmp eq i64 %left, -9223372036854775808\n"
+                    << "  %negative_one = icmp eq i64 %right, -1\n"
+                    << "  %overflow = and i1 %min, %negative_one\n"
+                    << "  br i1 %overflow, label %zero_result, label %ok\n"
+                    << "zero_result:\n"
+                    << "  ret i64 0\n";
+        } else {
+            output_ << "  %min = icmp eq i64 %left, -9223372036854775808\n"
+                    << "  %negative_one = icmp eq i64 %right, -1\n"
+                    << "  %overflow = and i1 %min, %negative_one\n"
+                    << "  %invalid = or i1 %zero, %overflow\n"
+                    << "  br i1 %invalid, label %trap, label %ok\n";
+        }
+        output_ << "trap:\n"
                 << "  call void @llvm.trap()\n"
                 << "  unreachable\n"
                 << "ok:\n"
