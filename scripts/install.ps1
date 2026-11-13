@@ -55,7 +55,7 @@ try {
     [Environment]::SetEnvironmentVariable("Path", ($pathEntries -join ";"), "User")
     $env:Path = "$binPath;$env:Path"
 
-    $vsix = Join-Path $installRoot "share\vex\vex-language-0.1.0.vsix"
+    $vsix = Join-Path $installRoot "share\vex\vex-language.vsix"
     $codeCommand = Get-Command code -ErrorAction SilentlyContinue
     if ($env:VEX_SKIP_VSCODE) {
         # Installer integration tests intentionally skip editor modification.
