@@ -53,9 +53,20 @@ function activate(context) {
     });
   }
 
+  function activeVexDocument() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== "vex") {
+      vscode.window.showWarningMessage("Open a VEX source file first.");
+      return null;
+    }
+    return editor.document;
+  }
+
   context.subscriptions.push(
-    vscode.commands.registerTextEditorCommand("vex.checkCurrentFile", async (editor) => {
-      const result = await runCompilerCommand("check", editor.document);
+    vscode.commands.registerCommand("vex.checkCurrentFile", async () => {
+      const document = activeVexDocument();
+      if (!document) return;
+      const result = await runCompilerCommand("check", document);
       if (!result) return;
       if (result.code === 0) {
         vscode.window.showInformationMessage("VEX semantic check passed.");
@@ -66,8 +77,10 @@ function activate(context) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerTextEditorCommand("vex.emitCPreview", async (editor) => {
-      const result = await runCompilerCommand("emit-c", editor.document);
+    vscode.commands.registerCommand("vex.emitCPreview", async () => {
+      const document = activeVexDocument();
+      if (!document) return;
+      const result = await runCompilerCommand("emit-c", document);
       if (!result) return;
       if (result.code === 0) {
         const generated = await vscode.workspace.openTextDocument({
@@ -82,8 +95,10 @@ function activate(context) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerTextEditorCommand("vex.buildCurrentFile", async (editor) => {
-      const result = await runCompilerCommand("build", editor.document);
+    vscode.commands.registerCommand("vex.buildCurrentFile", async () => {
+      const document = activeVexDocument();
+      if (!document) return;
+      const result = await runCompilerCommand("build", document);
       if (!result) return;
       if (result.code === 0) {
         vscode.window.showInformationMessage("VEX build completed. See the VEX output channel for the executable path.");
@@ -94,8 +109,10 @@ function activate(context) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerTextEditorCommand("vex.runCurrentFile", async (editor) => {
-      const result = await runCompilerCommand("run", editor.document);
+    vscode.commands.registerCommand("vex.runCurrentFile", async () => {
+      const document = activeVexDocument();
+      if (!document) return;
+      const result = await runCompilerCommand("run", document);
       if (!result) return;
       if (result.code === 0) {
         vscode.window.showInformationMessage("VEX program finished successfully.");
@@ -104,7 +121,6 @@ function activate(context) {
       }
     })
   );
-
 }
 
 function deactivate() {}
