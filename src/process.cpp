@@ -22,9 +22,14 @@ ProcessResult run_process(
     const std::vector<std::string>& arguments) {
     ProcessResult result;
 #ifdef _WIN32
+    // The Windows CRT combines argv into a command line. Quote argv[0]
+    // explicitly when the executable path contains spaces (for example,
+    // C:\\Program Files\\LLVM\\bin\\clang.exe); otherwise the child
+    // process can interpret the tail of its own path as an input argument.
+    const std::string executable_argument = "\"" + executable + "\"";
     std::vector<const char*> argv;
     argv.reserve(arguments.size() + 2);
-    argv.push_back(executable.c_str());
+    argv.push_back(executable_argument.c_str());
     for (const std::string& argument : arguments) argv.push_back(argument.c_str());
     argv.push_back(nullptr);
     const std::intptr_t status = _spawnvp(
