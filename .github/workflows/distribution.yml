@@ -147,6 +147,78 @@ jobs:
           cd dist
           tar -czf vex-${{ matrix.platform }}.tar.gz vex
 
+      - name: Test Windows installer end-to-end
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "dist"
+          $archive = Join-Path $releaseDir "vex-windows-x64.zip"
+          $hash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  vex-windows-x64.zip" | Out-File -FilePath (Join-Path $releaseDir "SHA256SUMS.txt") -Encoding ascii
+
+          $python = (Get-Command python -ErrorAction Stop).Source
+          $server = Start-Process -FilePath $python -ArgumentList @("-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", $releaseDir) -PassThru -WindowStyle Hidden
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 20; $i++) {
+              try {
+                Invoke-WebRequest -Uri "http://127.0.0.1:8765/SHA256SUMS.txt" -TimeoutSec 2 | Out-Null
+                $ready = $true
+                break
+              } catch { Start-Sleep -Milliseconds 500 }
+            }
+            if (-not $ready) { throw "Local release mirror did not start" }
+
+            $env:VEX_RELEASE_BASE_URL = "http://127.0.0.1:8765"
+            $env:VEX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "vex-installer-test"
+            $env:VEX_SKIP_VSCODE = "1"
+            & "$env:GITHUB_WORKSPACE/scripts/install.ps1"
+            if ($LASTEXITCODE -ne 0) { throw "VEX installer script failed" }
+
+            $compiler = Join-Path $env:VEX_INSTALL_DIR "bin/vex.exe"
+            cmake "-DVEX_EXECUTABLE=$compiler" "-DSOURCE_FILE=$env:GITHUB_WORKSPACE/examples/hello.vex" "-DWORK_DIR=$env:RUNNER_TEMP/vex-installer-smoke" -P "$env:GITHUB_WORKSPACE/tests/portable_install_smoke.cmake"
+            if ($LASTEXITCODE -ne 0) { throw "Installed VEX smoke test failed" }
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Test Linux and macOS installer end-to-end
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          archive="vex-${{ matrix.platform }}.tar.gz"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" > SHA256SUMS.txt
+          else
+            shasum -a 256 "$archive" > SHA256SUMS.txt
+          fi
+
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$PWD" > "$RUNNER_TEMP/vex-release-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8765/SHA256SUMS.txt >/dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+          curl --fail --silent http://127.0.0.1:8765/SHA256SUMS.txt >/dev/null
+
+          export HOME="$RUNNER_TEMP/vex-installer-home"
+          mkdir -p "$HOME"
+          export VEX_RELEASE_BASE_URL="http://127.0.0.1:8765"
+          export VEX_INSTALL_DIR="$RUNNER_TEMP/vex-installer-test"
+          export VEX_SKIP_VSCODE=1
+          bash "$GITHUB_WORKSPACE/scripts/install.sh"
+
+          compiler="$VEX_INSTALL_DIR/bin/vex"
+          cmake "-DVEX_EXECUTABLE=$compiler" \
+                "-DSOURCE_FILE=$GITHUB_WORKSPACE/examples/hello.vex" \
+                "-DWORK_DIR=$RUNNER_TEMP/vex-installer-smoke" \
+                -P "$GITHUB_WORKSPACE/tests/portable_install_smoke.cmake"
+
       - name: Upload CLI archive
         uses: actions/upload-artifact@v4
         with:
