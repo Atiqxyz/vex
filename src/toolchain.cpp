@@ -115,7 +115,7 @@ bool generate_c(const std::string& path, std::string& generated_source) {
 
     const std::unique_ptr<Backend> backend = create_backend(BackendKind::C);
     if (!backend) {
-        std::cerr << "error: the requested VEX backend is not available\\n";
+        std::cerr << "error: the requested VEX backend is not available\n";
         return false;
     }
 

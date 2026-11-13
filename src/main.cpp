@@ -161,7 +161,7 @@ int run_emit_c(const std::string& path) {
     const std::unique_ptr<vex::Backend> backend =
         vex::create_backend(vex::BackendKind::C);
     if (!backend) {
-        std::cerr << "error: the requested VEX backend is not available\\n";
+        std::cerr << "error: the requested VEX backend is not available\n";
         return 1;
     }
 
