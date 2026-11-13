@@ -19,6 +19,7 @@ std::optional<IRType> to_ir_type(const SemanticType type) {
     case SemanticType::Float: return IRType::Float;
     case SemanticType::Bool: return IRType::Bool;
     case SemanticType::String: return IRType::String;
+    case SemanticType::Struct: return IRType::Struct;
     case SemanticType::Array: return IRType::Array;
     case SemanticType::Error:
     case SemanticType::Unknown:
@@ -38,10 +39,11 @@ public:
     FunctionLowerer(const SourceFile& source, const SemanticModel& semantic_model,
                     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures,
                     const FunctionDeclStmt& declaration,
+                    const std::vector<IRStructType>& struct_types,
                     std::vector<Diagnostic>& diagnostics,
                     const std::vector<const Statement*>* implicit_body = nullptr)
         : source_(source), semantic_model_(semantic_model), signatures_(signatures),
-          declaration_(declaration), diagnostics_(diagnostics),
+          declaration_(declaration), struct_types_(struct_types), diagnostics_(diagnostics),
           implicit_body_(implicit_body) {}
 
     IRFunction lower() {
@@ -66,6 +68,8 @@ public:
                     function_.return_type = IRType::Void;
                 } else {
                     function_.return_type = *return_type;
+                    if (function_.return_type == IRType::Struct)
+                        function_.return_struct_type_id = signature->second.return_struct_type_id;
                     if (function_.return_type == IRType::Array) {
                         if (!signature->second.return_array_type) {
                             report("IR101", "array return type is missing its fixed shape",
@@ -112,6 +116,7 @@ public:
                 continue;
             }
             IRValue value = make_value(*type, parameter.name);
+            if (*type == IRType::Struct) value.struct_type_id = info->struct_type_id;
             if (*type == IRType::Array) {
                 if (!info->array_type) {
                     report("IR104", "array parameter is missing its fixed shape",
@@ -214,11 +219,19 @@ private:
         return value;
     }
 
+    [[nodiscard]] IRValue make_struct_value(const std::uint32_t struct_type_id,
+                                            const SourceSpan span) {
+        IRValue value = make_value(IRType::Struct, span);
+        value.struct_type_id = struct_type_id;
+        return value;
+    }
+
     [[nodiscard]] IRValue make_value_like(const IRValue& source,
                                           const SourceSpan span) {
         IRValue value = make_value(source.type, span);
         value.element_type = source.element_type;
         value.array_length = source.array_length;
+        value.struct_type_id = source.struct_type_id;
         return value;
     }
 
@@ -322,6 +335,144 @@ private:
             return IRValue{};
         }
         return found->second;
+    }
+
+    [[nodiscard]] const IRStructType* get_struct_type(
+        const std::uint32_t id) const {
+        if (id == 0 || id > struct_types_.size()) return nullptr;
+        return &struct_types_[id - 1u];
+    }
+
+    [[nodiscard]] std::optional<IRValue> emit_struct_get(
+        const IRValue& object, const std::uint32_t field_index,
+        const SourceSpan span) {
+        const IRStructType* structure = get_struct_type(object.struct_type_id);
+        if (object.type != IRType::Struct || !structure ||
+            field_index >= structure->fields.size()) {
+            report("IR145", "structure field read has invalid type or field index", span);
+            return std::nullopt;
+        }
+        const IRStructField& field = structure->fields[field_index];
+        IRValue result = make_value(field.type, span);
+        if (field.type == IRType::Struct) result.struct_type_id = field.struct_type_id;
+        IRInstruction instruction;
+        instruction.op = IROp::StructGet;
+        instruction.operands = {object.id};
+        instruction.immediate = std::to_string(field_index);
+        instruction.result = result;
+        instruction.span = span;
+        emit(std::move(instruction));
+        return result;
+    }
+
+    [[nodiscard]] std::optional<IRValue> emit_struct_set(
+        const IRValue& object, const std::uint32_t field_index,
+        IRValue replacement, const SourceSpan span) {
+        const IRStructType* structure = get_struct_type(object.struct_type_id);
+        if (object.type != IRType::Struct || !structure ||
+            field_index >= structure->fields.size()) {
+            report("IR145", "structure field update has invalid type or field index", span);
+            return std::nullopt;
+        }
+        const IRStructField& field = structure->fields[field_index];
+        if (replacement.type != field.type ||
+            (field.type == IRType::Struct &&
+             replacement.struct_type_id != field.struct_type_id)) {
+            report("IR146", "structure field update has incompatible value", span);
+            return std::nullopt;
+        }
+        IRValue result = make_value_like(object, span);
+        IRInstruction instruction;
+        instruction.op = IROp::StructSet;
+        instruction.operands = {object.id, replacement.id};
+        instruction.immediate = std::to_string(field_index);
+        instruction.result = result;
+        instruction.span = span;
+        emit(std::move(instruction));
+        return result;
+    }
+
+    [[nodiscard]] std::optional<IRValue> update_struct_path(
+        const IRValue& object, const std::vector<std::uint32_t>& path,
+        const std::size_t depth, IRValue replacement, const SourceSpan span) {
+        if (depth >= path.size()) return replacement;
+        if (depth + 1u == path.size())
+            return emit_struct_set(object, path[depth], replacement, span);
+        const auto child = emit_struct_get(object, path[depth], span);
+        if (!child) return std::nullopt;
+        const auto updated_child = update_struct_path(
+            *child, path, depth + 1u, replacement, span);
+        if (!updated_child) return std::nullopt;
+        return emit_struct_set(object, path[depth], *updated_child, span);
+    }
+
+    [[nodiscard]] bool collect_member_path(
+        const Expr& expression, std::vector<std::uint32_t>& path) const {
+        if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
+            if (!member->object || !collect_member_path(*member->object, path))
+                return false;
+            const auto index = semantic_model_.member_field_indices.find(member);
+            if (index == semantic_model_.member_field_indices.end()) return false;
+            path.push_back(index->second);
+            return true;
+        }
+        return std::holds_alternative<NameExpr>(expression.data);
+    }
+
+    [[nodiscard]] std::optional<IRValue> lower_struct_literal(
+        const StructLiteralExpr& literal, const Expr& expression) {
+        const auto type_id = semantic_model_.struct_expression_types.find(&expression);
+        const auto field_indices = semantic_model_.struct_literal_field_indices.find(&literal);
+        if (type_id == semantic_model_.struct_expression_types.end() ||
+            field_indices == semantic_model_.struct_literal_field_indices.end()) {
+            report("IR147", "structure literal is missing semantic layout information",
+                   expression.span);
+            return std::nullopt;
+        }
+        const IRStructType* structure = get_struct_type(type_id->second);
+        if (!structure || field_indices->second.size() != literal.fields.size()) {
+            report("IR147", "structure literal field layout is inconsistent", expression.span);
+            return std::nullopt;
+        }
+        std::vector<std::optional<IRValue>> values(structure->fields.size());
+        // Preserve source evaluation order, then pass operands in declaration order.
+        for (std::size_t index = 0; index < literal.fields.size(); ++index) {
+            if (!literal.fields[index].value) return std::nullopt;
+            const std::uint32_t field_index = field_indices->second[index];
+            if (field_index >= structure->fields.size()) {
+                report("IR147", "structure literal contains an invalid field index",
+                       literal.fields[index].name);
+                return std::nullopt;
+            }
+            const auto value = lower_expression(*literal.fields[index].value);
+            if (!value) return std::nullopt;
+            const IRStructField& field = structure->fields[field_index];
+            const auto converted = convert(*value, field.type,
+                                           literal.fields[index].value->span);
+            if (!converted) return std::nullopt;
+            if (field.type == IRType::Struct &&
+                converted->struct_type_id != field.struct_type_id) {
+                report("IR146", "nested structure initializer has the wrong structure type",
+                       literal.fields[index].value->span);
+                return std::nullopt;
+            }
+            values[field_index] = *converted;
+        }
+        IRInstruction instruction;
+        instruction.op = IROp::StructMake;
+        instruction.result = make_struct_value(type_id->second, expression.span);
+        instruction.span = expression.span;
+        instruction.operands.reserve(values.size());
+        for (const auto& value : values) {
+            if (!value) {
+                report("IR147", "structure literal is missing a field value", expression.span);
+                return std::nullopt;
+            }
+            instruction.operands.push_back(value->id);
+        }
+        const IRValue result = *instruction.result;
+        emit(std::move(instruction));
+        return result;
     }
 
     [[nodiscard]] std::vector<SemanticBindingId> sorted_environment_ids(
@@ -673,6 +824,15 @@ private:
                        expression.span);
                 return std::nullopt;
             }
+            if (*parameter_type == IRType::Struct) {
+                if (index >= signature->second.parameter_struct_type_ids.size() ||
+                    arguments[index].type != IRType::Struct ||
+                    arguments[index].struct_type_id != signature->second.parameter_struct_type_ids[index]) {
+                    report("IR122", "structure argument does not match the parameter structure type",
+                           call.arguments[index]->span);
+                    return std::nullopt;
+                }
+            }
             if (*parameter_type == IRType::Array) {
                 if (index >= signature->second.parameter_array_types.size() ||
                     !signature->second.parameter_array_types[index]) {
@@ -726,6 +886,9 @@ private:
                 instruction.result = make_array_value(
                     *element_type, signature->second.return_array_type->length,
                     expression.span);
+            } else if (*return_type == IRType::Struct) {
+                instruction.result = make_struct_value(
+                    signature->second.return_struct_type_id, expression.span);
             } else {
                 instruction.result = make_value(*return_type, expression.span);
             }
@@ -765,6 +928,18 @@ private:
         }
         if (const auto* group = std::get_if<GroupExpr>(&expression.data)) {
             return group->expression ? lower_expression(*group->expression) : std::nullopt;
+        }
+        if (const auto* structure = std::get_if<StructLiteralExpr>(&expression.data))
+            return lower_struct_literal(*structure, expression);
+        if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
+            if (!member->object) return std::nullopt;
+            const auto object = lower_expression(*member->object);
+            const auto index = semantic_model_.member_field_indices.find(member);
+            if (!object || index == semantic_model_.member_field_indices.end()) {
+                report("IR145", "structure field read is missing semantic information", expression.span);
+                return std::nullopt;
+            }
+            return emit_struct_get(*object, index->second, expression.span);
         }
         if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression.data)) {
             const auto shape = semantic_model_.array_expression_types.find(&expression);
@@ -827,6 +1002,27 @@ private:
         }
         if (const auto* assignment =
                 std::get_if<AssignmentExpr>(&expression.data)) {
+            if (const auto* member_target = assignment->target
+                    ? std::get_if<MemberExpr>(&assignment->target->data) : nullptr) {
+                static_cast<void>(member_target);
+                const auto target = semantic_model_.assignment_targets.find(assignment);
+                if (target == semantic_model_.assignment_targets.end() || !assignment->value) {
+                    report("IR148", "structure field assignment is missing its resolved binding", expression.span);
+                    return std::nullopt;
+                }
+                IRValue root = current_value(target->second, expression.span);
+                std::vector<std::uint32_t> path;
+                if (!collect_member_path(*assignment->target, path) || path.empty()) {
+                    report("IR148", "structure field assignment has an invalid member path", expression.span);
+                    return std::nullopt;
+                }
+                const auto value = lower_expression(*assignment->value);
+                if (!value) return std::nullopt;
+                const auto updated = update_struct_path(root, path, 0, *value, expression.span);
+                if (!updated) return std::nullopt;
+                environment_[target->second] = *updated;
+                return *value;
+            }
             if (const auto* indexed = assignment->target
                     ? std::get_if<IndexExpr>(&assignment->target->data) : nullptr) {
                 const auto target = semantic_model_.assignment_targets.find(assignment);
@@ -879,6 +1075,11 @@ private:
             }
             const auto converted = convert(*value, *target_type, expression.span);
             if (!converted) return std::nullopt;
+            if (*target_type == IRType::Struct &&
+                converted->struct_type_id != binding->struct_type_id) {
+                report("IR146", "assigned structure value has the wrong structure type", expression.span);
+                return std::nullopt;
+            }
             environment_[target->second] = *converted;
             return *converted;
         }
@@ -921,6 +1122,11 @@ private:
             return;
         }
         const auto converted = convert(*value, *target_type, variable.name);
+        if (converted && *target_type == IRType::Struct &&
+            converted->struct_type_id != info->struct_type_id) {
+            report("IR146", "variable initializer has the wrong structure type", variable.name);
+            return;
+        }
         if (converted) environment_[binding->second] = *converted;
     }
 
@@ -1416,7 +1622,11 @@ private:
                 if (value) {
                     const auto converted = convert(*value, function_.return_type,
                                                    returned->value->span);
-                    if (converted) return_value = converted->id;
+                    if (converted && function_.return_type == IRType::Struct &&
+                        converted->struct_type_id != function_.return_struct_type_id) {
+                        report("IR149", "returned structure has the wrong structure type",
+                               returned->value->span);
+                    } else if (converted) return_value = converted->id;
                 }
             }
             terminate_current(IRTerminator{IRReturn{return_value}, statement.span});
@@ -1468,6 +1678,7 @@ private:
     const SemanticModel& semantic_model_;
     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures_;
     const FunctionDeclStmt& declaration_;
+    const std::vector<IRStructType>& struct_types_;
     std::vector<Diagnostic>& diagnostics_;
     const std::vector<const Statement*>* implicit_body_{nullptr};
     IRFunction function_;
@@ -1485,6 +1696,21 @@ public:
         : source_(source), program_(program), semantic_model_(semantic_model) {}
 
     IRLoweringResult run() {
+        for (const SemanticStructType& structure : semantic_model_.struct_types) {
+            IRStructType converted;
+            converted.id = structure.id;
+            converted.name = structure.name;
+            for (const SemanticStructField& field : structure.fields) {
+                const auto type = to_ir_type(field.type);
+                if (!type || *type == IRType::Void || *type == IRType::Array) {
+                    diagnostics_.push_back(Diagnostic{DiagnosticSeverity::Error, "IR150",
+                        "structure field type cannot be represented in IR", field.declaration});
+                    continue;
+                }
+                converted.fields.push_back(IRStructField{field.name, *type, field.struct_type_id});
+            }
+            module_.struct_types.push_back(std::move(converted));
+        }
         std::unordered_map<std::string, SemanticFunctionSignature> signatures;
         for (const auto& entry : semantic_model_.functions) {
             signatures.emplace(entry.second.name, entry.second);
@@ -1498,12 +1724,14 @@ public:
             const auto* function =
                 std::get_if<FunctionDeclStmt>(&statement->data);
             if (!function) {
-                top_level_statements.push_back(statement.get());
+                if (!std::holds_alternative<StructDeclStmt>(statement->data))
+                    top_level_statements.push_back(statement.get());
                 continue;
             }
             if (source_.slice(function->name) == "main") has_explicit_main = true;
             module_.functions.push_back(FunctionLowerer(
-                source_, semantic_model_, signatures, *function, diagnostics_).lower());
+                source_, semantic_model_, signatures, *function, module_.struct_types,
+                diagnostics_).lower());
         }
 
         if (has_explicit_main) {
@@ -1518,7 +1746,7 @@ public:
             const FunctionDeclStmt implicit_entry{};
             module_.functions.push_back(FunctionLowerer(
                 source_, semantic_model_, signatures, implicit_entry,
-                diagnostics_, &top_level_statements).lower());
+                module_.struct_types, diagnostics_, &top_level_statements).lower());
         }
         return IRLoweringResult{std::move(module_), std::move(diagnostics_)};
     }
