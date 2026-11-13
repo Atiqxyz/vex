@@ -235,6 +235,7 @@ void test_structure_declarations_literals_and_members(TestContext& tests) {
         "make main() {\n"
         "    let point = Point { x: 2, y: 3 }\n"
         "    point.x = 5\n"
+        "    let points = [Point { x: 2, y: 3 }]\n"
         "    say(point.y)\n"
         "}\n"};
     const vex::ParseResult parsed = parse(source);

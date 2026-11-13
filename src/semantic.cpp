@@ -208,6 +208,12 @@ private:
             const auto* structure = std::get_if<StructDeclStmt>(&statement->data);
             if (!structure) continue;
             const std::string name = spelling(structure->name);
+            if (name == "int" || name == "float" || name == "bool" ||
+                name == "string" || name == "void") {
+                report("SEM002", "structure name '" + name + "' conflicts with a built-in type",
+                       structure->name);
+                continue;
+            }
             if (struct_ids_.find(name) != struct_ids_.end() ||
                 scopes_.front().find(name) != scopes_.front().end()) {
                 report("SEM002", "duplicate global declaration of '" + name + "'",
