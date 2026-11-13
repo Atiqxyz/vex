@@ -41,7 +41,7 @@ make main() {
 - Type annotations use `name: type` syntax and may be omitted on local bindings when inference is possible.
 - Function parameters require explicit type annotations in the current semantic checker.
 - A function without a return type annotation is treated as returning `void`; value-returning functions must declare a return type.
-- `main` is the proposed entry point for generated C programs.
+- If `make main()` is present, it is the program entry point and top-level executable statements are rejected. If it is absent, top-level statements execute in source order through a compiler-generated entry function. File-scope function declarations remain declarations in either mode. File-scope values belong to implicit-entry execution and are not captured by ordinary functions; pass values as parameters instead.
 - The built-in `say(value)` accepts one supported primitive value and is implemented by the initial C backend runtime.
 
 ### Functions with parameters and return types
@@ -238,7 +238,7 @@ The backend emits C source only. It does not invoke a C compiler, link an execut
 ## 8. Open language-design questions
 
 - whether `const` means immutable binding only or compile-time evaluation;
-- implicit top-level execution when no explicit `main()` exists (desired direction; not yet implemented);
+- global variables shared between separately declared functions (not implemented; current top-level bindings belong to implicit-entry execution);
 - string interpolation and escaping;
 - function overloading and default arguments;
 - array and structure layout;
