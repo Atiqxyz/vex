@@ -167,8 +167,14 @@ void test_implicit_and_explicit_entry_points(TestContext& tests) {
         const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
         const vex::SemanticResult semantic =
             vex::SemanticAnalyzer(source, parsed.program).analyze();
-        if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) {
-            return vex::IRLoweringResult{};
+        if (lexed.has_errors()) {
+            return vex::IRLoweringResult{{}, lexed.diagnostics};
+        }
+        if (parsed.has_errors()) {
+            return vex::IRLoweringResult{{}, parsed.diagnostics};
+        }
+        if (semantic.has_errors()) {
+            return vex::IRLoweringResult{{}, semantic.diagnostics};
         }
         return vex::IRLowerer(source, parsed.program, semantic.model).lower();
     };
