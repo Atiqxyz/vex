@@ -30,15 +30,17 @@ void print_help() {
         << "  vex ir <file.vex>       Lower a valid program to typed SSA IR\n"
         << "  vex emit-c <file.vex>   Emit portable C11 from verified VEX IR\n"
         << "  vex emit-llvm <file.vex> Emit LLVM IR from verified VEX IR\n"
-        << "  vex build <file.vex>    Build using the C backend\n"
-        << "  vex run <file.vex>      Build and execute using the C backend\n"
+        << "  vex build <file.vex>    Build a native executable using LLVM\n"
+        << "  vex run <file.vex>      Build and execute using the bundled LLVM toolchain\n"
+        << "  vex build-c <file.vex>  Build using the optional C11 backend\n"
+        << "  vex run-c <file.vex>    Build and execute using the optional C11 backend\n"
         << "  vex build-llvm <file.vex> Build a native executable using LLVM\n"
         << "  vex build-llvm <file.vex> -o <output>  Choose executable path\n"
         << "  vex run-llvm <file.vex> Build and execute using LLVM\n"
         << "  vex --version           Show compiler version\n"
         << "  vex --help              Show this help message\n\n"
         << "emit-c and emit-llvm write generated source to standard output.\n"
-        << "build/run require a C11 compiler; build-llvm/run-llvm require Clang with LLVM IR support.\n";
+        << "build/run use the bundled Zig/LLVM toolchain (or installed Clang); build-c/run-c require a C11 compiler.\n";
 }
 bool read_source_file(const std::string& path, std::string& contents) {
     std::ifstream input(path, std::ios::binary);
@@ -205,14 +207,17 @@ int main(const int argc, char* argv[]) {
         if (command == "ir") return run_ir(argv[2]);
         if (command == "emit-c") return run_emit_c(argv[2]);
         if (command == "emit-llvm") return run_emit_llvm(argv[2]);
-        if (command == "build") return vex::build_program(argv[2]);
-        if (command == "run") return vex::run_program(argv[2]);
+        if (command == "build") return vex::build_llvm_program(argv[2]);
+        if (command == "run") return vex::run_llvm_program(argv[2]);
+        if (command == "build-c") return vex::build_program(argv[2]);
+        if (command == "run-c") return vex::run_program(argv[2]);
         if (command == "build-llvm") return vex::build_llvm_program(argv[2]);
         if (command == "run-llvm") return vex::run_llvm_program(argv[2]);
     }
     if (argc == 5 && std::string(argv[3]) == "-o") {
         const std::string command = argv[1];
-        if (command == "build") return vex::build_program(argv[2], argv[4]);
+        if (command == "build") return vex::build_llvm_program(argv[2], argv[4]);
+        if (command == "build-c") return vex::build_program(argv[2], argv[4]);
         if (command == "build-llvm") return vex::build_llvm_program(argv[2], argv[4]);
     }
     print_help();
