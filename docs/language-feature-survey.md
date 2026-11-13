@@ -32,7 +32,7 @@ The purpose is to borrow proven capabilities, not clone any language or copy its
 
 - Mutable and immutable bindings with inference and optional explicit type annotations.
 - Typed function parameters and return types; recursion and forward calls.
-- Optional explicit make main() entry point. The intended default is top-level execution when main is absent. This fallback is a design decision and is not implemented yet.
+- Optional explicit make main() entry point. Without it, top-level statements execute in source order through a compiler-generated entry function. With it, top-level executable statements are rejected to avoid two competing execution paths.
 - Default argument values and named arguments if they do not create overload or call-resolution ambiguity.
 - Generic functions and types after type identity and constraints are designed.
 - Closures and function values after capture and lifetime behavior can be specified.
@@ -120,6 +120,7 @@ Modules/imports intentionally come later. Their visibility, initialization, pack
 
 The feature/core-language-expansion branch currently contains:
 
+- optional explicit main(); absent main, top-level statements run in source order through a compiler-generated entry function;
 - while condition { ... };
 - break and continue in while and counted repeat loops;
 - Boolean checking for while conditions and diagnostics when loop controls are used outside loops;
@@ -127,7 +128,7 @@ The feature/core-language-expansion branch currently contains:
 - compound assignment desugaring through the existing assignment and arithmetic semantic model;
 - SSA control-flow lowering for while and loop-control edges.
 
-These changes still require a full build and end-to-end backend validation before release-ready. for-in remains parser-only until iterable types exist. Arrays, structs, enums, pattern matching, generics, result values, memory controls, bitwise operators, and implicit top-level main behavior remain planned.
+With explicit main(), top-level executable statements are rejected; top-level values in implicit-entry mode are not captured by ordinary functions. These changes still require a full build and end-to-end backend validation before release-ready. for-in remains parser-only until iterable types exist. Arrays, structs, enums, pattern matching, generics, result values, memory controls, and bitwise operators remain planned.
 
 ## Primary language references
 
