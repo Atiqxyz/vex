@@ -1,4 +1,7 @@
 make main() {
+    say(factorial(5))
+    say(is_even(8))
+    say(is_odd(7))
     let total = combine(10, 20)
     say(total)
 
@@ -68,4 +71,19 @@ make combine(left: int, right: int) -> int {
 
 make square(x: int) -> int {
     return x * x
+}
+
+make factorial(n: int) -> int {
+    if n <= 1 { return 1 }
+    return n * factorial(n - 1)
+}
+
+make is_even(n: int) -> bool {
+    if n == 0 { return true }
+    return is_odd(n - 1)
+}
+
+make is_odd(n: int) -> bool {
+    if n == 0 { return false }
+    return is_even(n - 1)
 }
