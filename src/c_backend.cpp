@@ -248,7 +248,7 @@ private:
             output_ << "typedef struct " << struct_type_name(structure.id)
                     << " " << struct_type_name(structure.id) << ";\n";
         }
-        output_ << '\\n';
+        output_ << '\n';
         for (const IRStructType& structure : module_.struct_types) {
             output_ << "struct " << struct_type_name(structure.id) << " {\n";
             for (const IRStructField& field : structure.fields) {
@@ -258,7 +258,7 @@ private:
             }
             output_ << "};\n";
         }
-        output_ << '\\n';
+        output_ << '\n';
     }
 
     void emit_array_types() {
@@ -737,29 +737,27 @@ private:
             const IRStructType& structure = module_.struct_types[id - 1u];
             for (std::size_t index = 0; index < structure.fields.size(); ++index) {
                 output_ << "    " << result << "." << structure.fields[index].name
-                        << " = " << operand(index) << ";\\n";
+                        << " = " << operand(index) << ";\n";
             }
             return;
         }
         case IROp::StructGet: {
-            const IRValue* object = value_type(function, instruction.operands[0])
-                ? &*value_type(function, instruction.operands[0]) : nullptr;
+            const auto object = value_type(function, instruction.operands[0]);
             if (!object) return;
             const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
             const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
             output_ << "    " << result << " = " << operand(0) << "."
-                    << structure.fields[index].name << ";\\n";
+                    << structure.fields[index].name << ";\n";
             return;
         }
         case IROp::StructSet: {
-            const IRValue* object = value_type(function, instruction.operands[0])
-                ? &*value_type(function, instruction.operands[0]) : nullptr;
+            const auto object = value_type(function, instruction.operands[0]);
             if (!object) return;
             const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
             const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
-            output_ << "    " << result << " = " << operand(0) << ";\\n"
+            output_ << "    " << result << " = " << operand(0) << ";\n"
                     << "    " << result << "." << structure.fields[index].name
-                    << " = " << operand(1) << ";\\n";
+                    << " = " << operand(1) << ";\n";
             return;
         }
         case IROp::ArrayMake: {
