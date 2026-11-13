@@ -363,6 +363,7 @@ private:
         current_block_ = merge;
     }
 
+    // Lower the left side first; the right side exists only on the RHS path.
     [[nodiscard]] std::optional<IRValue> lower_short_circuit(
         const BinaryExpr& binary, const Expr& expression) {
         const auto left = binary.left ? lower_expression(*binary.left) : std::nullopt;
@@ -448,6 +449,7 @@ private:
             return lower_short_circuit(binary, expression);
         }
 
+        // Emit ordinary binary operands in VEX's left-to-right order.
         auto left = binary.left ? lower_expression(*binary.left) : std::nullopt;
         auto right = binary.right ? lower_expression(*binary.right) : std::nullopt;
         if (!left || !right) return std::nullopt;
@@ -508,6 +510,7 @@ private:
 
         std::vector<IRValue> arguments;
         arguments.reserve(call.arguments.size());
+        // Evaluate call arguments in source order before emitting the call.
         for (const ExprPtr& argument : call.arguments) {
             if (!argument) {
                 report("IR117", "call contains a missing argument", expression.span);
@@ -658,6 +661,7 @@ private:
             instruction.span = expression.span;
             instruction.result = make_array_value(*element_type, shape->second.length, expression.span);
             instruction.operands.reserve(array->elements.size());
+            // Array elements are evaluated from first to last.
             for (const ExprPtr& element : array->elements) {
                 if (!element) return std::nullopt;
                 const auto value = lower_expression(*element);
@@ -672,6 +676,7 @@ private:
         }
         if (const auto* indexed = std::get_if<IndexExpr>(&expression.data)) {
             if (!indexed->object || !indexed->index) return std::nullopt;
+            // Indexed reads evaluate the array expression before the index.
             const auto array = lower_expression(*indexed->object);
             const auto index = lower_expression(*indexed->index);
             if (!array || !index || array->type != IRType::Array || index->type != IRType::Int)
@@ -714,6 +719,7 @@ private:
                     report("IR144", "array element assignment target is not an array value", expression.span);
                     return std::nullopt;
                 }
+                // For indexed assignment, evaluate the index before the RHS.
                 const auto index = lower_expression(*indexed->index);
                 const auto value = lower_expression(*assignment->value);
                 if (!index || !value || index->type != IRType::Int) return std::nullopt;
@@ -824,6 +830,7 @@ private:
         merge_paths(base, paths, span, "if.end");
     }
 
+    // The top context makes break/continue target only the innermost loop.
     void lower_loop_control(const bool is_break, const SourceSpan span) {
         if (loops_.empty()) {
             report("IR138", is_break
@@ -1016,6 +1023,7 @@ private:
     void lower_range_for(const RangeExpr& range, const ForStmt& loop,
                           const SourceSpan span) {
         if (!range.start || !range.end || !loop.body || !current_block_) return;
+        // Evaluate each range bound once, from start to end.
         const auto start = lower_expression(*range.start);
         const auto end = lower_expression(*range.end);
         if (!start || !end || start->type != IRType::Int || end->type != IRType::Int) {
