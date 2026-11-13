@@ -758,10 +758,12 @@ private:
         case IROp::ArrayPush: {
             const auto array = value_type(function, instruction.operands[0]);
             if (!array) return;
-            const std::string element_type = c_type(array->element_type);
-            output_ << "    vex_array_push(" << operand(0) << ", &(("
-                    << element_type << "[]){ " << operand(1) << " })[0], sizeof("
-                    << element_type << "));\n";
+            const std::string temporary = "vex_array_push_" +
+                std::to_string(instruction.span.begin);
+            output_ << "    " << c_type(array->element_type) << " " << temporary
+                    << " = " << operand(1) << ";\n"
+                    << "    vex_array_push(" << operand(0) << ", &" << temporary
+                    << ", sizeof(" << temporary << "));\n";
             return;
         }
         case IROp::ArrayPop: {
