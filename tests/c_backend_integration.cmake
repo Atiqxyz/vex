@@ -1,5 +1,6 @@
 if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
-   NOT DEFINED C_COMPILER_ID OR NOT DEFINED SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED C_COMPILER_ID OR NOT DEFINED SOURCE_FILE OR
+   NOT DEFINED ARRAY_BOUNDS_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -123,4 +124,14 @@ endif()
 string(REPLACE "\r\n" "\n" run_output "${run_output}")
 if(NOT "${run_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "vex run produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${run_output}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"
+    RESULT_VARIABLE bounds_result
+    OUTPUT_VARIABLE bounds_output
+    ERROR_VARIABLE bounds_error
+)
+if(bounds_result EQUAL 0)
+    message(FATAL_ERROR "C backend did not reject an out-of-bounds array index")
 endif()

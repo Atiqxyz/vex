@@ -147,6 +147,7 @@ if(BUILD_TESTING)
                 -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
                 -DLLVM_CLANG=${VEX_LLVM_CLANG_EXECUTABLE}
                 -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/c_backend.vex
+                -DARRAY_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/array_out_of_bounds.vex
                 "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm backend integration"
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/llvm_backend_integration.cmake
         )
@@ -160,6 +161,7 @@ if(BUILD_TESTING)
                 -DC_COMPILER=${CMAKE_C_COMPILER}
                 -DC_COMPILER_ID=${CMAKE_C_COMPILER_ID}
                 -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/c_backend.vex
+                -DARRAY_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/array_out_of_bounds.vex
                 -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/c_backend_integration
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/c_backend_integration.cmake
         )

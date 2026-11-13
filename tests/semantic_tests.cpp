@@ -292,7 +292,7 @@ void test_fixed_arrays_and_index_assignment(TestContext& tests) {
                 "array reassignment checks fixed length and element type");
 }
 
-void test_unimplemented_iteration_is_explicit(TestContext& tests) {
+void test_for_in_rejects_non_array_values(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
         "    let items = 1\n"
@@ -304,7 +304,7 @@ void test_unimplemented_iteration_is_explicit(TestContext& tests) {
     tests.check(!has_code(result, "SEM001"),
                 "the declared iteration source resolves by name");
     tests.check(has_code(result, "SEM031"),
-                "for-in type checking is deferred until collection types exist");
+                "for-in requires a fixed-size array value");
 }
 
 } // namespace
@@ -320,5 +320,5 @@ void run_semantic_tests(TestContext& tests) {
     test_loop_control_scope_and_while_condition(tests);
     test_top_level_execution_scope(tests);
     test_fixed_arrays_and_index_assignment(tests);
-    test_unimplemented_iteration_is_explicit(tests);
+    test_for_in_rejects_non_array_values(tests);
 }

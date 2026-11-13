@@ -1,5 +1,5 @@
 if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED LLVM_CLANG OR
-   NOT DEFINED SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED SOURCE_FILE OR NOT DEFINED ARRAY_BOUNDS_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX LLVM backend integration-test argument")
 endif()
 
@@ -60,4 +60,15 @@ endif()
 string(REPLACE "\r\n" "\n" run_output "${run_output}")
 if(NOT "${run_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "vex run-llvm produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${run_output}")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+            "${VEX_EXECUTABLE}" run-llvm "${ARRAY_BOUNDS_SOURCE_FILE}"
+    RESULT_VARIABLE bounds_result
+    OUTPUT_VARIABLE bounds_output
+    ERROR_VARIABLE bounds_error
+)
+if(bounds_result EQUAL 0)
+    message(FATAL_ERROR "LLVM backend did not reject an out-of-bounds array index")
 endif()
