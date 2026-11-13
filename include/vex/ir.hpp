@@ -20,7 +20,8 @@ enum class IRType {
     Float,
     Bool,
     String,
-    Array
+    Array,
+    Struct
 };
 
 [[nodiscard]] const char* ir_type_name(IRType type) noexcept;
@@ -51,7 +52,10 @@ enum class IROp {
     ArraySet,
     ArrayLength,
     ArrayPush,
-    ArrayPop
+    ArrayPop,
+    StructMake,
+    StructGet,
+    StructSet
 };
 
 [[nodiscard]] const char* ir_op_name(IROp op) noexcept;
@@ -62,6 +66,19 @@ struct IRValue {
     SourceSpan span{};
     IRType element_type{IRType::Void};
     std::uint32_t array_length{0};
+    std::uint32_t struct_type_id{0};
+};
+
+struct IRStructField {
+    std::string name;
+    IRType type{IRType::Void};
+    std::uint32_t struct_type_id{0};
+};
+
+struct IRStructType {
+    std::uint32_t id{0};
+    std::string name;
+    std::vector<IRStructField> fields;
 };
 
 struct IRInstruction {
@@ -121,12 +138,14 @@ struct IRFunction {
     IRType return_type{IRType::Void};
     IRType return_element_type{IRType::Void};
     std::uint32_t return_array_length{0};
+    std::uint32_t return_struct_type_id{0};
     std::vector<IRBlock> blocks;
     IRBlockId entry_block{0};
     SourceSpan span{};
 };
 
 struct IRModule {
+    std::vector<IRStructType> struct_types;
     std::vector<IRFunction> functions;
 };
 
