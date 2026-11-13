@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Statically link the MSVC runtime so VEX itself does not require users to
+# install a separate Visual C++ Redistributable.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 project(VEX VERSION 0.1.0 LANGUAGES CXX)
 include(CTest)
 include(CheckLanguage)
@@ -40,6 +47,11 @@ target_link_libraries(vex_frontend PRIVATE vex_build_options)
 add_executable(vex src/main.cpp)
 target_link_libraries(vex PRIVATE vex_frontend vex_build_options)
 target_compile_definitions(vex PRIVATE VEX_VERSION="${PROJECT_VERSION}")
+
+# Keep the Linux CLI independent of the distro's libstdc++ package version.
+if(UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_link_options(vex PRIVATE -static-libstdc++ -static-libgcc)
+endif()
 
 include(GNUInstallDirs)
 install(TARGETS vex RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
