@@ -89,6 +89,18 @@ if(BUILD_TESTING)
     add_test(NAME vex_frontend_tests COMMAND vex_tests)
     set_tests_properties(vex_frontend_tests PROPERTIES TIMEOUT 15)
 
+    add_executable(vex_toolchain_stub tests/toolchain_stub.cpp)
+    target_link_libraries(vex_toolchain_stub PRIVATE vex_build_options)
+    add_test(NAME vex_bundled_llvm_discovery_integration
+        COMMAND ${CMAKE_COMMAND}
+            -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+            -DTOOLCHAIN_STUB=$<TARGET_FILE:vex_toolchain_stub>
+            -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/c_backend.vex
+            "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/bundled LLVM discovery integration"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/bundled_llvm_discovery_integration.cmake
+    )
+    set_tests_properties(vex_bundled_llvm_discovery_integration PROPERTIES TIMEOUT 30)
+
     find_program(VEX_LLVM_CLANG_EXECUTABLE NAMES clang clang-21 clang-20 clang-19 clang-18 clang-17 clang-16 clang-15)
     if(VEX_LLVM_CLANG_EXECUTABLE)
         add_test(NAME vex_llvm_backend_integration
