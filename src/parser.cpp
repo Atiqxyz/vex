@@ -81,6 +81,14 @@ StmtPtr Parser::parse_statement(const bool top_level) {
     }
     if (match(TokenKind::KwRepeat)) return parse_repeat(previous());
     if (match(TokenKind::KwFor)) return parse_for(previous());
+    if (match(TokenKind::KwStruct)) {
+        if (!top_level) {
+            report_current("PAR012", "structure declarations are only allowed at file scope");
+            synchronize();
+            return nullptr;
+        }
+        return parse_struct(previous());
+    }
     if (match(TokenKind::KwMake)) {
         if (!top_level) {
             report_current("PAR003", "function declarations are only allowed at file scope");
@@ -122,6 +130,34 @@ StmtPtr Parser::parse_function(const Token& start) {
         SourceSpan{start.span.begin, body->span.end},
         FunctionDeclStmt{name.span, std::move(parameters), return_type, std::move(body)}});
 }
+StmtPtr Parser::parse_struct(const Token& start) {
+    const Token name = expect(TokenKind::Identifier, "expected a structure name after 'struct'");
+    static_cast<void>(expect(TokenKind::LeftBrace, "expected '{' after structure name"));
+    std::vector<StructFieldDecl> fields;
+    skip_newlines();
+    while (!check(TokenKind::RightBrace) && !check(TokenKind::EndOfFile)) {
+        const Token field = expect(TokenKind::Identifier, "expected a field name");
+        static_cast<void>(expect(TokenKind::Colon, "expected ':' after structure field name"));
+        const auto type = parse_type_annotation();
+        fields.push_back(StructFieldDecl{field.span, type});
+        skip_newlines();
+        if (!match(TokenKind::Comma)) {
+            if (!check(TokenKind::RightBrace)) {
+                report_current("PAR013", "expected ',' between structure fields");
+                synchronize();
+                skip_newlines();
+                if (!check(TokenKind::RightBrace) && !check(TokenKind::EndOfFile))
+                    static_cast<void>(match(TokenKind::Comma));
+            }
+        }
+        skip_newlines();
+    }
+    const Token closing = expect(TokenKind::RightBrace, "expected '}' to close structure declaration");
+    return std::make_unique<Statement>(Statement{
+        SourceSpan{start.span.begin, closing.span.end},
+        StructDeclStmt{name.span, std::move(fields)}});
+}
+
 StmtPtr Parser::parse_variable(const Token& start, const bool immutable) {
     const Token name = expect(TokenKind::Identifier,
                               "expected a variable name after declaration keyword");
@@ -239,6 +275,43 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
     if (!left) return nullptr;
     while (true) {
         if (allow_newlines) skip_newlines();
+        if (check(TokenKind::LeftBrace) && minimum_precedence <= 12 &&
+            current_ + 2 < tokens_.size() &&
+            tokens_[current_ + 1].kind == TokenKind::Identifier &&
+            tokens_[current_ + 2].kind == TokenKind::Colon) {
+            const auto* type_name = std::get_if<NameExpr>(&left->data);
+            if (type_name) {
+                static_cast<void>(advance());
+                std::vector<StructLiteralField> fields;
+                skip_newlines();
+                while (!check(TokenKind::RightBrace) && !check(TokenKind::EndOfFile)) {
+                    const Token field = expect(TokenKind::Identifier,
+                                               "expected a field name in structure literal");
+                    static_cast<void>(expect(TokenKind::Colon,
+                                             "expected ':' after structure literal field name"));
+                    ExprPtr value = parse_expression(true);
+                    fields.push_back(StructLiteralField{field.span, std::move(value)});
+                    skip_newlines();
+                    if (!match(TokenKind::Comma)) break;
+                    skip_newlines();
+                }
+                const Token closing = expect(TokenKind::RightBrace,
+                                             "expected '}' after structure literal");
+                const std::size_t begin = left->span.begin;
+                left = make_expression(SourceSpan{begin, closing.span.end},
+                    StructLiteralExpr{type_name->name, std::move(fields)});
+                continue;
+            }
+        }
+        if (check(TokenKind::Dot) && minimum_precedence <= 12) {
+            static_cast<void>(advance());
+            const Token member = expect(TokenKind::Identifier,
+                                        "expected a field name after '.'");
+            const std::size_t begin = left->span.begin;
+            left = make_expression(SourceSpan{begin, member.span.end},
+                                   MemberExpr{std::move(left), member.span});
+            continue;
+        }
         if (check(TokenKind::LeftBracket) && minimum_precedence <= 11) {
             static_cast<void>(advance());
             skip_newlines();
@@ -302,7 +375,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
         } else if (op.kind == TokenKind::Equal || is_compound_assignment) {
             if (!is_assignment_target(*left)) {
                 diagnostics_.error("PAR007",
-                    "the left side of an assignment must be a variable or array element",
+                    "the left side of an assignment must be a variable, array element, or structure field",
                     left->span);
                 left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
             } else if (op.kind == TokenKind::Equal) {
@@ -408,7 +481,7 @@ ExprPtr Parser::make_expression(
     const SourceSpan span,
     std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
                  AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
-                 IndexExpr, RangeExpr> data) {
+                 IndexExpr, RangeExpr, MemberExpr, StructLiteralExpr> data) {
     return std::make_unique<Expr>(Expr{span, std::move(data)});
 }
 int Parser::precedence(const TokenKind kind) noexcept {
@@ -439,6 +512,7 @@ int Parser::precedence(const TokenKind kind) noexcept {
 }
 bool Parser::is_assignment_target(const Expr& expression) noexcept {
     return std::holds_alternative<NameExpr>(expression.data) ||
-           std::holds_alternative<IndexExpr>(expression.data);
+           std::holds_alternative<IndexExpr>(expression.data) ||
+           std::holds_alternative<MemberExpr>(expression.data);
 }
 } // namespace vex

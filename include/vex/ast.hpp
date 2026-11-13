@@ -19,11 +19,14 @@ struct GroupExpr { ExprPtr expression; bool multiline{false}; };
 struct ArrayLiteralExpr { std::vector<ExprPtr> elements; };
 struct IndexExpr { ExprPtr object; ExprPtr index; };
 struct RangeExpr { ExprPtr start; ExprPtr end; bool inclusive{false}; };
+struct MemberExpr { ExprPtr object; SourceSpan member{}; };
+struct StructLiteralField { SourceSpan name{}; ExprPtr value; };
+struct StructLiteralExpr { SourceSpan type_name{}; std::vector<StructLiteralField> fields; };
 struct Expr {
     SourceSpan span{};
     std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
                  AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
-                 IndexExpr, RangeExpr> data;
+                 IndexExpr, RangeExpr, MemberExpr, StructLiteralExpr> data;
 };
 struct Parameter { SourceSpan name{}; std::optional<SourceSpan> type_annotation; };
 struct Statement;
@@ -34,6 +37,8 @@ struct FunctionDeclStmt {
     std::optional<SourceSpan> return_type;
     StmtPtr body;
 };
+struct StructFieldDecl { SourceSpan name{}; std::optional<SourceSpan> type_annotation; };
+struct StructDeclStmt { SourceSpan name{}; std::vector<StructFieldDecl> fields; };
 struct VariableDeclStmt {
     SourceSpan name{};
     bool immutable{false};
@@ -51,7 +56,7 @@ struct RepeatStmt { ExprPtr count; StmtPtr body; };
 struct ForStmt { SourceSpan variable{}; ExprPtr iterable; StmtPtr body; };
 struct Statement {
     SourceSpan span{};
-    std::variant<FunctionDeclStmt, VariableDeclStmt, ReturnStmt,
+    std::variant<FunctionDeclStmt, StructDeclStmt, VariableDeclStmt, ReturnStmt,
                  ExpressionStmt, BlockStmt, IfStmt, WhileStmt, BreakStmt,
                  ContinueStmt, RepeatStmt, ForStmt> data;
 };

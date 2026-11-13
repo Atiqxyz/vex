@@ -9,8 +9,9 @@ namespace {
 
 using Keyword = std::pair<std::string_view, TokenKind>;
 
-constexpr std::array<Keyword, 19> keywords{{
+constexpr std::array<Keyword, 20> keywords{{
     {"make", TokenKind::KwMake},
+    {"struct", TokenKind::KwStruct},
     {"let", TokenKind::KwLet},
     {"const", TokenKind::KwConst},
     {"if", TokenKind::KwIf},
@@ -122,9 +123,7 @@ void Lexer::scan_token() {
         if (match('.')) {
             add_token(match('=') ? TokenKind::RangeInclusive : TokenKind::Range);
         } else {
-            report("LEX010", "a range operator needs two dots ('..' or '..=')",
-                   start_, current_);
-            add_token(TokenKind::Invalid);
+            add_token(TokenKind::Dot);
         }
         break;
     case '+': add_token(match('=') ? TokenKind::PlusEqual : TokenKind::Plus); break;

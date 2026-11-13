@@ -29,6 +29,7 @@ private:
     void synchronize() noexcept;
     [[nodiscard]] StmtPtr parse_statement(bool top_level);
     [[nodiscard]] StmtPtr parse_function(const Token& start);
+    [[nodiscard]] StmtPtr parse_struct(const Token& start);
     [[nodiscard]] StmtPtr parse_variable(const Token& start, bool immutable);
     [[nodiscard]] StmtPtr parse_return(const Token& start);
     [[nodiscard]] StmtPtr parse_if(const Token& start);
@@ -45,7 +46,7 @@ private:
         SourceSpan span,
         std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
                      AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
-                     IndexExpr, RangeExpr> data);
+                     IndexExpr, RangeExpr, MemberExpr, StructLiteralExpr> data);
     [[nodiscard]] static int precedence(TokenKind kind) noexcept;
     [[nodiscard]] static bool is_assignment_target(const Expr& expression) noexcept;
     const SourceFile& source_;

@@ -16,6 +16,7 @@ enum class TokenKind {
     String,
 
     KwMake,
+    KwStruct,
     KwLet,
     KwConst,
     KwIf,
@@ -43,6 +44,7 @@ enum class TokenKind {
     RightBracket,
     Comma,
     Colon,
+    Dot,
     Arrow,
     Range,
     RangeInclusive,
