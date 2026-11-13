@@ -91,7 +91,7 @@ done
 export VEX_HOME="$install_root"
 export PATH="$VEX_HOME/bin:$PATH"
 
-vsix="$install_root/share/vex/vex-language-0.1.0.vsix"
+vsix="$install_root/share/vex/vex-language.vsix"
 if [[ -n "${VEX_SKIP_VSCODE:-}" ]]; then
   : # Installer integration tests intentionally skip editor modification.
 elif command -v code >/dev/null 2>&1 && [[ -f "$vsix" ]]; then
