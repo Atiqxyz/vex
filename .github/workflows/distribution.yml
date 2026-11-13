@@ -173,9 +173,9 @@ jobs:
             $env:VEX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "vex-installer-test"
             $env:VEX_SKIP_VSCODE = "1"
             & "$env:GITHUB_WORKSPACE/scripts/install.ps1"
-            if ($LASTEXITCODE -ne 0) { throw "VEX installer script failed" }
 
             $compiler = Join-Path $env:VEX_INSTALL_DIR "bin/vex.exe"
+            if (-not (Test-Path $compiler)) { throw "VEX installer did not create the expected compiler executable" }
             cmake "-DVEX_EXECUTABLE=$compiler" "-DSOURCE_FILE=$env:GITHUB_WORKSPACE/examples/hello.vex" "-DWORK_DIR=$env:RUNNER_TEMP/vex-installer-smoke" -P "$env:GITHUB_WORKSPACE/tests/portable_install_smoke.cmake"
             if ($LASTEXITCODE -ne 0) { throw "Installed VEX smoke test failed" }
           } finally {
