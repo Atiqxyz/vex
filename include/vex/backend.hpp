@@ -10,7 +10,8 @@
 namespace vex {
 
 enum class BackendKind {
-    C
+    C,
+    LLVM
 };
 
 struct BackendResult {
