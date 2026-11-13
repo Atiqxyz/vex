@@ -69,6 +69,36 @@ VEX does not currently bundle a C compiler, and it is not yet a self-hosted comp
 
 The development build also provides `vex emit-llvm`, `vex build-llvm`, and `vex run-llvm`. These commands use the LLVM backend and an installed Clang driver; they do not generate C as an intermediate compilation step. Set `VEX_LLVM_CC` to the Clang executable path when Clang is not on PATH. Current release packages do not bundle Clang or LLVM, so this is not yet a standalone dependency-free installation path.
 
+### Portable LLVM toolchain layout for packagers
+
+A VEX package can include a complete LLVM installation alongside the compiler. Configure CMake with
+`-DVEX_LLVM_TOOLCHAIN_DIR=/path/to/llvm-installation`, where that directory contains
+`bin/clang` (or `bin/clang.exe` on Windows) and the rest of the matching LLVM
+installation. `cmake --install` copies that directory into the VEX install prefix as
+`toolchain/`, producing this layout:
+
+```text
+vex/
+  bin/
+    vex
+  toolchain/
+    bin/
+      clang
+    lib/
+    ...
+```
+
+VEX looks for the bundled driver relative to its own executable, so a portable package
+does not need to edit the user's PATH or set `VEX_LLVM_CC`. Set `VEX_HOME` to the
+package root only when VEX is launched through a wrapper or from a custom layout.
+Explicit `VEX_LLVM_CC` and `LLVM_CC` settings still take precedence.
+
+This is packaging support, not a claim that the published release archives already
+contain LLVM. The release workflow does not currently download or bundle the LLVM
+toolchain. The bundled compiler still relies on the host operating system's native
+linking/runtime environment; packaging a compiler does not remove the need for the
+platform's system libraries or SDK where those are required.
+
 ## Troubleshooting
 
 - **VS Code cannot start VEX:** confirm that `vex` is on PATH, restart VS Code, or set `vex.compilerPath` to the full executable path.
