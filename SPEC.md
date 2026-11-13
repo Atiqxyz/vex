@@ -20,7 +20,7 @@ This document distinguishes current project decisions from provisional syntax an
 
 ## 2. Provisional syntax
 
-The examples below describe the current design direction. The parser implements this initial syntax subset, and the semantic checker validates the supported primitive rules. Execution is not implemented.
+The examples below describe the current design direction. The parser and semantic checker implement the supported subset, and valid programs lower through typed SSA IR to the C or LLVM backend. A design goal is not an implemented feature.
 
 ### Functions and bindings
 
@@ -73,12 +73,19 @@ repeat 5 times {
     say("VEX!")
 }
 
+while temperature > 30 {
+    temperature -= 1
+    if temperature == 25 {
+        break
+    }
+}
+
 for number in numbers {
     say(number)
 }
 ~~~
 
-A `repeat` count must have type `int`. The parser recognizes `for-in`, but semantic checking rejects it until VEX has collection or iterable types. The exact iteration protocol, collection model, and loop-control semantics remain open.
+A `repeat` count must have type `int`. A `while` condition must have type `bool`. `break` exits the innermost enclosing loop and `continue` advances to its next iteration; both are rejected outside loops. The parser recognizes `for-in`, but semantic checking rejects it until VEX has collection or iterable types.
 
 ### Multiline expressions
 
@@ -100,13 +107,17 @@ program          := newline* (function | statement)* EOF
 function         := "make" identifier "(" parameters? ")" ("->" type)? block
 parameters       := parameter ("," parameter)*
 parameter        := identifier (":" type)?
-statement        := variable | return | if | repeat | for | block | expression
+statement        := variable | return | if | while | repeat | for
+                  | break | continue | block | expression
 variable         := ("let" | "const") identifier (":" type)? "=" expression
 return           := "return" expression?
 if               := "if" expression block ("else" (if | block))?
-repeat            := "repeat" expression "times" block
-for               := "for" identifier "in" expression block
-block             := "{" newline* statement* "}"
+while            := "while" expression block
+repeat           := "repeat" expression "times" block
+for              := "for" identifier "in" expression block
+break            := "break"
+continue         := "continue"
+block            := "{" newline* statement* "}"
 multiline         := "[" newline* expression newline* "]"
 ~~~
 
@@ -114,7 +125,7 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 
 | Level | Operators | Associativity |
 |---:|---|---|
-| 1 | assignment `=` | right |
+| 1 | assignment `=`, `+=`, `-=`, `*=`, `/=`, `%=` | right |
 | 2 | logical OR `||` | left |
 | 3 | logical AND `&&` | left |
 | 4 | equality `==`, `!=` | left |
@@ -145,8 +156,10 @@ The numeric storage widths are design targets; code generation and runtime repre
 - An `int` value may widen to `float`; implicit conversion from `float` to `int` is rejected.
 - Arithmetic operators require numeric operands. The remainder operator `%` requires two `int` operands.
 - Relational comparisons require numeric operands. Equality supports compatible primitive types.
-- Logical operators and `if` conditions require `bool`.
+- Logical operators, `if` conditions, and `while` conditions require `bool`.
 - `repeat` counts require `int`.
+- `break` and `continue` are only valid inside loops and target the innermost enclosing loop.
+- Compound assignments are shorthand for their corresponding arithmetic operation followed by assignment; they use the same operand, mutability, and conversion checks as ordinary assignment.
 - Variables are visible after declaration in their lexical scope. Nested blocks may shadow outer bindings; duplicate declarations in the same scope are errors.
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
 - Function parameters require explicit types. Function signatures are registered before body checking, enabling forward calls. Argument count and types are checked.
@@ -203,7 +216,7 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 - Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
 - The initial instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, direct calls, and the `say` intrinsic.
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
-- `if` branches, short-circuit logical expressions, and `repeat` loops lower into explicit control-flow graphs.
+- `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, and loop-control edges lower into explicit control-flow graphs.
 - The verifier checks instruction and call types, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
 - Source spans are retained on IR values and instructions.
 
@@ -225,6 +238,7 @@ The backend emits C source only. It does not invoke a C compiler, link an execut
 ## 8. Open language-design questions
 
 - whether `const` means immutable binding only or compile-time evaluation;
+- implicit top-level execution when no explicit `main()` exists (desired direction; not yet implemented);
 - string interpolation and escaping;
 - function overloading and default arguments;
 - array and structure layout;
