@@ -14,7 +14,8 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
-- fixed-size, one-dimensional arrays with inferred primitive element types, indexing, indexed updates, and `for-in` iteration;
+- fixed-size, one-dimensional arrays with inferred primitive element types, indexing, and indexed updates;
+- `for-in` iteration over arrays and integer ranges using `start..end` (exclusive) or `start..=end` (inclusive);
 - C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed-array access, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, LLVM IR emission, native builds, and program execution;
 - cross-platform process launching and temporary-build management;
@@ -102,7 +103,7 @@ make main() {
 }
 ```
 
-The current compiler supports a small set of primitive types, functions, control flow, strings, output, arithmetic, comparisons, and math intrinsics. The runtime and language features are still under active development.
+The current compiler supports a small set of primitive types, functions, control flow, strings, output, arithmetic, comparisons, array iteration, integer-range iteration, and math intrinsics. The runtime and language features are still under active development.
 
 ## Project documents
 

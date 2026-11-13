@@ -58,7 +58,16 @@
       "\t$0",
       "}"
     ],
-    "description": "Insert the currently parsed for-in syntax (semantic support is not implemented yet)."
+    "description": "Insert a for-in loop over an array or integer range."
+  },
+  "For-in integer range": {
+    "prefix": "forrange",
+    "body": [
+      "for ${1:index} in ${2:start}..${3:end} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Iterate over an integer range with an exclusive end."
   },
   "Say output": {
     "prefix": "say",

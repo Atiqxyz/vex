@@ -47,7 +47,7 @@
     },
     "keywords": {
       "name": "keyword.control.vex",
-      "match": "\\b(?:let|const|if|else|repeat|times|for|in|return)\\b"
+      "match": "\\b(?:let|const|if|else|while|break|continue|repeat|times|for|in|return)\\b"
     },
     "types": {
       "name": "storage.type.primitive.vex",
@@ -75,7 +75,7 @@
     },
     "operators": {
       "name": "keyword.operator.vex",
-      "match": "->|==|!=|<=|>=|&&|\\|\\||[+*/%<>=!-]"
+      "match": "->|\\.\\.=|\\.\\.|==|!=|<=|>=|&&|\\|\\||[+*/%<>=!-]"
     },
     "punctuation": {
       "patterns": [
