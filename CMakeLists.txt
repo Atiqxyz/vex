@@ -30,6 +30,7 @@ add_library(vex_frontend STATIC
     src/lowering.cpp
     src/backend.cpp
     src/c_backend.cpp
+    src/llvm_backend.cpp
     src/process.cpp
     src/toolchain.cpp
 )
@@ -61,10 +62,24 @@ if(BUILD_TESTING)
         tests/ir_tests.cpp
         tests/backend_tests.cpp
         tests/c_backend_tests.cpp
+        tests/llvm_backend_tests.cpp
     )
     target_link_libraries(vex_tests PRIVATE vex_frontend vex_build_options)
     add_test(NAME vex_frontend_tests COMMAND vex_tests)
     set_tests_properties(vex_frontend_tests PROPERTIES TIMEOUT 15)
+
+    find_program(VEX_LLVM_CLANG_EXECUTABLE NAMES clang clang-21 clang-20 clang-19 clang-18 clang-17 clang-16 clang-15)
+    if(VEX_LLVM_CLANG_EXECUTABLE)
+        add_test(NAME vex_llvm_backend_integration
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DLLVM_CLANG=${VEX_LLVM_CLANG_EXECUTABLE}
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/c_backend.vex
+                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm_backend_integration
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/llvm_backend_integration.cmake
+        )
+        set_tests_properties(vex_llvm_backend_integration PROPERTIES TIMEOUT 60)
+    endif()
 
     if(CMAKE_C_COMPILER)
         add_test(NAME vex_c_backend_integration

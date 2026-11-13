@@ -73,7 +73,8 @@ bool make_temporary_directory(TemporaryDirectory& temporary) {
     return false;
 }
 
-bool generate_c(const std::string& path, std::string& generated_source) {
+bool generate_with_backend(const std::string& path, const BackendKind backend_kind,
+                           std::string& generated_source) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
         std::cerr << "error: could not open source file: " << path << '\n';
@@ -113,7 +114,7 @@ bool generate_c(const std::string& path, std::string& generated_source) {
     print_diagnostics(std::cerr, source, verified.diagnostics);
     if (verified.has_errors()) return false;
 
-    const std::unique_ptr<Backend> backend = create_backend(BackendKind::C);
+    const std::unique_ptr<Backend> backend = create_backend(backend_kind);
     if (!backend) {
         std::cerr << "error: the requested VEX backend is not available\n";
         return false;
@@ -150,6 +151,26 @@ std::vector<std::string> compiler_candidates() {
 #endif
     return candidates;
 }
+
+std::vector<std::string> llvm_compiler_candidates() {
+    std::vector<std::string> candidates;
+    const auto add = [&candidates](const char* value) {
+        if (value == nullptr || *value == '\0') return;
+        for (const std::string& existing : candidates) {
+            if (existing == value) return;
+        }
+        candidates.emplace_back(value);
+    };
+    add(std::getenv("VEX_LLVM_CC"));
+    add(std::getenv("LLVM_CC"));
+#ifdef _WIN32
+    add("clang.exe");
+#else
+    add("clang");
+#endif
+    return candidates;
+}
+
 
 bool write_text_file(const fs::path& path, const std::string& contents) {
     std::ofstream output(path, std::ios::binary);
@@ -202,7 +223,7 @@ int build_to_output(
     const fs::path& temporary_directory,
     const bool announce = true) {
     std::string generated_source;
-    if (!generate_c(source_path, generated_source)) return 1;
+    if (!generate_with_backend(source_path, BackendKind::C, generated_source)) return 1;
 
     const fs::path generated_c = temporary_directory / "program.c";
     if (!write_text_file(generated_c, generated_source)) return 1;
@@ -277,6 +298,60 @@ fs::path default_output_path(const std::string& source_path) {
     return output;
 }
 
+
+int build_llvm_to_output(
+    const std::string& source_path,
+    const fs::path& output_path,
+    const fs::path& temporary_directory,
+    const bool announce = true) {
+    std::string generated_ir;
+    if (!generate_with_backend(source_path, BackendKind::LLVM, generated_ir)) return 1;
+
+    const fs::path generated_llvm = temporary_directory / "program.ll";
+    if (!write_text_file(generated_llvm, generated_ir)) return 1;
+
+    std::error_code error;
+    const fs::path output_absolute = fs::absolute(output_path, error);
+    if (error) {
+        std::cerr << "error: cannot resolve output path: " << error.message() << '\n';
+        return 1;
+    }
+    if (!fs::exists(output_absolute.parent_path())) {
+        std::cerr << "error: output directory does not exist: "
+                  << output_absolute.parent_path().string() << '\n';
+        return 1;
+    }
+
+    std::string last_error = "no Clang executable was found";
+    for (const std::string& compiler : llvm_compiler_candidates()) {
+        std::vector<std::string> arguments{
+            "-O2", generated_llvm.string(), "-o", output_absolute.string()
+        };
+#ifndef _WIN32
+        arguments.emplace_back("-lm");
+#endif
+        const ProcessResult result = run_process(compiler, arguments);
+        if (!result.started) {
+            last_error = result.error;
+            continue;
+        }
+        if (result.exit_code != 0) {
+            std::cerr << "error: LLVM compiler exited with code "
+                      << result.exit_code << '\n';
+            return result.exit_code == 0 ? 1 : result.exit_code;
+        }
+        if (announce) {
+            std::cout << "Built " << output_absolute.string() << '\n';
+        }
+        return 0;
+    }
+
+    std::cerr << "error: " << last_error
+              << ". Install Clang with LLVM IR support or set VEX_LLVM_CC to its executable path.\n";
+    return 1;
+}
+
+
 } // namespace
 
 int build_program(
@@ -304,6 +379,38 @@ int run_program(const std::string& source_path) {
     const ProcessResult result = run_process(executable.string(), {});
     if (!result.started) {
         std::cerr << "error: could not start compiled VEX program: "
+                  << result.error << '\n';
+        return 1;
+    }
+    return result.exit_code;
+}
+
+
+int build_llvm_program(
+    const std::string& source_path,
+    const std::string& output_path) {
+    TemporaryDirectory temporary;
+    if (!make_temporary_directory(temporary)) return 1;
+    const fs::path output = output_path.empty()
+        ? default_output_path(source_path)
+        : fs::path(output_path);
+    return build_llvm_to_output(source_path, output, temporary.path);
+}
+
+int run_llvm_program(const std::string& source_path) {
+    TemporaryDirectory temporary;
+    if (!make_temporary_directory(temporary)) return 1;
+    fs::path executable = temporary.path / "vex-llvm-program";
+#ifdef _WIN32
+    executable += ".exe";
+#endif
+    const int build_status =
+        build_llvm_to_output(source_path, executable, temporary.path, false);
+    if (build_status != 0) return build_status;
+
+    const ProcessResult result = run_process(executable.string(), {});
+    if (!result.started) {
+        std::cerr << "error: could not start compiled VEX LLVM program: "
                   << result.error << '\n';
         return 1;
     }

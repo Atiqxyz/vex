@@ -65,10 +65,15 @@ VEX checks `VEX_CC`, `CC`, its configured compiler fallback, and common compiler
 
 VEX does not currently bundle a C compiler, and it is not yet a self-hosted compiler or a direct machine-code backend.
 
+## 5. Experimental LLVM backend
+
+The development build also provides `vex emit-llvm`, `vex build-llvm`, and `vex run-llvm`. These commands use the LLVM backend and an installed Clang driver; they do not generate C as an intermediate compilation step. Set `VEX_LLVM_CC` to the Clang executable path when Clang is not on PATH. Current release packages do not bundle Clang or LLVM, so this is not yet a standalone dependency-free installation path.
+
 ## Troubleshooting
 
 - **VS Code cannot start VEX:** confirm that `vex` is on PATH, restart VS Code, or set `vex.compilerPath` to the full executable path.
 - **Build or Run reports that no C11 compiler was found:** install a C compiler and ensure it is available on PATH, or set `VEX_CC` to its executable path.
+- **LLVM build or run reports that Clang was not found:** install Clang with LLVM IR support, or set `VEX_LLVM_CC` to its executable path.
 - **MSVC is installed but not found:** launch VS Code from a Visual Studio Developer Command Prompt, or configure an available Clang/GCC compiler.
 - **The extension does not activate:** confirm that the file extension is `.vex` and reload the VS Code window.
 

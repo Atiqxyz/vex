@@ -1,0 +1,63 @@
+if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED LLVM_CLANG OR
+   NOT DEFINED SOURCE_FILE OR NOT DEFINED WORK_DIR)
+    message(FATAL_ERROR "Missing VEX LLVM backend integration-test argument")
+endif()
+
+file(MAKE_DIRECTORY "${WORK_DIR}")
+if(WIN32)
+    set(generated_executable "${WORK_DIR}/generated.exe")
+else()
+    set(generated_executable "${WORK_DIR}/generated")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" emit-llvm "${SOURCE_FILE}"
+    OUTPUT_FILE "${WORK_DIR}/generated.ll"
+    ERROR_VARIABLE emitter_error
+    RESULT_VARIABLE emitter_result
+)
+if(NOT emitter_result EQUAL 0)
+    message(FATAL_ERROR "vex emit-llvm failed (${emitter_result}): ${emitter_error}")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+            "${VEX_EXECUTABLE}" build-llvm "${SOURCE_FILE}" -o "${generated_executable}"
+    RESULT_VARIABLE build_result
+    OUTPUT_VARIABLE build_output
+    ERROR_VARIABLE build_error
+)
+if(NOT build_result EQUAL 0)
+    message(FATAL_ERROR "vex build-llvm failed (${build_result}): ${build_output}${build_error}")
+endif()
+
+execute_process(
+    COMMAND "${generated_executable}"
+    RESULT_VARIABLE program_result
+    OUTPUT_VARIABLE program_output
+    ERROR_VARIABLE program_error
+)
+if(NOT program_result EQUAL 0)
+    message(FATAL_ERROR "LLVM-generated program exited with ${program_result}: ${program_error}")
+endif()
+
+string(REPLACE "\r\n" "\n" program_output "${program_output}")
+set(expected_output "30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n")
+if(NOT "${program_output}" STREQUAL "${expected_output}")
+    message(FATAL_ERROR "LLVM-generated program produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${program_output}")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+            "${VEX_EXECUTABLE}" run-llvm "${SOURCE_FILE}"
+    RESULT_VARIABLE run_result
+    OUTPUT_VARIABLE run_output
+    ERROR_VARIABLE run_error
+)
+if(NOT run_result EQUAL 0)
+    message(FATAL_ERROR "vex run-llvm failed (${run_result}): ${run_output}${run_error}")
+endif()
+string(REPLACE "\r\n" "\n" run_output "${run_output}")
+if(NOT "${run_output}" STREQUAL "${expected_output}")
+    message(FATAL_ERROR "vex run-llvm produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${run_output}")
+endif()

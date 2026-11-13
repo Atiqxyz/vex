@@ -14,12 +14,12 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
-- an initial C11 source backend for the complete current IR instruction set, including functions, control flow, primitive values, the `say` output intrinsic, and an initial mathematical standard-library surface (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
+- an initial C11 source backend and an initial textual LLVM IR backend for the current IR instruction set, including functions, control flow, primitive values, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, native builds, and program execution;
 - cross-platform process launching and temporary-build management for the bootstrap toolchain;
 - unit tests plus a cross-platform integration test that builds and executes VEX programs through the public CLI.
 
-VEX can emit portable C11, build native executables through an installed C11 compiler, and run VEX source files through temporary native builds. The current native toolchain is a bootstrap path through C11, not a self-hosted compiler or a direct native-code backend. Collection types, a complete runtime, and the memory model are not implemented.
+VEX can emit portable C11 and LLVM IR. The C `build`/`run` commands use an installed C11 compiler; the LLVM `build-llvm`/`run-llvm` commands use an installed Clang driver to optimize LLVM IR and generate native executables without generating C. The LLVM toolchain is not bundled yet, and the compiler is not self-hosted. Collection types, a complete runtime, and the memory model are not implemented.
 
 ## Design direction
 
@@ -36,7 +36,7 @@ These are design goals, not claims that every feature already exists.
 
 Prebuilt command-line binaries for Windows, Linux, and macOS, plus the VS Code extension package, are published on the [GitHub Releases page](https://github.com/Atiqxyz/vex/releases). See [the installation guide](docs/installation.md) for setup instructions.
 
-The command-line binary does not bundle a C compiler. `vex check`, `vex lex`, `vex parse`, `vex ir`, and `vex emit-c` work without one; `vex build` and `vex run` require a C11 compiler available on the user machine. VEX searches `VEX_CC`, `CC`, its configured compiler fallback, and common compiler names on PATH.
+The command-line binary does not bundle C or LLVM compiler toolchains. Frontend commands and `emit-c`/`emit-llvm` work without one; `build`/`run` require a C11 compiler, while `build-llvm`/`run-llvm` require Clang with LLVM IR support. Set `VEX_CC` or `VEX_LLVM_CC` to choose the corresponding compiler executable.
 
 ## Build
 
@@ -72,9 +72,12 @@ On Linux or macOS:
 ./build/vex check examples/hello.vex
 ./build/vex ir examples/hello.vex
 ./build/vex emit-c examples/hello.vex > hello.c
+./build/vex emit-llvm examples/hello.vex > hello.ll
 ./build/vex build examples/hello.vex
 ./build/vex build examples/hello.vex -o hello
 ./build/vex run examples/hello.vex
+./build/vex build-llvm examples/hello.vex
+./build/vex run-llvm examples/hello.vex
 ~~~
 
 - `lex` prints token kinds and source positions.
@@ -83,9 +86,12 @@ On Linux or macOS:
 - `ir` lowers a semantically valid program into typed SSA IR, verifies it, and prints the result.
 - `emit-c` runs the frontend, lowers and verifies IR, then emits C11 source to standard output.
 - `build` compiles a VEX source file into a native executable. By default the executable is written beside the source file; use `-o` to choose another path.
-- `run` builds a VEX source file in a temporary directory, executes it, forwards its output and exit status, then removes the temporary build artifacts.
+- `run` builds through the C backend in a temporary directory, executes it, and removes the temporary build artifacts.
+- `emit-llvm` emits textual LLVM IR from verified VEX IR.
+- `build-llvm` uses Clang and LLVM optimization/code generation to build a native executable without generating C.
+- `run-llvm` builds through the LLVM backend in a temporary directory and executes the native program.
 
-The current `build` and `run` commands use a C11 compiler as the bootstrap backend. VEX itself handles the VEX frontend, IR verification, C generation, compiler invocation, and program launching; users do not need to manually generate or compile C.
+The C `build` and `run` commands use a C11 compiler as the bootstrap backend. The LLVM build/run commands use Clang as the native code-generation driver. Neither compiler toolchain is bundled in the current release packages.
 
 ## Example syntax direction
 
