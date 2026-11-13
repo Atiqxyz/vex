@@ -44,6 +44,8 @@ enum class TokenKind {
     Comma,
     Colon,
     Arrow,
+    Range,
+    RangeInclusive,
 
     Plus,
     Minus,

@@ -18,11 +18,12 @@ struct CallExpr { ExprPtr callee; std::vector<ExprPtr> arguments; };
 struct GroupExpr { ExprPtr expression; bool multiline{false}; };
 struct ArrayLiteralExpr { std::vector<ExprPtr> elements; };
 struct IndexExpr { ExprPtr object; ExprPtr index; };
+struct RangeExpr { ExprPtr start; ExprPtr end; bool inclusive{false}; };
 struct Expr {
     SourceSpan span{};
     std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
                  AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
-                 IndexExpr> data;
+                 IndexExpr, RangeExpr> data;
 };
 struct Parameter { SourceSpan name{}; std::optional<SourceSpan> type_annotation; };
 struct Statement;

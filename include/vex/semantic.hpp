@@ -20,7 +20,8 @@ enum class SemanticType {
     Float,
     Bool,
     String,
-    Array
+    Array,
+    Range
 };
 
 struct SemanticArrayType {

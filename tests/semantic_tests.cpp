@@ -292,6 +292,25 @@ void test_fixed_arrays_and_index_assignment(TestContext& tests) {
                 "array reassignment checks fixed length and element type");
 }
 
+void test_integer_range_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"range_semantics.vex",
+        "make main() {\n"
+        "    let sum = 0\n"
+        "    for index in 1 + 1..=5 - 1 {\n"
+        "        sum += index\n"
+        "    }\n"
+        "    say(sum)\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(), "integer ranges accept integer bounds and infer an int iteration variable");
+    const vex::SourceFile bad_bound{"range_float_bound.vex", "make main() { for index in 1.5..5 { say(index) } }\n"};
+    const vex::SemanticResult bad = analyze(bad_bound);
+    tests.check(has_code(bad, "SEM047"), "range bounds must be integers");
+    const vex::SourceFile stored{"stored_range.vex", "make main() { let values = 0..5 }\n"};
+    const vex::SemanticResult stored_result = analyze(stored);
+    tests.check(has_code(stored_result, "SEM046"), "range expressions are only valid directly in a for-in loop");
+}
+
 void test_for_in_rejects_non_array_values(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
@@ -304,7 +323,7 @@ void test_for_in_rejects_non_array_values(TestContext& tests) {
     tests.check(!has_code(result, "SEM001"),
                 "the declared iteration source resolves by name");
     tests.check(has_code(result, "SEM031"),
-                "for-in requires a fixed-size array value");
+                "for-in rejects values that are neither arrays nor integer ranges");
 }
 
 } // namespace
@@ -320,5 +339,6 @@ void run_semantic_tests(TestContext& tests) {
     test_loop_control_scope_and_while_condition(tests);
     test_top_level_execution_scope(tests);
     test_fixed_arrays_and_index_assignment(tests);
+    test_integer_range_semantics(tests);
     test_for_in_rejects_non_array_values(tests);
 }

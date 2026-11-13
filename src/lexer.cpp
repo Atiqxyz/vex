@@ -118,6 +118,15 @@ void Lexer::scan_token() {
     case ']': add_token(TokenKind::RightBracket); break;
     case ',': add_token(TokenKind::Comma); break;
     case ':': add_token(TokenKind::Colon); break;
+    case '.':
+        if (match('.')) {
+            add_token(match('=') ? TokenKind::RangeInclusive : TokenKind::Range);
+        } else {
+            report("LEX010", "a range operator needs two dots ('..' or '..=')",
+                   start_, current_);
+            add_token(TokenKind::Invalid);
+        }
+        break;
     case '+': add_token(match('=') ? TokenKind::PlusEqual : TokenKind::Plus); break;
     case '*': add_token(match('=') ? TokenKind::StarEqual : TokenKind::Star); break;
     case '%': add_token(match('=') ? TokenKind::PercentEqual : TokenKind::Percent); break;

@@ -229,7 +229,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
     if (!left) return nullptr;
     while (true) {
         if (allow_newlines) skip_newlines();
-        if (check(TokenKind::LeftBracket) && minimum_precedence <= 10) {
+        if (check(TokenKind::LeftBracket) && minimum_precedence <= 11) {
             static_cast<void>(advance());
             skip_newlines();
             ExprPtr index = parse_expression(true);
@@ -241,7 +241,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
                                    IndexExpr{std::move(left), std::move(index)});
             continue;
         }
-        if (check(TokenKind::LeftParen) && minimum_precedence <= 9) {
+        if (check(TokenKind::LeftParen) && minimum_precedence <= 10) {
             static_cast<void>(advance());
             std::vector<ExprPtr> arguments;
             if (allow_newlines) skip_newlines();
@@ -279,7 +279,17 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
             op.kind == TokenKind::PlusEqual || op.kind == TokenKind::MinusEqual ||
             op.kind == TokenKind::StarEqual || op.kind == TokenKind::SlashEqual ||
             op.kind == TokenKind::PercentEqual;
-        if (op.kind == TokenKind::Equal || is_compound_assignment) {
+        if (op.kind == TokenKind::Range || op.kind == TokenKind::RangeInclusive) {
+            if (std::holds_alternative<RangeExpr>(left->data)) {
+                diagnostics_.error("PAR011", "range operators cannot be chained", span);
+                left = make_expression(span,
+                    BinaryExpr{op.kind, std::move(left), std::move(right)});
+            } else {
+                left = make_expression(span, RangeExpr{
+                    std::move(left), std::move(right),
+                    op.kind == TokenKind::RangeInclusive});
+            }
+        } else if (op.kind == TokenKind::Equal || is_compound_assignment) {
             if (!is_assignment_target(*left)) {
                 diagnostics_.error("PAR007",
                     "the left side of an assignment must be a variable or array element",
@@ -315,7 +325,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
 ExprPtr Parser::parse_prefix(const bool allow_newlines) {
     if (match(TokenKind::Minus) || match(TokenKind::Plus) || match(TokenKind::Bang)) {
         const Token op = previous();
-        ExprPtr operand = parse_expression(allow_newlines, 8);
+        ExprPtr operand = parse_expression(allow_newlines, 9);
         if (!operand) {
             report_current("PAR008", "expected an expression after the unary operator");
             return nullptr;
@@ -388,7 +398,7 @@ ExprPtr Parser::make_expression(
     const SourceSpan span,
     std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
                  AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
-                 IndexExpr> data) {
+                 IndexExpr, RangeExpr> data) {
     return std::make_unique<Expr>(Expr{span, std::move(data)});
 }
 int Parser::precedence(const TokenKind kind) noexcept {
@@ -401,17 +411,19 @@ int Parser::precedence(const TokenKind kind) noexcept {
     case TokenKind::PercentEqual: return 1;
     case TokenKind::OrOr: return 2;
     case TokenKind::AndAnd: return 3;
+    case TokenKind::Range:
+    case TokenKind::RangeInclusive: return 4;
     case TokenKind::EqualEqual:
-    case TokenKind::BangEqual: return 4;
+    case TokenKind::BangEqual: return 5;
     case TokenKind::Less:
     case TokenKind::LessEqual:
     case TokenKind::Greater:
-    case TokenKind::GreaterEqual: return 5;
+    case TokenKind::GreaterEqual: return 6;
     case TokenKind::Plus:
-    case TokenKind::Minus: return 6;
+    case TokenKind::Minus: return 7;
     case TokenKind::Star:
     case TokenKind::Slash:
-    case TokenKind::Percent: return 7;
+    case TokenKind::Percent: return 8;
     default: return 0;
     }
 }

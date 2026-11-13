@@ -273,6 +273,31 @@ private:
             return Type::Array;
         }
 
+        if (const auto* range = std::get_if<RangeExpr>(&expression.data)) {
+            if (!allow_range_expression_) {
+                report("SEM046", "integer ranges can only be used directly in a for-in loop",
+                       expression.span);
+            }
+            const bool previous_permission = allow_range_expression_;
+            allow_range_expression_ = false;
+            const Type start_type = range->start
+                ? analyze_expression(*range->start) : Type::Error;
+            const Type end_type = range->end
+                ? analyze_expression(*range->end) : Type::Error;
+            allow_range_expression_ = previous_permission;
+            if (start_type != Type::Error && start_type != Type::Unknown &&
+                start_type != Type::Int) {
+                report("SEM047", "range start must have type int",
+                       range->start ? range->start->span : expression.span);
+            }
+            if (end_type != Type::Error && end_type != Type::Unknown &&
+                end_type != Type::Int) {
+                report("SEM047", "range end must have type int",
+                       range->end ? range->end->span : expression.span);
+            }
+            return Type::Range;
+        }
+
         if (const auto* index = std::get_if<IndexExpr>(&expression.data)) {
             const Type object_type = index->object
                 ? analyze_expression(*index->object) : Type::Error;
@@ -736,19 +761,36 @@ private:
             return;
         }
         if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
+            const Expr* iterable_expression = loop->iterable.get();
+            while (iterable_expression) {
+                const auto* group = std::get_if<GroupExpr>(&iterable_expression->data);
+                if (!group || !group->expression) break;
+                iterable_expression = group->expression.get();
+            }
+            const bool is_range = iterable_expression &&
+                std::holds_alternative<RangeExpr>(iterable_expression->data);
+            const bool previous_permission = allow_range_expression_;
+            allow_range_expression_ = is_range;
             const Type iterable = loop->iterable
                 ? analyze_expression(*loop->iterable) : Type::Error;
+            allow_range_expression_ = previous_permission;
             std::optional<SemanticArrayType> array_type;
+            Type iteration_type = Type::Unknown;
             if (iterable == Type::Array && loop->iterable) {
                 const auto shape = model_.array_expression_types.find(loop->iterable.get());
-                if (shape != model_.array_expression_types.end()) array_type = shape->second;
+                if (shape != model_.array_expression_types.end()) {
+                    array_type = shape->second;
+                    iteration_type = array_type->element_type;
+                }
+            } else if (iterable == Type::Range) {
+                iteration_type = Type::Int;
             } else if (iterable != Type::Error && iterable != Type::Unknown) {
-                report("SEM031", "for-in currently requires a fixed-size array",
+                report("SEM031", "for-in requires a fixed-size array or integer range",
                        loop->iterable ? loop->iterable->span : loop->variable);
             }
             scopes_.emplace_back();
             Symbol iteration_variable;
-            iteration_variable.type = array_type ? array_type->element_type : Type::Unknown;
+            iteration_variable.type = iteration_type;
             iteration_variable.declaration = loop->variable;
             SemanticBindingId iteration_binding = 0;
             if (define(spelling(loop->variable), std::move(iteration_variable),
@@ -777,6 +819,7 @@ private:
     SemanticBindingId next_binding_id_{1};
     bool inside_function_{false};
     std::size_t loop_depth_{0};
+    bool allow_range_expression_{false};
     Type current_return_type_{Type::Void};
 };
 
@@ -793,6 +836,7 @@ const char* semantic_type_name(const SemanticType type) noexcept {
     case SemanticType::Bool: return "bool";
     case SemanticType::String: return "string";
     case SemanticType::Array: return "array";
+    case SemanticType::Range: return "range";
     }
     return "<unknown>";
 }

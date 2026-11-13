@@ -106,6 +106,16 @@ void test_operators(TestContext& tests) {
     tests.check(!result.has_errors(), "supported operators tokenize cleanly");
 }
 
+void test_range_operators(TestContext& tests) {
+    const vex::SourceFile source{"ranges.vex", "a = 1..5\nb = 2..=7"};
+    const vex::LexResult result = vex::Lexer{source}.scan();
+    tests.check(count_kind(result, vex::TokenKind::Range) == 1,
+                "half-open range operator is recognized");
+    tests.check(count_kind(result, vex::TokenKind::RangeInclusive) == 1,
+                "inclusive range operator is recognized");
+    tests.check(!result.has_errors(), "valid range operators have no diagnostics");
+}
+
 void test_strings_and_invalid_input(TestContext& tests) {
     const vex::SourceFile valid{
         "strings.vex", "say(\"hello\\nVEX\\t\")"
@@ -163,6 +173,7 @@ void run_lexer_tests(TestContext& tests) {
     test_numeric_literals(tests);
     test_newlines_and_comments(tests);
     test_operators(tests);
+    test_range_operators(tests);
     test_strings_and_invalid_input(tests);
     test_diagnostic_positions(tests);
 }

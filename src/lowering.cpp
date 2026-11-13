@@ -23,6 +23,7 @@ std::optional<IRType> to_ir_type(const SemanticType type) {
     case SemanticType::Error:
     case SemanticType::Unknown:
     case SemanticType::Any:
+    case SemanticType::Range:
         return std::nullopt;
     }
     return std::nullopt;
@@ -132,6 +133,7 @@ private:
         IRBlockId break_target{0};
         std::vector<SemanticBindingId> environment_ids;
         std::optional<IRValue> counter;
+        bool increment_counter_on_continue{true};
     };
 
     void report(const char* code, std::string message, const SourceSpan span) {
@@ -835,10 +837,14 @@ private:
         std::vector<IRValueId> arguments;
         arguments.reserve(loop.environment_ids.size() + (loop.counter && !is_break ? 1u : 0u));
         if (!is_break && loop.counter) {
-            const IRValue one = emit_constant(IRType::Int, "1", span);
-            const IRValue next_index = emit_operation(
-                IROp::Add, IRType::Int, {loop.counter->id, one.id}, span);
-            arguments.push_back(next_index.id);
+            if (loop.increment_counter_on_continue) {
+                const IRValue one = emit_constant(IRType::Int, "1", span);
+                const IRValue next_index = emit_operation(
+                    IROp::Add, IRType::Int, {loop.counter->id, one.id}, span);
+                arguments.push_back(next_index.id);
+            } else {
+                arguments.push_back(loop.counter->id);
+            }
         }
         for (const SemanticBindingId id : loop.environment_ids) {
             arguments.push_back(environment_value(environment_, id, span).id);
@@ -1007,8 +1013,151 @@ private:
         }
     }
 
+    void lower_range_for(const RangeExpr& range, const ForStmt& loop,
+                          const SourceSpan span) {
+        if (!range.start || !range.end || !loop.body || !current_block_) return;
+        const auto start = lower_expression(*range.start);
+        const auto end = lower_expression(*range.end);
+        if (!start || !end || start->type != IRType::Int || end->type != IRType::Int) {
+            report("IR147", "integer range bounds must lower to int values", span);
+            return;
+        }
+        const auto iteration_binding = semantic_model_.for_bindings.find(&loop);
+        if (iteration_binding == semantic_model_.for_bindings.end()) {
+            report("IR146", "for-in variable is missing its semantic binding", loop.variable);
+            return;
+        }
+        const Environment base = environment_;
+        const std::vector<SemanticBindingId> ids = sorted_environment_ids(base);
+        const IRBlockId preheader = *current_block_;
+        const IRValue index_parameter = make_value(IRType::Int, span);
+        std::vector<IRValue> header_parameters;
+        header_parameters.reserve(ids.size() + 1);
+        header_parameters.push_back(index_parameter);
+        for (const SemanticBindingId id : ids)
+            header_parameters.push_back(make_value_like(base.at(id), span));
+        std::vector<IRValue> step_parameters;
+        step_parameters.reserve(ids.size() + 1);
+        step_parameters.push_back(make_value(IRType::Int, span));
+        for (const SemanticBindingId id : ids)
+            step_parameters.push_back(make_value_like(base.at(id), span));
+        std::vector<IRValue> exit_parameters;
+        exit_parameters.reserve(ids.size());
+        for (const SemanticBindingId id : ids)
+            exit_parameters.push_back(make_value_like(base.at(id), span));
+        const IRBlockId header = create_block("for.range.header", header_parameters);
+        const IRBlockId body = create_block("for.range.body");
+        const IRBlockId step = create_block("for.range.step", step_parameters);
+        const IRBlockId exit = create_block("for.range.exit", exit_parameters);
+        std::vector<IRValueId> initial_arguments;
+        initial_arguments.reserve(ids.size() + 1);
+        initial_arguments.push_back(start->id);
+        for (const SemanticBindingId id : ids)
+            initial_arguments.push_back(base.at(id).id);
+        set_terminator(preheader,
+            IRTerminator{IRBranch{header, std::move(initial_arguments)}, span});
+        Environment loop_environment = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            loop_environment[ids[index]] = header_parameters[index + 1];
+        current_block_ = header;
+        environment_ = loop_environment;
+        const IRValue condition = emit_operation(
+            range.inclusive ? IROp::LessEqual : IROp::Less,
+            IRType::Bool, {index_parameter.id, end->id}, span);
+        std::vector<IRValueId> header_exit_arguments;
+        header_exit_arguments.reserve(ids.size());
+        for (const SemanticBindingId id : ids)
+            header_exit_arguments.push_back(loop_environment.at(id).id);
+        set_terminator(header, IRTerminator{
+            IRConditionalBranch{condition.id, body, {}, exit,
+                                std::move(header_exit_arguments)}, span
+        });
+        current_block_ = body;
+        environment_ = loop_environment;
+        environment_[iteration_binding->second] = index_parameter;
+        loops_.push_back(LoopContext{step, exit, ids, index_parameter, false});
+        lower_statement(*loop.body);
+        loops_.pop_back();
+        if (current_block_) {
+            std::vector<IRValueId> step_arguments;
+            step_arguments.reserve(ids.size() + 1);
+            step_arguments.push_back(index_parameter.id);
+            for (const SemanticBindingId id : ids)
+                step_arguments.push_back(environment_value(environment_, id, span).id);
+            terminate_current(IRTerminator{IRBranch{step, std::move(step_arguments)}, span});
+        }
+        Environment step_environment = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            step_environment[ids[index]] = step_parameters[index + 1];
+        current_block_ = step;
+        environment_ = step_environment;
+        const IRValue step_index = step_parameters.front();
+        if (range.inclusive) {
+            const IRValue at_end = emit_operation(
+                IROp::Equal, IRType::Bool, {step_index.id, end->id}, span);
+            std::vector<IRValue> increment_parameters;
+            increment_parameters.reserve(ids.size() + 1);
+            increment_parameters.push_back(make_value(IRType::Int, span));
+            for (const SemanticBindingId id : ids)
+                increment_parameters.push_back(make_value_like(base.at(id), span));
+            const IRBlockId increment =
+                create_block("for.range.increment", increment_parameters);
+            std::vector<IRValueId> exit_arguments;
+            std::vector<IRValueId> increment_arguments;
+            exit_arguments.reserve(ids.size());
+            increment_arguments.reserve(ids.size() + 1);
+            increment_arguments.push_back(step_index.id);
+            for (const SemanticBindingId id : ids) {
+                const IRValueId value = environment_.at(id).id;
+                exit_arguments.push_back(value);
+                increment_arguments.push_back(value);
+            }
+            set_terminator(step, IRTerminator{
+                IRConditionalBranch{at_end.id, exit, std::move(exit_arguments),
+                                    increment, std::move(increment_arguments)}, span
+            });
+            current_block_ = increment;
+            environment_ = base;
+            const IRValue increment_index = increment_parameters.front();
+            for (std::size_t index = 0; index < ids.size(); ++index)
+                environment_[ids[index]] = increment_parameters[index + 1];
+            const IRValue one = emit_constant(IRType::Int, "1", span);
+            const IRValue next_index = emit_operation(
+                IROp::Add, IRType::Int, {increment_index.id, one.id}, span);
+            std::vector<IRValueId> backedge_arguments;
+            backedge_arguments.reserve(ids.size() + 1);
+            backedge_arguments.push_back(next_index.id);
+            for (const SemanticBindingId id : ids)
+                backedge_arguments.push_back(environment_value(environment_, id, span).id);
+            terminate_current(IRTerminator{IRBranch{header, std::move(backedge_arguments)}, span});
+        } else {
+            const IRValue one = emit_constant(IRType::Int, "1", span);
+            const IRValue next_index = emit_operation(
+                IROp::Add, IRType::Int, {step_index.id, one.id}, span);
+            std::vector<IRValueId> backedge_arguments;
+            backedge_arguments.reserve(ids.size() + 1);
+            backedge_arguments.push_back(next_index.id);
+            for (const SemanticBindingId id : ids)
+                backedge_arguments.push_back(environment_value(environment_, id, span).id);
+            terminate_current(IRTerminator{IRBranch{header, std::move(backedge_arguments)}, span});
+        }
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = exit_parameters[index];
+        current_block_ = exit;
+    }
+
     void lower_for(const ForStmt& loop, const SourceSpan span) {
         if (!loop.iterable || !loop.body || !current_block_) return;
+        const Expr* iterable_expression = loop.iterable.get();
+        while (const auto* group = std::get_if<GroupExpr>(&iterable_expression->data)) {
+            if (!group->expression) break;
+            iterable_expression = group->expression.get();
+        }
+        if (const auto* range = std::get_if<RangeExpr>(&iterable_expression->data)) {
+            lower_range_for(*range, loop, span);
+            return;
+        }
         const auto iterable = lower_expression(*loop.iterable);
         if (!iterable || iterable->type != IRType::Array || iterable->array_length == 0) {
             report("IR145", "for-in requires a non-empty fixed-size array", span);

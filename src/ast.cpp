@@ -43,6 +43,10 @@ void print_expression(std::ostream& output, const SourceFile& source,
             output << "Index\n";
             if (node.object) print_expression(output, source, *node.object, depth + 1);
             if (node.index) print_expression(output, source, *node.index, depth + 1);
+        } else if constexpr (std::is_same_v<Node, RangeExpr>) {
+            output << (node.inclusive ? "InclusiveRange\n" : "Range\n");
+            if (node.start) print_expression(output, source, *node.start, depth + 1);
+            if (node.end) print_expression(output, source, *node.end, depth + 1);
         }
     }, expression.data);
 }

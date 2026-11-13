@@ -190,6 +190,31 @@ void test_array_literal_indexing_and_assignment(TestContext& tests) {
                 "array indexing can be used as a simple assignment target");
 }
 
+void test_integer_range_expressions(TestContext& tests) {
+    const vex::SourceFile source{"ranges.vex",
+        "make main() {\n"
+        "    for index in 1 + 2..10 - 1 { say(index) }\n"
+        "    for index in 2..=5 { say(index) }\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(), "half-open and inclusive for-in ranges parse");
+    if (parsed.has_errors() || parsed.program.statements.empty()) return;
+    const auto* function = std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements.front()->data);
+    const auto* body = function && function->body
+        ? std::get_if<vex::BlockStmt>(&function->body->data) : nullptr;
+    if (!body || body->statements.size() < 2) return;
+    const auto* first = std::get_if<vex::ForStmt>(&body->statements[0]->data);
+    const auto* second = std::get_if<vex::ForStmt>(&body->statements[1]->data);
+    const auto* half_open = first && first->iterable ? std::get_if<vex::RangeExpr>(&first->iterable->data) : nullptr;
+    const auto* inclusive = second && second->iterable ? std::get_if<vex::RangeExpr>(&second->iterable->data) : nullptr;
+    tests.check(half_open && !half_open->inclusive, "start..end creates a half-open range node");
+    tests.check(inclusive && inclusive->inclusive, "start..=end creates an inclusive range node");
+    const auto* start = half_open && half_open->start ? std::get_if<vex::BinaryExpr>(&half_open->start->data) : nullptr;
+    const auto* end = half_open && half_open->end ? std::get_if<vex::BinaryExpr>(&half_open->end->data) : nullptr;
+    tests.check(start && start->op == vex::TokenKind::Plus && end && end->op == vex::TokenKind::Minus,
+                "range endpoints retain normal arithmetic precedence");
+}
+
 void test_if_without_else_preserves_next_statement(TestContext& tests) {
     const vex::SourceFile source{"if_separator.vex",
         "make main() {\n"
@@ -237,6 +262,7 @@ void run_parser_tests(TestContext& tests) {
     test_multiline_expression(tests);
     test_control_flow_and_assignment(tests);
     test_array_literal_indexing_and_assignment(tests);
+    test_integer_range_expressions(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }

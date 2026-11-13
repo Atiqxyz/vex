@@ -43,6 +43,8 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::Comma: return "COMMA";
     case TokenKind::Colon: return "COLON";
     case TokenKind::Arrow: return "ARROW";
+    case TokenKind::Range: return "RANGE";
+    case TokenKind::RangeInclusive: return "RANGE_INCLUSIVE";
     case TokenKind::Plus: return "PLUS";
     case TokenKind::Minus: return "MINUS";
     case TokenKind::Star: return "STAR";

@@ -36,6 +36,30 @@ make main() {
         sum_numbers += number
     }
     say(sum_numbers)
+
+    let half_open_sum = 0
+    for index in 2..5 {
+        half_open_sum += index
+    }
+    say(half_open_sum)
+
+    let inclusive_sum = 0
+    for index in 1..=5 {
+        if index == 2 { continue }
+        if index == 5 { break }
+        inclusive_sum += index
+    }
+    say(inclusive_sum)
+
+    let empty_sum = 0
+    for index in 5..=3 {
+        empty_sum += index
+    }
+    say(empty_sum)
+
+    for maximum in 9223372036854775807..=9223372036854775807 {
+        say(maximum)
+    }
 }
 
 make combine(left: int, right: int) -> int {

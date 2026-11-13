@@ -45,7 +45,7 @@ private:
         SourceSpan span,
         std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
                      AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
-                     IndexExpr> data);
+                     IndexExpr, RangeExpr> data);
     [[nodiscard]] static int precedence(TokenKind kind) noexcept;
     [[nodiscard]] static bool is_assignment_target(const Expr& expression) noexcept;
     const SourceFile& source_;
