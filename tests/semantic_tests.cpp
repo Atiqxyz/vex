@@ -137,6 +137,9 @@ void test_control_flow_return_analysis(TestContext& tests) {
         "make while_returns() -> int {\n"
         "    while true { return 7 }\n"
         "}\n"
+        "make negated_while_returns() -> int {\n"
+        "    while !false { return 8 }\n"
+        "}\n"
         "make diverges() -> int {\n"
         "    while true { say(8) }\n"
         "}\n"
@@ -156,8 +159,8 @@ void test_control_flow_return_analysis(TestContext& tests) {
         "    }\n"
         "}\n"};
     const vex::SemanticResult accepted = analyze(valid);
-    tests.check(!has_code(accepted, "SEM024"),
-                "nested branches, early returns, proven non-empty loops, and non-fallthrough loops satisfy return analysis");
+    tests.check(!accepted.has_errors(),
+                "nested branches, early returns, literal conditions, proven non-empty loops, and non-fallthrough loops satisfy return analysis");
 
     const vex::SourceFile invalid{"incomplete_return_paths.vex",
         "make conditional(flag: bool) -> int {\n"
@@ -184,8 +187,12 @@ void test_control_flow_return_analysis(TestContext& tests) {
         "    if false { return 7 }\n"
         "}\n"};
     const vex::SemanticResult rejected = analyze(invalid);
-    tests.check(has_code(rejected, "SEM024"),
-                "reachable fallthrough is rejected when branches or zero-iteration loops can reach function end");
+    std::size_t return_path_errors = 0;
+    for (const vex::Diagnostic& diagnostic : rejected.diagnostics) {
+        if (diagnostic.code == "SEM024") ++return_path_errors;
+    }
+    tests.check(return_path_errors == 7,
+                "every incomplete function is rejected when a reachable path can reach function end");
 }
 
 void test_recursive_function_signatures(TestContext& tests) {
