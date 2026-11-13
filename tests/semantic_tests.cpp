@@ -185,13 +185,22 @@ void test_control_flow_return_analysis(TestContext& tests) {
         "}\n"
         "make constant_false() -> int {\n"
         "    if false { return 7 }\n"
+        "}\n"
+        "make repeat_continue_falls_through() -> int {\n"
+        "    repeat 2 times { continue }\n"
+        "}\n"
+        "make array_continue_falls_through() -> int {\n"
+        "    for value in [1,] { continue }\n"
+        "}\n"
+        "make range_continue_falls_through() -> int {\n"
+        "    for value in 1..=1 { continue }\n"
         "}\n"};
     const vex::SemanticResult rejected = analyze(invalid);
     std::size_t return_path_errors = 0;
     for (const vex::Diagnostic& diagnostic : rejected.diagnostics) {
         if (diagnostic.code == "SEM024") ++return_path_errors;
     }
-    tests.check(return_path_errors == 7,
+    tests.check(return_path_errors == 10,
                 "every incomplete function is rejected when a reachable path can reach function end");
 }
 
@@ -306,6 +315,13 @@ void test_loop_control_scope_and_while_condition(TestContext& tests) {
         "    repeat 2 times {\n"
         "        count += 1\n"
         "        continue\n"
+        "    }\n"
+        "    repeat 2 times {\n"
+        "        for index in 1..=4 {\n"
+        "            if index == 2 { continue }\n"
+        "            if index == 4 { break }\n"
+        "            count += 1\n"
+        "        }\n"
         "    }\n"
         "}\n"};
     const vex::SemanticResult accepted = analyze(valid);
