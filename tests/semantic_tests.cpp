@@ -118,6 +118,76 @@ void test_function_signatures_and_returns(TestContext& tests) {
 
 
 
+void test_control_flow_return_analysis(TestContext& tests) {
+    const vex::SourceFile valid{"complete_return_paths.vex",
+        "make nested(flag: bool, other: bool) -> int {\n"
+        "    if flag {\n"
+        "        if other { return 1 } else { return 2 }\n"
+        "    } else {\n"
+        "        return 3\n"
+        "    }\n"
+        "}\n"
+        "make early(flag: bool) -> int {\n"
+        "    if flag { return 4 }\n"
+        "    return 5\n"
+        "}\n"
+        "make constant_branch() -> int {\n"
+        "    if true { return 6 }\n"
+        "}\n"
+        "make while_returns() -> int {\n"
+        "    while true { return 7 }\n"
+        "}\n"
+        "make diverges() -> int {\n"
+        "    while true { say(8) }\n"
+        "}\n"
+        "make repeat_returns() -> int {\n"
+        "    repeat 2 times { return 9 }\n"
+        "}\n"
+        "make array_returns() -> int {\n"
+        "    let values = [10]\n"
+        "    for value in values { return value }\n"
+        "}\n"
+        "make range_returns() -> int {\n"
+        "    for value in 1..=1 { return value }\n"
+        "}\n"
+        "make nested_loop_diverges() -> int {\n"
+        "    while true {\n"
+        "        while true { break }\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!has_code(accepted, "SEM024"),
+                "nested branches, early returns, proven non-empty loops, and non-fallthrough loops satisfy return analysis");
+
+    const vex::SourceFile invalid{"incomplete_return_paths.vex",
+        "make conditional(flag: bool) -> int {\n"
+        "    if flag { return 1 } else { say(2) }\n"
+        "}\n"
+        "make conditional_after_break(flag: bool) -> int {\n"
+        "    while true {\n"
+        "        if flag { return 3 } else { break }\n"
+        "    }\n"
+        "}\n"
+        "make maybe_zero_iterations(flag: bool) -> int {\n"
+        "    while flag { return 4 }\n"
+        "}\n"
+        "make zero_repeat() -> int {\n"
+        "    repeat 0 times { return 5 }\n"
+        "}\n"
+        "make negative_repeat() -> int {\n"
+        "    repeat -2 times { return 6 }\n"
+        "}\n"
+        "make empty_range() -> int {\n"
+        "    for value in 2..2 { return value }\n"
+        "}\n"
+        "make constant_false() -> int {\n"
+        "    if false { return 7 }\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM024"),
+                "reachable fallthrough is rejected when branches or zero-iteration loops can reach function end");
+}
+
 void test_recursive_function_signatures(TestContext& tests) {
     const vex::SourceFile source{"recursive_functions.vex",
         "make factorial(n: int) -> int {\n"
@@ -359,6 +429,7 @@ void run_semantic_tests(TestContext& tests) {
     test_name_resolution_and_mutability(tests);
     test_operator_and_condition_types(tests);
     test_function_signatures_and_returns(tests);
+    test_control_flow_return_analysis(tests);
     test_recursive_function_signatures(tests);
     test_semantic_model_exposes_typed_resolutions(tests);
     test_math_standard_library_signatures(tests);
