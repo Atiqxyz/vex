@@ -25,7 +25,7 @@ The language should not force every scientific feature into the compiler. Keep t
 - Keep `SPEC.md` authoritative for language syntax and semantics.
 - Define integer overflow, floating-point behavior, conversions, string representation, and error-handling conventions.
 - Finalize the hybrid memory model: ownership, borrowing, lifetimes, allocation, cleanup, and unsafe boundaries.
-- Define module/import visibility, package boundaries, and public API conventions.
+- Defer module/import visibility, package boundaries, and public API conventions until the core type system and standard-library surface are mature enough to organize.
 - Define target platforms, ABI strategy, and C interoperability goals.
 - Establish compatibility and deprecation policies for the standard library.
 - Maintain a clear distinction between implemented, planned, and experimental features.
