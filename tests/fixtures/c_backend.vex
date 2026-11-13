@@ -29,6 +29,36 @@ make main() {
     }
     say(outer_iterations)
     say(inner_hits)
+    let repeat_outer_iterations = 0
+    let repeat_inner_hits = 0
+    let repeat_step = 0
+    repeat 2 times {
+        repeat_outer_iterations += 1
+        repeat_step = 0
+        repeat 4 times {
+            repeat_step += 1
+            if repeat_step == 2 { continue }
+            if repeat_step == 4 { break }
+            repeat_inner_hits += 1
+        }
+    }
+    say(repeat_outer_iterations)
+    say(repeat_inner_hits)
+    let while_outer_iterations = 0
+    let while_inner_hits = 0
+    let while_step = 0
+    while while_outer_iterations < 2 {
+        while_step = 0
+        while while_step < 4 {
+            while_step += 1
+            if while_step == 2 { continue }
+            if while_step == 4 { break }
+            while_inner_hits += 1
+        }
+        while_outer_iterations += 1
+    }
+    say(while_outer_iterations)
+    say(while_inner_hits)
 
     say(factorial(5))
     say(is_even(8))
