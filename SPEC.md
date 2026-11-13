@@ -182,7 +182,7 @@ The implemented numeric representation is signed 64-bit integers and 64-bit floa
 - Variables are visible after declaration in their lexical scope. Nested blocks may shadow outer bindings; duplicate declarations in the same scope are errors.
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
 - Function parameters require explicit types. Function signatures are registered before body checking, enabling forward calls. Argument count and types are checked.
-- A function without a return annotation is treated as `void`. A non-void function must return a compatible value on every control-flow path recognized by the current checker.
+- A function without a return annotation is treated as `void`. A non-void function is rejected when a reachable path can reach the end of its body without returning a compatible value. Return-path analysis follows sequential statements, nested blocks, conditional branches, and loop exits. It recognizes literal boolean conditions, positive or non-positive integer literal repeat counts, and fixed-array or integer-range iteration when non-emptiness can be proven from the source. A loop that may execute zero times cannot by itself satisfy a return requirement. A path proven unable to reach the function end (for example, a literal `while true` loop without a reachable `break`) does not need a return value.
 - The built-in `say(value)` accepts one supported primitive value and returns `void`; arrays must be indexed before printing.
 
 ## 5. Lexical rules implemented in the current frontend
