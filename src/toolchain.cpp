@@ -448,7 +448,7 @@ int build_llvm_to_output(
             }
             if (compile_result.exit_code != 0) {
                 std::cerr << "error: bundled Zig Clang exited with code "
-                          << compile_result.exit_code << '\\n';
+                          << compile_result.exit_code << '\n';
                 return compile_result.exit_code;
             }
 
@@ -475,11 +475,11 @@ int build_llvm_to_output(
         }
         if (result.exit_code != 0) {
             std::cerr << "error: LLVM toolchain exited with code "
-                      << result.exit_code << '\\n';
+                      << result.exit_code << '\n';
             return result.exit_code;
         }
         if (announce) {
-            std::cout << "Built " << output_absolute.string() << '\\n';
+            std::cout << "Built " << output_absolute.string() << '\n';
         }
         return 0;
     }
