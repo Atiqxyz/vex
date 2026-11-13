@@ -809,8 +809,10 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
     std::unordered_map<std::string, FunctionSignature> functions;
     std::unordered_map<std::uint32_t, bool> structure_ids;
     std::unordered_map<std::string, bool> structure_names;
-    for (const IRStructType& structure : module.struct_types) {
-        if (structure.id == 0 || structure.id > module.struct_types.size() ||
+    for (std::size_t structure_index = 0;
+         structure_index < module.struct_types.size(); ++structure_index) {
+        const IRStructType& structure = module.struct_types[structure_index];
+        if (structure.id != structure_index + 1u ||
             !structure_ids.emplace(structure.id, true).second ||
             structure.name.empty() || !structure_names.emplace(structure.name, true).second) {
             result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR069",
@@ -866,7 +868,7 @@ void print_ir(std::ostream& output, const IRModule& module) {
     for (const IRStructType& structure : module.struct_types) {
         output << "struct " << structure.name << " {\n";
         for (const IRStructField& field : structure.fields)
-            output << "  " << field.name << ": " << ir_type_name(field.type) << '\\n';
+            output << "  " << field.name << ": " << ir_type_name(field.type) << '\n';
         output << "}\n";
     }
     for (const IRFunction& function : module.functions) {

@@ -48,13 +48,13 @@ void print_expression(std::ostream& output, const SourceFile& source,
             if (node.start) print_expression(output, source, *node.start, depth + 1);
             if (node.end) print_expression(output, source, *node.end, depth + 1);
         } else if constexpr (std::is_same_v<Node, MemberExpr>) {
-            output << "Member " << source.slice(node.member) << '\\n';
+            output << "Member " << source.slice(node.member) << '\n';
             if (node.object) print_expression(output, source, *node.object, depth + 1);
         } else if constexpr (std::is_same_v<Node, StructLiteralExpr>) {
-            output << "StructLiteral " << source.slice(node.type_name) << '\\n';
+            output << "StructLiteral " << source.slice(node.type_name) << '\n';
             for (const StructLiteralField& field : node.fields) {
                 indent(output, depth + 1);
-                output << "Field " << source.slice(field.name) << '\\n';
+                output << "Field " << source.slice(field.name) << '\n';
                 if (field.value) print_expression(output, source, *field.value, depth + 2);
             }
         }
@@ -78,12 +78,12 @@ void print_statement(std::ostream& output, const SourceFile& source,
             }
             if (node.body) print_statement(output, source, *node.body, depth + 1);
         } else if constexpr (std::is_same_v<Node, StructDeclStmt>) {
-            output << "Struct " << source.slice(node.name) << '\\n';
+            output << "Struct " << source.slice(node.name) << '\n';
             for (const StructFieldDecl& field : node.fields) {
                 indent(output, depth + 1);
                 output << "Field " << source.slice(field.name);
                 if (field.type_annotation) output << ": " << source.slice(*field.type_annotation);
-                output << '\\n';
+                output << '\n';
             }
         } else if constexpr (std::is_same_v<Node, VariableDeclStmt>) {
             output << (node.immutable ? "Const " : "Let ") << source.slice(node.name);
