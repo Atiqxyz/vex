@@ -342,6 +342,7 @@ private:
     }
 
     void emit_function(const IRFunction& function) {
+        current_function_ = &function;
         index_values(function);
         output_ << "define internal " << llvm_type(function.return_type) << ' '
                 << function_symbol(function.name) << '(';
@@ -352,7 +353,13 @@ private:
         }
         output_ << ") {\nentry:\n";
 
-        for (const auto& [id, type] : value_types_) {
+        std::vector<std::pair<IRValueId, IRType>> ordered_values(
+            value_types_.begin(), value_types_.end());
+        std::sort(ordered_values.begin(), ordered_values.end(),
+            [](const auto& left, const auto& right) {
+                return left.first < right.first;
+            });
+        for (const auto& [id, type] : ordered_values) {
             output_ << "  " << value_slot(id) << " = alloca "
                     << llvm_type(type) << ", align "
                     << (type == IRType::Bool ? 1 : 8) << "\n";
@@ -493,6 +500,8 @@ private:
         const std::string right_pointer = next_temp();
         const std::string right_length = next_temp();
         const std::string lengths_equal = next_temp();
+        const std::string left_is_shorter = next_temp();
+        const std::string compare_length = next_temp();
         const std::string comparison = next_temp();
         const std::string bytes_equal = next_temp();
         const std::string result = next_temp();
@@ -506,8 +515,12 @@ private:
                 << right << ", 1\n"
                 << "  " << lengths_equal << " = icmp eq i64 " << left_length
                 << ", " << right_length << "\n"
+                << "  " << left_is_shorter << " = icmp ult i64 " << left_length
+                << ", " << right_length << "\n"
+                << "  " << compare_length << " = select i1 " << left_is_shorter
+                << ", i64 " << left_length << ", i64 " << right_length << "\n"
                 << "  " << comparison << " = call i32 @memcmp(ptr " << left_pointer
-                << ", ptr " << right_pointer << ", i64 " << left_length << ")\n"
+                << ", ptr " << right_pointer << ", i64 " << compare_length << ")\n"
                 << "  " << bytes_equal << " = icmp eq i32 " << comparison << ", 0\n"
                 << "  " << result << " = and i1 " << lengths_equal << ", "
                 << bytes_equal << "\n";
@@ -520,9 +533,8 @@ private:
         }
     }
 
-    void emit_say(const IRInstruction& instruction) {
+    void emit_say(const IRInstruction& instruction, const std::string& value) {
         const IRType type = value_types_.at(instruction.operands.front());
-        const std::string value = load_value(instruction.operands.front());
         if (type == IRType::Int) {
             output_ << "  call i32 (ptr, ...) @printf(ptr @.vex_fmt_i64, i64 "
                     << value << ")\n";
@@ -695,8 +707,6 @@ private:
             return;
         }
         case IROp::Call: {
-            const auto signature = function_signatures_.find(instruction.callee);
-            (void)signature;
             const std::string result = instruction.result ? next_temp() : std::string{};
             if (instruction.result) {
                 output_ << "  " << result << " = call "
@@ -730,7 +740,7 @@ private:
             return;
         }
         case IROp::Say:
-            emit_say(instruction);
+            emit_say(instruction, operands.front());
             return;
         }
     }
@@ -771,13 +781,17 @@ private:
         if (destination != current_function_->blocks.end()) {
             const std::size_t count = std::min(arguments.size(),
                                                destination->parameters.size());
+            std::vector<std::pair<IRType, std::string>> edge_values;
+            edge_values.reserve(count);
             for (std::size_t index = 0; index < count; ++index) {
                 const IRValueId argument_id = arguments[index];
-                const IRType type = value_types_.at(argument_id);
-                const std::string value = load_value(argument_id);
-                output_ << "  store " << llvm_type(type) << ' ' << value
-                        << ", ptr " << value_slot(destination->parameters[index].id)
-                        << "\n";
+                edge_values.emplace_back(value_types_.at(argument_id),
+                                         load_value(argument_id));
+            }
+            for (std::size_t index = 0; index < count; ++index) {
+                output_ << "  store " << llvm_type(edge_values[index].first) << ' '
+                        << edge_values[index].second << ", ptr "
+                        << value_slot(destination->parameters[index].id) << "\n";
             }
         }
         output_ << "  br label %" << block_label(target) << "\n";
@@ -812,8 +826,6 @@ private:
     std::vector<StringGlobal> string_globals_;
     std::unordered_map<const IRInstruction*, std::string> string_symbols_;
     std::unordered_map<IRValueId, IRType> value_types_;
-    std::unordered_map<std::string, std::pair<std::vector<IRType>, IRType>>
-        function_signatures_;
     const IRFunction* entry_{nullptr};
     const IRFunction* current_function_{nullptr};
     std::size_t next_temp_{0};

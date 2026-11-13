@@ -1,6 +1,7 @@
 #include "vex/backend.hpp"
 
 #include "vex/c_backend.hpp"
+#include "vex/llvm_backend.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -18,6 +19,8 @@ std::unique_ptr<Backend> create_backend(const BackendKind kind) {
     switch (kind) {
     case BackendKind::C:
         return std::make_unique<CBackend>();
+    case BackendKind::LLVM:
+        return std::make_unique<LLVMBackend>();
     }
     return nullptr;
 }
