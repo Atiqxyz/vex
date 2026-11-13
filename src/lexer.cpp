@@ -9,12 +9,15 @@ namespace {
 
 using Keyword = std::pair<std::string_view, TokenKind>;
 
-constexpr std::array<Keyword, 16> keywords{{
+constexpr std::array<Keyword, 19> keywords{{
     {"make", TokenKind::KwMake},
     {"let", TokenKind::KwLet},
     {"const", TokenKind::KwConst},
     {"if", TokenKind::KwIf},
     {"else", TokenKind::KwElse},
+    {"while", TokenKind::KwWhile},
+    {"break", TokenKind::KwBreak},
+    {"continue", TokenKind::KwContinue},
     {"repeat", TokenKind::KwRepeat},
     {"times", TokenKind::KwTimes},
     {"for", TokenKind::KwFor},
@@ -115,10 +118,13 @@ void Lexer::scan_token() {
     case ']': add_token(TokenKind::RightBracket); break;
     case ',': add_token(TokenKind::Comma); break;
     case ':': add_token(TokenKind::Colon); break;
-    case '+': add_token(TokenKind::Plus); break;
-    case '*': add_token(TokenKind::Star); break;
-    case '%': add_token(TokenKind::Percent); break;
-    case '-': add_token(match('>') ? TokenKind::Arrow : TokenKind::Minus); break;
+    case '+': add_token(match('=') ? TokenKind::PlusEqual : TokenKind::Plus); break;
+    case '*': add_token(match('=') ? TokenKind::StarEqual : TokenKind::Star); break;
+    case '%': add_token(match('=') ? TokenKind::PercentEqual : TokenKind::Percent); break;
+    case '-':
+        if (match('>')) add_token(TokenKind::Arrow);
+        else add_token(match('=') ? TokenKind::MinusEqual : TokenKind::Minus);
+        break;
     case '=': add_token(match('=') ? TokenKind::EqualEqual : TokenKind::Equal); break;
     case '!': add_token(match('=') ? TokenKind::BangEqual : TokenKind::Bang); break;
     case '<': add_token(match('=') ? TokenKind::LessEqual : TokenKind::Less); break;
@@ -147,7 +153,7 @@ void Lexer::scan_token() {
         } else if (match('*')) {
             scan_block_comment();
         } else {
-            add_token(TokenKind::Slash);
+            add_token(match('=') ? TokenKind::SlashEqual : TokenKind::Slash);
         }
         break;
     case '\n':
