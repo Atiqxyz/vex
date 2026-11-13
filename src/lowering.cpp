@@ -19,6 +19,7 @@ std::optional<IRType> to_ir_type(const SemanticType type) {
     case SemanticType::Float: return IRType::Float;
     case SemanticType::Bool: return IRType::Bool;
     case SemanticType::String: return IRType::String;
+    case SemanticType::Array: return IRType::Array;
     case SemanticType::Error:
     case SemanticType::Unknown:
     case SemanticType::Any:
@@ -166,6 +167,23 @@ private:
 
     [[nodiscard]] IRValue make_value(const IRType type, const SourceSpan span) {
         return IRValue{next_value_id_++, type, span};
+    }
+
+    [[nodiscard]] IRValue make_array_value(const IRType element_type,
+                                           const std::uint32_t length,
+                                           const SourceSpan span) {
+        IRValue value = make_value(IRType::Array, span);
+        value.element_type = element_type;
+        value.array_length = length;
+        return value;
+    }
+
+    [[nodiscard]] IRValue make_value_like(const IRValue& source,
+                                          const SourceSpan span) {
+        IRValue value = make_value(source.type, span);
+        value.element_type = source.element_type;
+        value.array_length = source.array_length;
+        return value;
     }
 
     [[nodiscard]] IRBlockId create_block(std::string name,

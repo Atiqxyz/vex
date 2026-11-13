@@ -19,7 +19,8 @@ enum class IRType {
     Int,
     Float,
     Bool,
-    String
+    String,
+    Array
 };
 
 [[nodiscard]] const char* ir_type_name(IRType type) noexcept;
@@ -44,7 +45,10 @@ enum class IROp {
     IntToFloat,
     Call,
     Math,
-    Say
+    Say,
+    ArrayMake,
+    ArrayGet,
+    ArraySet
 };
 
 [[nodiscard]] const char* ir_op_name(IROp op) noexcept;
@@ -53,6 +57,8 @@ struct IRValue {
     IRValueId id{0};
     IRType type{IRType::Void};
     SourceSpan span{};
+    IRType element_type{IRType::Void};
+    std::uint32_t array_length{0};
 };
 
 struct IRInstruction {

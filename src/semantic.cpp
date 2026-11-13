@@ -1,6 +1,7 @@
 #include "vex/semantic.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -416,6 +417,8 @@ private:
                         report("SEM042", "array index must have type int",
                                indexed->index->span);
                 }
+                model_.resolved_names[base_name] = symbol->id;
+                model_.array_expression_types[indexed->object.get()] = *symbol->array_type;
                 model_.assignment_targets[assignment] = symbol->id;
                 const Type value = assignment->value
                     ? analyze_expression(*assignment->value) : Type::Error;

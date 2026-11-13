@@ -26,7 +26,7 @@ struct FunctionSignature {
 };
 
 struct Definition {
-    IRType type{IRType::Void};
+    IRValue value{};
     IRBlockId block{0};
     std::int64_t position{-1};
 };
@@ -88,7 +88,7 @@ private:
             report("IR006", "SSA values cannot have type void", value.span);
         }
         const auto inserted = definitions_.emplace(
-            value.id, Definition{value.type, block, position});
+            value.id, Definition{value, block, position});
         if (!inserted.second) {
             report("IR007", "SSA value identifier is defined more than once",
                    value.span);
@@ -118,7 +118,20 @@ private:
         if (index >= instruction.operands.size()) return std::nullopt;
         const auto found = definitions_.find(instruction.operands[index]);
         if (found == definitions_.end()) return std::nullopt;
-        return found->second.type;
+        return found->second.value.type;
+    }
+
+    [[nodiscard]] const IRValue* operand_value(
+        const IRInstruction& instruction, const std::size_t index) const {
+        if (index >= instruction.operands.size()) return nullptr;
+        const auto found = definitions_.find(instruction.operands[index]);
+        return found == definitions_.end() ? nullptr : &found->second.value;
+    }
+
+    static bool same_array_shape(const IRValue& left, const IRValue& right) {
+        return left.type == IRType::Array && right.type == IRType::Array &&
+               left.element_type == right.element_type &&
+               left.array_length == right.array_length;
     }
 
     void check_arity(const IRInstruction& instruction, const std::size_t expected) {
@@ -284,11 +297,58 @@ private:
         }
         case IROp::Say:
             check_arity(instruction, 1);
-            if (left && !is_value_type(*left)) {
-                report("IR024", "say requires a non-void value", instruction.span);
+            if (left && (!is_value_type(*left) || *left == IRType::Array)) {
+                report("IR024", "say requires a printable primitive value", instruction.span);
             }
             check_no_result(instruction);
             break;
+        case IROp::ArrayMake: {
+            if (!instruction.result || instruction.result->type != IRType::Array) {
+                report("IR041", "array construction must define an array result", instruction.span);
+                break;
+            }
+            const IRValue& result = *instruction.result;
+            if (result.element_type == IRType::Void || result.element_type == IRType::Array ||
+                result.array_length == 0 || result.array_length > 65536u)
+                report("IR042", "array result has an invalid element type or length", result.span);
+            if (instruction.operands.size() != result.array_length)
+                report("IR043", "array construction operand count does not match its fixed length", instruction.span);
+            for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
+                const auto actual = operand_type(instruction, index);
+                if (actual && *actual != result.element_type)
+                    report("IR044", "array element operand has the wrong type", instruction.span);
+            }
+            break;
+        }
+        case IROp::ArrayGet: {
+            check_arity(instruction, 2);
+            const IRValue* array = operand_value(instruction, 0);
+            if (array && array->type != IRType::Array)
+                report("IR045", "array indexing requires an array operand", instruction.span);
+            if (right && *right != IRType::Int)
+                report("IR046", "array index operand must have type int", instruction.span);
+            if (array) check_result(instruction, array->element_type);
+            else if (!instruction.result)
+                report("IR009", "array indexing must define a result", instruction.span);
+            break;
+        }
+        case IROp::ArraySet: {
+            check_arity(instruction, 3);
+            const IRValue* array = operand_value(instruction, 0);
+            const auto index_type = operand_type(instruction, 1);
+            const auto value_type = operand_type(instruction, 2);
+            if (array && array->type != IRType::Array)
+                report("IR047", "array update requires an array operand", instruction.span);
+            if (index_type && *index_type != IRType::Int)
+                report("IR046", "array index operand must have type int", instruction.span);
+            if (array && value_type && *value_type != array->element_type)
+                report("IR048", "array update value has the wrong element type", instruction.span);
+            if (array && instruction.result && !same_array_shape(*array, *instruction.result))
+                report("IR049", "array update result must preserve the source array shape", instruction.span);
+            else if (array && !instruction.result)
+                report("IR009", "array update must define a result", instruction.span);
+            break;
+        }
         }
     }
 
@@ -309,7 +369,9 @@ private:
         for (std::size_t index = 0; index < count; ++index) {
             const auto value = definitions_.find(branch.arguments[index]);
             if (value != definitions_.end() &&
-                value->second.type != parameters[index].type) {
+                (value->second.value.type != parameters[index].type ||
+                 (parameters[index].type == IRType::Array &&
+                  !same_array_shape(value->second.value, parameters[index])))) {
                 report("IR027", "branch argument type does not match target block parameter",
                        span);
             }
@@ -335,7 +397,7 @@ private:
                 } else {
                     const auto value = definitions_.find(*terminator.value);
                     if (value != definitions_.end() &&
-                        value->second.type != function_.return_type) {
+                        value->second.value.type != function_.return_type) {
                         report("IR031", "returned value has the wrong type",
                                block.terminator->span);
                     }
@@ -527,6 +589,7 @@ const char* ir_type_name(const IRType type) noexcept {
     case IRType::Float: return "float";
     case IRType::Bool: return "bool";
     case IRType::String: return "string";
+    case IRType::Array: return "array";
     }
     return "unknown";
 }
@@ -553,6 +616,9 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::Call: return "call";
     case IROp::Math: return "math";
     case IROp::Say: return "say";
+    case IROp::ArrayMake: return "array_make";
+    case IROp::ArrayGet: return "array_get";
+    case IROp::ArraySet: return "array_set";
     }
     return "unknown";
 }
