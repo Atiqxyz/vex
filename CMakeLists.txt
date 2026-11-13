@@ -5,6 +5,12 @@ cmake_minimum_required(VERSION 3.20)
 # project() enables compiler languages; the setting is ignored by other compilers.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# Build the VEX CLI for an older macOS baseline instead of inheriting the
+# current GitHub runner's deployment target.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
+endif()
+
 project(VEX VERSION 0.1.0 LANGUAGES CXX)
 include(CTest)
 include(CheckLanguage)
