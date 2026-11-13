@@ -132,10 +132,10 @@ void test_recursive_function_signatures(TestContext& tests) {
         "    if n == 0 { return false }\n"
         "    return is_even(n - 1)\n"
         "}\n"
-        "make main() {\\n"
-        "    say(factorial(5))\\n"
-        "    say(is_even(8))\\n"
-        "}\\n"};
+        "make main() {\n"
+        "    say(factorial(5))\n"
+        "    say(is_even(8))\n"
+        "}\n"};
     const vex::SemanticResult result = analyze(source);
     tests.check(!result.has_errors(),
                 "direct and mutual recursion resolve against pre-collected function signatures");
