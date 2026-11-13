@@ -32,6 +32,10 @@ jobs:
             platform: macos-x64
             zig_archive: zig-x86_64-macos-0.17.1.tar.xz
             zig_sha256: 9af07b20319fbd0c92ee46ad23e81d6a782b1aaea2cfb8dcbff35f1d2c7ddbb7
+          - os: macos-26
+            platform: macos-arm64
+            zig_archive: zig-aarch64-macos-0.17.1.tar.xz
+            zig_sha256: 75f1bc7a1e9852f17ec9a0c1895f767c4ec56d46bc8a834920eece1d0359dd8d
 
     steps:
       - name: Check out source
