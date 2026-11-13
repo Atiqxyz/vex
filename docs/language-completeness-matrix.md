@@ -126,7 +126,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Pattern matching expressions | Not implemented | Depends on enums and patterns. |
 | Operator overloading | Deferred | Avoid until generics and value semantics are stable. |
 | Explicit casts | Partial | Full conversion matrix and checked/unchecked rules remain. |
-| Evaluation order | Verify | Specify left-to-right or other order for operands, calls and assignments. |
+| Evaluation order | Implemented | Left-to-right order is specified and tested across binary operands, call arguments, arrays, indexing, range bounds and short-circuit logic in both backends. |
 | Integer overflow behavior | Partial | Checked arithmetic exists; audit all operations and constant folding. |
 | Floating-point edge behavior | Verify | NaN, infinities, signed zero and backend consistency need tests/docs. |
 
@@ -140,7 +140,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | for-in over arrays | Implemented | Element type inferred. |
 | for-in over integer ranges | Implemented | Exclusive and inclusive forms. |
 | break / continue | Implemented | Innermost enclosing loop. |
-| Nested loops | Verify | Add tests for nested break/continue targets. |
+| Nested loops | Implemented | Nested `while`, `repeat` and `for-in` loops target the innermost enclosing loop; inner `break`/`continue` are covered by C and LLVM runtime tests. |
 | Labeled break / continue | Not implemented | Decide only if nested control-flow use cases justify it. |
 | Switch / match | Not implemented | Prefer one exhaustive pattern construct over duplicate switch/match systems. |
 | Pattern matching | Not implemented | Depends on enums, optionals and destructuring. |
@@ -304,7 +304,7 @@ These are decisions to make consciously, not features to add automatically:
 
 ## 14. Audit gates before choosing the next implementation
 
-1. **Verify existing claims:** add focused tests for nested loop control, evaluation order, string operations, negative modulo behavior and floating-point edge cases. Recursion, mutual recursion and reachable return-path analysis now have dedicated coverage.
+1. **Verify existing claims:** add focused tests for string operations, negative modulo behavior and floating-point edge cases. Recursion, mutual recursion, reachable return-path analysis, nested loop control and evaluation order now have dedicated coverage.
 2. **Resolve foundational designs:** structs/layout, array-of-struct representation, dynamic arrays/slices, optional/result errors, memory ownership and resource cleanup.
 3. **Map dependencies:** do not implement a feature before its required type, lifetime, IR and backend semantics are understood.
 4. **Select a coherent milestone:** choose a group of related features that can be completed end to end, not a scattered set of syntax additions.
