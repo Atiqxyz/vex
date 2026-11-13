@@ -9,6 +9,21 @@ else()
     set(program_executable "${WORK_DIR}/hello")
 endif()
 
+get_filename_component(install_bin "${VEX_EXECUTABLE}" DIRECTORY)
+get_filename_component(install_root "${install_bin}" DIRECTORY)
+if(WIN32)
+    set(bundled_zig "${install_root}/toolchain/zig.exe")
+else()
+    set(bundled_zig "${install_root}/toolchain/zig")
+endif()
+set(bundled_vsix "${install_root}/share/vex/vex-language-0.1.0.vsix")
+if(NOT EXISTS "${bundled_zig}")
+    message(FATAL_ERROR "The installed package is missing its bundled Zig toolchain: ${bundled_zig}")
+endif()
+if(NOT EXISTS "${bundled_vsix}")
+    message(FATAL_ERROR "The installed package is missing the VS Code extension: ${bundled_vsix}")
+endif()
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
         --unset=VEX_LLVM_CC
