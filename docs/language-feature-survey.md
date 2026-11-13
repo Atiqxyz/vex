@@ -1,108 +1,144 @@
 # VEX language feature survey and adoption plan
 
-This document records the cross-language survey behind VEX's planned expansion. It is a selection guide, not a promise that every listed feature is implemented. The authoritative syntax and semantic contract remains SPEC.md.
+This document records the cross-language survey behind VEX's planned expansion. It is a capability map, not a promise that every item is already implemented. SPEC.md remains authoritative for VEX syntax and semantics.
 
 ## Design rules
 
-1. Adopt capabilities, not keyword collections. When two languages solve the same problem, VEX should choose one coherent construct rather than preserve multiple spellings for equivalent behavior.
-2. Make common behavior easy. Infer types and choose safe defaults when there is one unsurprising answer.
-3. Keep important control configurable. Allocation strategy, numeric widths, overflow behavior, concurrency policy, and target settings must remain expressible when they matter.
-4. Do not make grammar do the standard library's job. Mathematical, filesystem, text, and collection operations should generally be library functions, not special syntax.
-5. Only promise features end to end. A construct is not supported merely because the parser accepts it; it needs semantic rules, IR representation, backend behavior, tests, and documentation.
+1. **Adopt capabilities, not keyword collections.** If several languages solve the same problem, VEX should choose one coherent construct instead of preserving multiple spellings for the same operation.
+2. **Make common behavior easy.** Infer types and choose safe defaults when one answer is unsurprising.
+3. **Keep important control configurable.** Allocation strategy, numeric widths, overflow behavior, concurrency policy, and target settings must remain expressible.
+4. **Do not make grammar do the standard library's job.** Math, filesystem, text, and collection operations should generally be typed library functions, not special syntax.
+5. **Only promise features end to end.** Syntax needs semantics, IR support, backend behavior, tests, and documentation before it is called implemented.
 
-## Surveyed language ideas
+## Languages surveyed
 
-| Source language | Useful ideas considered | VEX design response |
+| Language | Useful capabilities considered | VEX design response |
 |---|---|---|
-| Python | Readable compound statements, iteration, comprehensions, context-managed resources, exceptions | Keep brace-delimited blocks and newline separation; adopt clear iteration and resource-management concepts without copying indentation-based suites or dynamic typing |
-| C | Fixed-width data access, bitwise operations, pointers, explicit layout, predictable low-level behavior | Preserve low-level control as an opt-in capability, but avoid requiring manual allocation for ordinary values |
-| Rust | Algebraic data types, exhaustive pattern matching, ownership/borrowing, Option/Result, closures | Plan enums and pattern matching together; design safe lifetimes and explicit result handling before exposing low-level pointers |
-| Go | Straightforward range iteration, interfaces, deferred cleanup, concurrency primitives | Prefer one straightforward iteration model over several overlapping loop syntaxes; consider interfaces and deferred cleanup after type and lifetime rules are stable |
-| Zig | Explicit optionals and error unions, defer, compile-time execution, allocator choice, explicit overflow behavior | Keep configuration available for systems work; define checked/wrapping arithmetic and allocator contracts rather than silently guessing |
+| Python | Readable compound statements, loops, iteration, comprehensions, context-managed resources, exceptions, rich built-ins | Keep VEX's braces and static typing; adopt clear iteration and resource-management ideas. Put general operations in typed libraries. |
+| C | Fixed-width data access, bitwise operations, pointers, explicit layout, predictable low-level behavior, C interoperability | Preserve low-level access as an advanced capability, but do not require manual allocation for ordinary values. |
+| C++ | RAII, deterministic destruction, templates, value semantics, standard algorithms, operator customization | Study RAII and generic programming. Avoid forcing complex templates or operator overloading into normal code. |
+| Rust | Enums, exhaustive pattern matching, ownership/borrowing, Option/Result, closures, traits | Design enums and matching together; specify lifetime safety and explicit result handling before pointers or closures. |
+| Go | Range iteration, interfaces, defer, goroutines/channels, straightforward error values | Prefer one clean iteration model, consider deterministic deferred cleanup, and design concurrency around explicit runtime primitives. |
+| Zig | Allocator values, defer/errdefer, optionals, error unions, compile-time execution, explicit numeric behavior | Preserve low-level choices for systems code; offer ordinary defaults where safe and predictable. |
+| Julia | Multiple dispatch, parametric types, ranges, comprehensions, broadcasting, complex numbers, numerical computing | Study numerical ergonomics and generic math. Keep domain-specific numerical tools in libraries. |
+| Fortran | Multidimensional arrays, array sections, elemental operations, numerical-oriented intrinsic functions | Prioritize efficient arrays, slices/views, predictable layout, and scientific math facilities. |
+| Swift | Optionals, value types, pattern matching, structured concurrency, automatic reference counting | Consider explicit optional types and structured concurrency; do not conflate reference counting with the entire VEX memory model. |
+
+The purpose is to borrow proven capabilities, not clone any language or copy its entire standard library.
 
 ## Planned VEX capability map
 
 ### 1. Declarations and functions
 
-- Mutable and immutable local bindings with inference and optional explicit annotations.
-- Functions with typed parameters and return types, and forward function calls.
-- Optional explicit make main() entry point; the intended fallback is top-level execution when main is absent. The fallback is a design target and is not yet implemented.
-- Generic functions and types after the type model is designed.
-- Closures and function values when capture and lifetime behavior can be specified safely.
-- Default parameter values only if they do not create overload-like ambiguity.
+- Mutable and immutable bindings with inference and optional explicit type annotations.
+- Typed function parameters and return types; recursion and forward calls.
+- Optional explicit make main() entry point. The intended default is top-level execution when main is absent. This fallback is a design decision and is not implemented yet.
+- Default argument values and named arguments if they do not create overload or call-resolution ambiguity.
+- Generic functions and types after type identity and constraints are designed.
+- Closures and function values after capture and lifetime behavior can be specified.
+- Variadic functions only where a safe, typed use case exists.
 
 ### 2. Control flow
 
 - if / else conditional branching.
-- Counted repeat N times.
-- Condition-driven while.
-- break and continue, targeting the innermost enclosing loop.
-- One for-in construct for ranges and iterable values once those types exist.
-- Range values with explicitly documented inclusive/exclusive endpoints.
+- Counted repeat N times and condition-driven while loops.
+- break and continue targeting the innermost enclosing loop.
+- One for-in construct for ranges, arrays, strings, and other iterable values once collection semantics exist.
+- First-class range values with clearly documented inclusive/exclusive endpoints.
 - match with exhaustive patterns after enums and tagged unions exist.
-- Avoid adding do-while, until, a second loop spelling, or multiple equivalent counted-loop forms unless a real semantic need appears.
+- Consider switch-like syntax only if a concrete low-level use case cannot be expressed cleanly by match.
+- Avoid duplicate do-while, until, loop, or alternate counted-loop spellings without a real semantic need.
+- Consider defer-like deterministic cleanup after behavior on return, break, continue, errors, and nested scopes is specified.
 
 ### 3. Expressions and operators
 
-- Arithmetic, comparisons, boolean logic, unary operators, grouping, and calls.
-- Compound assignment (+=, -=, *=, /=, %=) as shorthand over existing operations, not as a separate arithmetic engine.
-- Bitwise operations and shifts for low-level and numeric work once fixed-width integer types exist.
-- Explicit casts/conversions with checked behavior where narrowing can fail.
+- Arithmetic, comparisons, Boolean logic, unary operators, grouping, function calls, and assignment.
+- Compound assignment (+=, -=, *=, /=, %=) as shorthand over existing operations, not as a separate arithmetic implementation.
+- Bitwise AND/OR/XOR/NOT and shifts for fixed-width integer work.
+- Explicit casts and conversions; checked conversion where narrowing can fail.
 - Indexing, slicing, field access, and range expressions after arrays, slices, and structures are specified.
-- No automatic insertion of ++/-- merely to duplicate += 1 / -= 1.
+- Short-circuit Boolean evaluation.
+- No automatic ++/-- addition merely to duplicate += 1 and -= 1.
+- Defer operator overloading until value semantics and generic constraints are stable.
 
 ### 4. Data and type system
 
-- Fixed-width signed and unsigned integers; 32-bit and 64-bit floating-point types.
-- Characters/code points, UTF-8 strings, and raw byte buffers as clearly distinct concepts.
+- Fixed-width signed and unsigned integers, plus 32-bit and 64-bit floating-point types.
+- Character/code-point handling, UTF-8 strings, and raw byte buffers as distinct concepts.
 - Fixed arrays, dynamic arrays/vectors, slices/views, tuples, structures, maps, and sets.
 - Enums and tagged unions with exhaustive pattern matching.
-- Option/optional values and Result/error values for explicit absence and recoverable failure.
-- Generics and interfaces/traits once type identity, constraints, and dispatch rules are settled.
+- Optional values and Result-style values for absence and recoverable errors.
+- Generics and interfaces/traits after type identity, bounds, and dispatch rules are stable.
+- Complex numbers, rational values, ranges, and unit-aware quantities for scientific work, preferably as library or standard types unless compiler support is necessary.
 
 ### 5. Memory and resource management
 
 - Automatic storage and cleanup for ordinary local values where lifetime rules permit it.
-- Deterministic cleanup rather than surprising hidden allocations or collection pauses for systems workloads.
+- Deterministic destruction rather than surprising collection pauses for systems workloads.
 - Explicit allocator selection, arenas, pools, aligned allocation, and manual allocation for cases that need configuration.
-- References and pointers with explicit safety boundaries.
-- A defer-like cleanup construct after return, break, continue, panic, and nested-scope behavior is specified.
-- No raw malloc-style ceremony for normal arrays or strings; no removal of low-level allocation control.
+- References and pointers with documented safety boundaries.
+- A defer-like cleanup facility for files, locks, buffers, and other resources after all control-flow exit cases are specified.
+- No malloc-style ceremony for normal arrays or strings; no removal of low-level allocation control.
+- Do not promise garbage collection, reference counting, or ownership rules until their costs and edge cases are evaluated.
 
-### 6. Errors, resources, and concurrency
+### 6. Errors, compile-time features, and runtime
 
-- Explicit Option and Result/error-union types.
-- A concise error-propagation construct once error values and function return semantics are fixed.
-- Deterministic resource cleanup for files, locks, and other acquired resources.
-- Threads, tasks, async/await, channels, synchronization, and atomics after runtime and memory semantics exist.
-- Exceptions are not selected as the default error model; this remains a design decision to be finalized.
+- Explicit optional and Result/error value types.
+- Concise error propagation once result types and function return rules are settled.
+- Assertions, panic/trap behavior, and recoverable errors with distinct semantics.
+- Compile-time evaluation for constants, generic code, and carefully bounded metaprogramming.
+- Process arguments, environment access, exit codes, and runtime diagnostics.
+- Threads, tasks, channels, synchronization, atomics, and structured concurrency after runtime and memory semantics exist.
+- Exceptions are not selected as the default error model; this remains an open design decision.
 
-### 7. Standard-library functions
+### 7. Standard-library capabilities
 
-- Expand math as a coherent library: roots, powers, trigonometry, inverse trigonometry, logarithms, exponentials, rounding, constants, and numeric utilities.
-- Add text, byte, collection, filesystem, I/O, random, time, formatting, process, and testing libraries.
-- Avoid language-specific duplicate built-ins when an ordinary typed library function is sufficient.
-- Scientific packages should provide linear algebra, statistics, numerical solvers, units, geometry, and simulation utilities without bloating the grammar.
+| Area | Capabilities to provide |
+|---|---|
+| Math | Roots, powers, trigonometry, inverse trigonometry, logarithms, exponentials, rounding, constants, numeric utilities |
+| Numeric | Complex numbers, arbitrary precision through libraries, rational/fixed-point types, checked conversions |
+| Collections | Dynamic arrays, slices, maps, sets, queues, stacks, heaps, sorting, searching, hashing |
+| Text | UTF-8 operations, builders, formatting, parsing, search, split, join, trim, replace |
+| Bytes | Byte buffers, endian conversion, binary readers/writers, encoding and decoding |
+| I/O | Standard input/output/error, buffered I/O, readers and writers |
+| Filesystem | Paths, files, directories, metadata, buffered file operations |
+| Random | Seedable generators, reproducible streams, sampling, probability distributions |
+| Time | Monotonic clocks, durations, timestamps, calendar utilities |
+| Process | Arguments, environment variables, process creation, exit status |
+| Testing | Assertions, test discovery, fixtures, benchmarks, structured reports |
+| Concurrency | Threads, tasks, channels, mutexes, condition variables, atomics |
+| Networking | TCP/UDP, DNS, TLS integration, HTTP client/server APIs |
+| Serialization | CSV, JSON, binary formats, efficient parsing |
+
+Scientific and engineering packages can then provide linear algebra, statistics, numerical solvers, units, geometry, orbital mechanics, simulation, and scientific data processing without bloating the grammar.
 
 ### 8. Modules and imports
 
-Modules/imports remain intentionally later. Their visibility, initialization, package boundaries, and dependency model should be designed only after the core types and standard-library APIs are established.
+Modules/imports intentionally come later. Their visibility, initialization, package boundaries, dependency model, and public API rules should be designed once core types and standard-library APIs are stable enough to organize.
 
 ## Current implementation slice
 
-The feature/core-language-expansion branch adds:
+The feature/core-language-expansion branch currently contains:
 
 - while condition { ... };
 - break and continue in while and counted repeat loops;
 - Boolean checking for while conditions and diagnostics when loop controls are used outside loops;
-- compound assignment operators +=, -=, *=, /=, and %=, lowered through the existing arithmetic and assignment semantics.
+- compound assignment operators +=, -=, *=, /=, and %=;
+- compound assignment desugaring through the existing assignment and arithmetic semantic model;
+- SSA control-flow lowering for while and loop-control edges.
 
-These changes still require CI and end-to-end validation before being considered release-ready. for-in remains parser-only until iterable types exist. Arrays, structs, enums, pattern matching, generics, error values, memory controls, and implicit main remain planned work.
+These changes still require a full build and end-to-end backend validation before release-ready. for-in remains parser-only until iterable types exist. Arrays, structs, enums, pattern matching, generics, result values, memory controls, bitwise operators, and implicit top-level main behavior remain planned.
 
-## References
+## Primary language references
 
-- Python language reference: https://docs.python.org/3/reference/compound_stmts.html
-- Rust Reference, patterns: https://doc.rust-lang.org/reference/patterns.html
-- Rust Reference, expressions: https://doc.rust-lang.org/reference/expressions.html
+- Python Language Reference: https://docs.python.org/3/reference/
+- Python compound statements: https://docs.python.org/3/reference/compound_stmts.html
+- C language reference: https://en.cppreference.com/w/c
+- C++ language reference: https://en.cppreference.com/w/cpp/language
+- Rust Reference: https://doc.rust-lang.org/reference/
+- Rust patterns: https://doc.rust-lang.org/reference/patterns.html
 - Go language specification: https://go.dev/ref/spec
 - Zig language reference: https://ziglang.org/documentation/
+- Julia manual: https://docs.julialang.org/en/v1/manual/
+- Fortran learning resources: https://fortran-lang.org/learn/
+- Swift language guide: https://docs.swift.org/swift-book/documentation/the-swift-programming-language/
