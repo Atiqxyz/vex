@@ -115,10 +115,15 @@ private:
             std::uint32_t length = 0;
             const auto parsed = std::from_chars(length_text.data(),
                 length_text.data() + length_text.size(), length);
-            if (length_text.empty() || parsed.ec != std::errc{} ||
+            if (length_text.empty()) {
+                if (array_shape)
+                    *array_shape = SemanticArrayType{element_type, 0};
+                return Type::Array;
+            }
+            if (parsed.ec != std::errc{} ||
                 parsed.ptr != length_text.data() + length_text.size() ||
                 length == 0 || length > 65536u) {
-                report("SEM041", "fixed-array lengths must be between 1 and 65,536", span);
+                report("SEM041", "fixed-array lengths must be between 1 and 65,536; use [] for a dynamic array", span);
                 return Type::Error;
             }
             if (array_shape)
@@ -157,6 +162,32 @@ private:
         add_math("cos", 1);
         add_math("pow", 2);
         add_math("abs", 1);
+
+        Symbol length;
+        length.type = Type::Int;
+        length.is_function = true;
+        length.parameters = {Type::Array};
+        length.parameter_array_types = {SemanticArrayType{Type::Unknown, 0}};
+        length.declaration = {0, 0};
+        scopes_.front().emplace("length", std::move(length));
+
+        Symbol push;
+        push.type = Type::Void;
+        push.is_function = true;
+        push.parameters = {Type::Array, Type::Any};
+        push.parameter_array_types = {
+            SemanticArrayType{Type::Unknown, 0}, std::nullopt
+        };
+        push.declaration = {0, 0};
+        scopes_.front().emplace("push", std::move(push));
+
+        Symbol pop;
+        pop.type = Type::Array;
+        pop.is_function = true;
+        pop.parameters = {Type::Array};
+        pop.parameter_array_types = {SemanticArrayType{Type::Unknown, 0}};
+        pop.declaration = {0, 0};
+        scopes_.front().emplace("pop", std::move(pop));
     }
 
     void collect_function_signatures() {
@@ -293,8 +324,14 @@ private:
         }
 
         if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression.data)) {
+            const auto contextual_shape = model_.array_expression_types.find(&expression);
+            const bool dynamic_context =
+                contextual_shape != model_.array_expression_types.end() &&
+                contextual_shape->second.length == 0 &&
+                contextual_shape->second.element_type != Type::Unknown;
             if (array->elements.empty()) {
-                report("SEM041", "empty arrays need an explicit element type; typed empty arrays are not implemented yet",
+                if (dynamic_context) return Type::Array;
+                report("SEM041", "empty array literals require an explicit dynamic-array type such as int[]",
                        expression.span);
                 return Type::Error;
             }
@@ -323,8 +360,19 @@ private:
                        expression.span);
                 return Type::Error;
             }
-            model_.array_expression_types[&expression] = SemanticArrayType{
-                element_type, static_cast<std::uint32_t>(array->elements.size())};
+            if (dynamic_context) {
+                const Type expected = contextual_shape->second.element_type;
+                if (!(expected == element_type ||
+                      (expected == Type::Float && element_type == Type::Int))) {
+                    report("SEM041", "dynamic array literal elements do not match the annotated element type",
+                           expression.span);
+                    return Type::Error;
+                }
+                model_.array_expression_types[&expression] = contextual_shape->second;
+            } else {
+                model_.array_expression_types[&expression] = SemanticArrayType{
+                    element_type, static_cast<std::uint32_t>(array->elements.size())};
+            }
             return Type::Array;
         }
 
@@ -365,7 +413,7 @@ private:
             }
             if (object_type != Type::Array) {
                 if (object_type != Type::Error && object_type != Type::Unknown)
-                    report("SEM043", "indexing requires a fixed-size array value",
+                    report("SEM043", "indexing requires an array value",
                            expression.span);
                 return Type::Error;
             }
@@ -539,6 +587,12 @@ private:
                 return Type::Error;
             }
             model_.assignment_targets[assignment] = symbol->id;
+            if (assignment->value && symbol->type == Type::Array &&
+                symbol->array_type && symbol->array_type->length == 0 &&
+                std::holds_alternative<ArrayLiteralExpr>(assignment->value->data)) {
+                model_.array_expression_types[assignment->value.get()] =
+                    *symbol->array_type;
+            }
             const Type value = assignment->value
                 ? analyze_expression(*assignment->value) : Type::Error;
             if (symbol->type == Type::Array && assignment->value) {
@@ -590,14 +644,72 @@ private:
 
             std::vector<Type> argument_types;
             argument_types.reserve(call->arguments.size());
-            for (const ExprPtr& argument : call->arguments) {
+            for (std::size_t index = 0; index < call->arguments.size(); ++index) {
+                const ExprPtr& argument = call->arguments[index];
+                if (function && argument &&
+                    index < function->parameter_array_types.size() &&
+                    function->parameter_array_types[index] &&
+                    function->parameter_array_types[index]->length == 0 &&
+                    std::holds_alternative<ArrayLiteralExpr>(argument->data)) {
+                    model_.array_expression_types[argument.get()] =
+                        *function->parameter_array_types[index];
+                }
                 argument_types.push_back(argument
                     ? analyze_expression(*argument) : Type::Error);
             }
 
             if (!function) return Type::Error;
             if (name) model_.resolved_calls[call] = spelling(name->name);
-            if (name && spelling(name->name) == "say" &&
+
+            const std::string builtin_name = name ? spelling(name->name) : std::string{};
+            if (builtin_name == "length" || builtin_name == "push" ||
+                builtin_name == "pop") {
+                const std::size_t expected_count = builtin_name == "push" ? 2u : 1u;
+                if (argument_types.size() != expected_count) {
+                    report("SEM020", builtin_name + " expects " +
+                           std::to_string(expected_count) + " argument(s)", expression.span);
+                    return Type::Error;
+                }
+                if (argument_types[0] != Type::Array || !call->arguments[0]) {
+                    report("SEM021", builtin_name +
+                           " requires an array as its first argument", call->arguments[0]
+                               ? call->arguments[0]->span : expression.span);
+                    return Type::Error;
+                }
+                const auto shape = model_.array_expression_types.find(call->arguments[0].get());
+                if (shape == model_.array_expression_types.end()) {
+                    report("SEM021", builtin_name + " could not determine the array element type",
+                           call->arguments[0]->span);
+                    return Type::Error;
+                }
+                if (builtin_name == "length") return Type::Int;
+                if (shape->second.length != 0) {
+                    report("SEM021", builtin_name +
+                           " requires a dynamic array declared with type []", call->arguments[0]->span);
+                    return Type::Error;
+                }
+                if (const auto* array_name =
+                        std::get_if<NameExpr>(&call->arguments[0]->data)) {
+                    Symbol* array_symbol = lookup(spelling(array_name->name));
+                    if (array_symbol && array_symbol->immutable) {
+                        report("SEM017", builtin_name +
+                               " cannot modify an immutable array binding", array_name->name);
+                    }
+                }
+                if (builtin_name == "push") {
+                    if (!is_assignable(shape->second.element_type, argument_types[1])) {
+                        report("SEM021", "push value has type " +
+                               std::string(type_name(argument_types[1])) +
+                               "; expected " + type_name(shape->second.element_type),
+                               call->arguments[1]->span);
+                        return Type::Error;
+                    }
+                    return Type::Void;
+                }
+                return shape->second.element_type;
+            }
+
+            if (builtin_name == "say" &&
                 std::find(argument_types.begin(), argument_types.end(), Type::Array) != argument_types.end()) {
                 report("SEM046", "say does not accept array values; index an element first",
                        expression.span);
@@ -655,17 +767,25 @@ private:
     }
 
     void analyze_variable(const VariableDeclStmt& variable) {
-        const Type inferred = variable.initializer
-            ? analyze_expression(*variable.initializer) : Type::Error;
-        Type declared = inferred;
+        Type declared = Type::Unknown;
         std::optional<SemanticArrayType> declared_array_type;
         if (variable.type_annotation) {
             declared = annotation_type(*variable.type_annotation, false,
                                        &declared_array_type);
-            require_type(inferred, declared,
+        }
+        const auto* array_initializer = variable.initializer
+            ? std::get_if<ArrayLiteralExpr>(&variable.initializer->data) : nullptr;
+        if (array_initializer && declared == Type::Array &&
+            declared_array_type && declared_array_type->length == 0) {
+            model_.array_expression_types[variable.initializer.get()] =
+                *declared_array_type;
+        }
+        const Type inferred = variable.initializer
+            ? analyze_expression(*variable.initializer) : Type::Error;
+        if (!variable.type_annotation) declared = inferred;
+        else require_type(inferred, declared,
                          variable.initializer ? variable.initializer->span : variable.name,
                          "SEM022", "initializer type does not match variable annotation");
-        }
         if (declared == Type::Void) {
             report("SEM023", "variables cannot have type void", variable.name);
             declared = Type::Error;
@@ -683,7 +803,14 @@ private:
                            "array initializer does not match the annotated element type and fixed length",
                            variable.initializer->span);
                 }
-                if (!symbol.array_type) symbol.array_type = shape->second;
+                if (declared_array_type && declared_array_type->length == 0 &&
+                    shape->second.element_type != Type::Unknown) {
+                    model_.array_expression_types[variable.initializer.get()] =
+                        *declared_array_type;
+                    symbol.array_type = *declared_array_type;
+                } else if (!symbol.array_type) {
+                    symbol.array_type = shape->second;
+                }
             }
         }
         symbol.immutable = variable.immutable;
@@ -802,8 +929,10 @@ private:
 
         const auto array_shape =
             model_.array_expression_types.find(loop.iterable.get());
-        if (array_shape != model_.array_expression_types.end())
-            return array_shape->second.length != 0;
+        if (array_shape != model_.array_expression_types.end()) {
+            if (array_shape->second.length == 0) return std::nullopt;
+            return true;
+        }
 
         const Expr* iterable = loop.iterable.get();
         while (iterable) {
@@ -964,6 +1093,13 @@ private:
                     report("SEM027", "a non-void function must return a value",
                            statement.span);
                 } else {
+                    const auto* array_return = std::get_if<ArrayLiteralExpr>(
+                        &returned->value->data);
+                    if (array_return && current_return_array_type_ &&
+                        current_return_array_type_->length == 0) {
+                        model_.array_expression_types[returned->value.get()] =
+                            *current_return_array_type_;
+                    }
                     const Type actual = analyze_expression(*returned->value);
                     require_type(actual, current_return_type_, returned->value->span,
                                  "SEM028", "return type does not match function");
@@ -1049,7 +1185,7 @@ private:
             } else if (iterable == Type::Range) {
                 iteration_type = Type::Int;
             } else if (iterable != Type::Error && iterable != Type::Unknown) {
-                report("SEM031", "for-in requires a fixed-size array or integer range",
+                report("SEM031", "for-in requires an array or integer range",
                        loop->iterable ? loop->iterable->span : loop->variable);
             }
             scopes_.emplace_back();

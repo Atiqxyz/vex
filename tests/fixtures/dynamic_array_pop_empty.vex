@@ -1,0 +1,4 @@
+make main() {
+    let values: int[] = []
+    pop(values)
+}

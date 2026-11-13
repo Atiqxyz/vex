@@ -153,6 +153,58 @@ make main() {
     for maximum in 9223372036854775807..=9223372036854775807 {
         say(maximum)
     }
+
+    let empty_dynamic: int[] = empty_dynamic_values()
+    say(length(empty_dynamic))
+    let initial_dynamic: int[] = initial_dynamic_values()
+    say(length(initial_dynamic))
+    say(initial_dynamic[1])
+    let dynamic_values: int[] = []
+    say(length(dynamic_values))
+    push(dynamic_values, 10)
+    push(dynamic_values, 20)
+    say(length(dynamic_values))
+    let dynamic_alias = dynamic_values
+    dynamic_alias[0] = 7
+    say(dynamic_values[0])
+    say(pop(dynamic_values))
+    say(length(dynamic_values))
+    for value in dynamic_values {
+        say(value)
+    }
+
+    let dynamic_floats: float[] = [1.5, 2.5]
+    push(dynamic_floats, 3.5)
+    say(dynamic_floats[2])
+    let dynamic_labels: string[] = ["VEX", "arrays"]
+    push(dynamic_labels, "runtime")
+    say(dynamic_labels[2])
+    let dynamic_flags: bool[] = [true, false]
+    push(dynamic_flags, true)
+    say(dynamic_flags[2])
+
+    let returned_dynamic: int[] = append_dynamic(dynamic_values, 2)
+    say(length(dynamic_values))
+    say(sum_dynamic(returned_dynamic))
+    say(sum_dynamic([5, 6]))
+    dynamic_values = [4, 5]
+    say(length(dynamic_values))
+    say(pop(dynamic_values))
+
+    let growth_values: int[] = []
+    for index in 0..10 {
+        push(growth_values, index)
+    }
+    say(length(growth_values))
+    say(growth_values[9])
+
+    let iterated_values: int[] = [1]
+    for value in iterated_values {
+        say(value)
+        if value == 1 {
+            push(iterated_values, 2)
+        }
+    }
 }
 
 make combine(left: int, right: int) -> int {
@@ -231,4 +283,25 @@ make trace_bool(marker: int, result: bool) -> bool {
 
 make combine_values(left: int, right: int) -> int {
     return left * 10 + right
+}
+
+make empty_dynamic_values() -> int[] {
+    return []
+}
+
+make initial_dynamic_values() -> int[] {
+    return [30, 40]
+}
+
+make append_dynamic(values: int[], value: int) -> int[] {
+    push(values, value)
+    return values
+}
+
+make sum_dynamic(values: int[]) -> int {
+    let total = 0
+    for value in values {
+        total += value
+    }
+    return total
 }

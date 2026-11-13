@@ -1,7 +1,8 @@
 if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED C_COMPILER_ID OR NOT DEFINED SOURCE_FILE OR
    NOT DEFINED ARRAY_BOUNDS_SOURCE_FILE OR
-   NOT DEFINED REMAINDER_ZERO_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED REMAINDER_ZERO_SOURCE_FILE OR
+   NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -73,7 +74,7 @@ if(NOT program_result EQUAL 0)
 endif()
 
 string(REPLACE "\r\n" "\n" program_output "${program_output}")
-set(expected_output "12\n19\n12\n19\n2\nVEX\nfalse\n1\narrays\ntrue\n-1\n1\n-1\n-1\n0\n1\n2\n-1\n3\n4\n34\n5\n6\n11\n0\n7\n7\n10\n11\ntrue\ntrue\n12\n14\n25\n2\n4\n2\n4\n2\n4\n120\ntrue\ntrue\n30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n10\n18\n9\n8\n0\n9223372036854775807\n")
+set(expected_output "12\n19\n12\n19\n2\nVEX\nfalse\n1\narrays\ntrue\n-1\n1\n-1\n-1\n0\n1\n2\n-1\n3\n4\n34\n5\n6\n11\n0\n7\n7\n10\n11\ntrue\ntrue\n12\n14\n25\n2\n4\n2\n4\n2\n4\n120\ntrue\ntrue\n30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n10\n18\n9\n8\n0\n9223372036854775807\n0\n2\n40\n0\n2\n7\n20\n1\n7\n3.5\nruntime\ntrue\n2\n9\n11\n2\n5\n10\n9\n1\n2\n")
 if(NOT "${program_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "Generated VEX program produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${program_output}")
 endif()
@@ -145,4 +146,24 @@ execute_process(
 )
 if(remainder_zero_result EQUAL 0)
     message(FATAL_ERROR "C backend did not trap on remainder by zero")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE}"
+    RESULT_VARIABLE dynamic_pop_result
+    OUTPUT_VARIABLE dynamic_pop_output
+    ERROR_VARIABLE dynamic_pop_error
+)
+if("${dynamic_pop_result}" STREQUAL "0")
+    message(FATAL_ERROR "C backend did not trap when popping an empty dynamic array")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE}"
+    RESULT_VARIABLE dynamic_bounds_result
+    OUTPUT_VARIABLE dynamic_bounds_output
+    ERROR_VARIABLE dynamic_bounds_error
+)
+if("${dynamic_bounds_result}" STREQUAL "0")
+    message(FATAL_ERROR "C backend did not trap on dynamic-array out-of-bounds indexing")
 endif()

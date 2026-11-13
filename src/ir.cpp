@@ -70,7 +70,6 @@ private:
         if (function_.return_type == IRType::Array) {
             if (function_.return_element_type == IRType::Void ||
                 function_.return_element_type == IRType::Array ||
-                function_.return_array_length == 0 ||
                 function_.return_array_length > 65536u) {
                 report("IR053", "function has an invalid fixed-array return shape",
                        function_.span);
@@ -103,7 +102,7 @@ private:
         }
         if (value.type == IRType::Array &&
             (value.element_type == IRType::Void || value.element_type == IRType::Array ||
-             value.array_length == 0 || value.array_length > 65536u)) {
+             value.array_length > 65536u)) {
             report("IR050", "SSA array value has an invalid element type or fixed length",
                    value.span);
         } else if (value.type != IRType::Array &&
@@ -343,9 +342,10 @@ private:
             }
             const IRValue& result = *instruction.result;
             if (result.element_type == IRType::Void || result.element_type == IRType::Array ||
-                result.array_length == 0 || result.array_length > 65536u)
+                result.array_length > 65536u)
                 report("IR042", "array result has an invalid element type or length", result.span);
-            if (instruction.operands.size() != result.array_length)
+            if (result.array_length != 0 &&
+                instruction.operands.size() != result.array_length)
                 report("IR043", "array construction operand count does not match its fixed length", instruction.span);
             for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
                 const auto actual = operand_type(instruction, index);
@@ -381,6 +381,35 @@ private:
                 report("IR049", "array update result must preserve the source array shape", instruction.span);
             else if (array && !instruction.result)
                 report("IR009", "array update must define a result", instruction.span);
+            break;
+        }
+        case IROp::ArrayLength: {
+            check_arity(instruction, 1);
+            const IRValue* array = operand_value(instruction, 0);
+            if (array && (array->type != IRType::Array || array->array_length != 0))
+                report("IR056", "dynamic array length requires a dynamic-array operand", instruction.span);
+            check_result(instruction, IRType::Int);
+            break;
+        }
+        case IROp::ArrayPush: {
+            check_arity(instruction, 2);
+            const IRValue* array = operand_value(instruction, 0);
+            const auto value_type = operand_type(instruction, 1);
+            if (array && (array->type != IRType::Array || array->array_length != 0))
+                report("IR057", "array push requires a dynamic array operand", instruction.span);
+            if (array && value_type && *value_type != array->element_type)
+                report("IR058", "array push value has the wrong element type", instruction.span);
+            check_no_result(instruction);
+            break;
+        }
+        case IROp::ArrayPop: {
+            check_arity(instruction, 1);
+            const IRValue* array = operand_value(instruction, 0);
+            if (array && (array->type != IRType::Array || array->array_length != 0))
+                report("IR059", "array pop requires a dynamic array operand", instruction.span);
+            if (array) check_result(instruction, array->element_type);
+            else if (!instruction.result)
+                report("IR009", "array pop must define a result", instruction.span);
             break;
         }
         }
@@ -658,6 +687,9 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::ArrayMake: return "array_make";
     case IROp::ArrayGet: return "array_get";
     case IROp::ArraySet: return "array_set";
+    case IROp::ArrayLength: return "array_length";
+    case IROp::ArrayPush: return "array_push";
+    case IROp::ArrayPop: return "array_pop";
     }
     return "unknown";
 }

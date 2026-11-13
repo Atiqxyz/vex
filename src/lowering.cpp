@@ -558,6 +558,56 @@ private:
             arguments.push_back(*value);
         }
 
+        if (target->second == "length") {
+            if (arguments.size() != 1 || arguments[0].type != IRType::Array) {
+                report("IR119", "length expects exactly one array argument", expression.span);
+                return std::nullopt;
+            }
+            if (arguments[0].array_length != 0) {
+                return emit_constant(IRType::Int,
+                    std::to_string(arguments[0].array_length), expression.span);
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::ArrayLength;
+            instruction.operands = {arguments[0].id};
+            instruction.result = make_value(IRType::Int, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
+        if (target->second == "push") {
+            if (arguments.size() != 2 || arguments[0].type != IRType::Array ||
+                arguments[0].array_length != 0) {
+                report("IR119", "push expects a dynamic array and one value", expression.span);
+                return std::nullopt;
+            }
+            const auto converted = convert(arguments[1], arguments[0].element_type,
+                                           call.arguments[1]->span);
+            if (!converted) return std::nullopt;
+            IRInstruction instruction;
+            instruction.op = IROp::ArrayPush;
+            instruction.operands = {arguments[0].id, converted->id};
+            instruction.span = expression.span;
+            emit(std::move(instruction));
+            return std::nullopt;
+        }
+        if (target->second == "pop") {
+            if (arguments.size() != 1 || arguments[0].type != IRType::Array ||
+                arguments[0].array_length != 0) {
+                report("IR119", "pop expects exactly one dynamic array", expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::ArrayPop;
+            instruction.operands = {arguments[0].id};
+            instruction.result = make_value(arguments[0].element_type, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
+
         if (target->second == "say") {
             if (arguments.size() != 1) {
                 report("IR119", "say expects exactly one argument", expression.span);
@@ -1238,8 +1288,8 @@ private:
             return;
         }
         const auto iterable = lower_expression(*loop.iterable);
-        if (!iterable || iterable->type != IRType::Array || iterable->array_length == 0) {
-            report("IR145", "for-in requires a non-empty fixed-size array", span);
+        if (!iterable || iterable->type != IRType::Array) {
+            report("IR145", "for-in requires an array", span);
             return;
         }
         const auto iteration_binding = semantic_model_.for_bindings.find(&loop);
@@ -1283,8 +1333,19 @@ private:
 
         current_block_ = header;
         environment_ = loop_environment;
-        const IRValue length = emit_constant(IRType::Int,
-            std::to_string(iterable->array_length), span);
+        IRValue length;
+        if (iterable->array_length == 0) {
+            IRInstruction length_instruction;
+            length_instruction.op = IROp::ArrayLength;
+            length_instruction.operands = {iterable->id};
+            length_instruction.result = make_value(IRType::Int, span);
+            length_instruction.span = span;
+            length = *length_instruction.result;
+            emit(std::move(length_instruction));
+        } else {
+            length = emit_constant(IRType::Int,
+                std::to_string(iterable->array_length), span);
+        }
         const IRValue condition = emit_operation(
             IROp::Less, IRType::Bool,
             {index_parameter.id, length.id}, span);

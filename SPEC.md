@@ -10,7 +10,7 @@ This document distinguishes current project decisions from provisional syntax an
 ## 1. Decisions already made
 
 - **Typing:** statically typed, with type inference for local bindings when the compiler can determine a type.
-- **Memory-management direction:** hybrid. The exact ownership, borrowing, lifetime, allocation, and cleanup rules are not finalized.
+- **Memory-management direction:** hybrid. Dynamic arrays currently use shared heap references tracked for the lifetime of a generated program; the wider ownership, borrowing, and per-scope lifetime model remains unfinished.
 - **Statement separation:** newlines separate statements. Semicolons are not part of VEX syntax.
 - **Blocks:** curly braces delimit blocks. Indentation is for readability and has no structural meaning.
 - **Calls:** function calls use parentheses, including standard-library calls such as `say("Hello")`.
@@ -168,7 +168,9 @@ The parser accepts assignment to a local name or a simple named-array index such
 
 ## 4. Initial static semantics implemented
 
-The semantic checker implements primitive types, one-dimensional fixed-array shapes, and a temporary integer-range type used only for direct `for-in` iteration. Fixed-array annotations use a primitive type followed by a positive length, such as `int[3]` or `float[8]`. Array parameters and return values are passed by value; argument, initializer, assignment, and return checks require an exact element type and length. Arrays still contain primitive elements only: nested arrays and dynamic arrays are not implemented. Range expressions are not first-class values and cannot be assigned, stored, or passed to functions. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
+The semantic checker implements primitive types, one-dimensional fixed arrays, one-dimensional dynamic arrays, and a temporary integer-range type used only for direct `for-in` iteration. Fixed-array annotations use a positive length, such as `int[3]` or `float[8]`; dynamic-array annotations omit the length, such as `int[]` or `string[]`. Fixed arrays are value aggregates and are passed to/returned from functions by value with exact element-type and length checks. Dynamic arrays contain primitive elements and are heap-backed shared references: assigning, passing, or returning a dynamic array copies its reference, not its elements, so mutations through any alias are visible to every alias. Dynamic-array elements are checked for type and indexed access is bounds-checked. Empty literals require an explicit dynamic-array annotation, such as `let values: int[] = []`. Nested arrays and dynamic arrays of dynamic arrays are not implemented.
+
+Dynamic-array allocations are registered in a program-lifetime runtime list and all registered buffers are freed when the generated entry function returns normally. There is currently no per-scope release, reference counting, borrowing checker, or manual deallocation API. A runtime trap terminates the process; the operating system reclaims its memory. Range expressions are not first-class values and cannot be assigned, stored, or passed to functions. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
 
 | Type | Meaning |
 |---|---|
@@ -180,7 +182,7 @@ The semantic checker implements primitive types, one-dimensional fixed-array sha
 | fixed array | One-dimensional, fixed-length sequence of primitive values; may be inferred or annotated as `int[3]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
-The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory.
+The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer.
 
 - Local `let` and `const` types are inferred from their initializers when no annotation is present.
 - Explicit local annotations are checked against initializer types.
@@ -189,15 +191,16 @@ The implemented numeric representation is signed 64-bit integers and 64-bit floa
 - Relational comparisons require numeric operands. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
 - `repeat` counts require `int`.
-- `for-in` accepts fixed arrays and integer ranges. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
+- `for-in` accepts fixed arrays, dynamic arrays, and integer ranges. Fixed-array lengths are known at compile time; dynamic-array lengths are re-read at each loop header, so appending or removing elements during iteration can change the number of iterations. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
 - `break` and `continue` are only valid inside loops and target the innermost enclosing loop.
 - Compound assignments are shorthand for their corresponding arithmetic operation followed by assignment; they use the same operand, mutability, and conversion checks as ordinary assignment.
 - Variables are visible after declaration in their lexical scope. Nested blocks may shadow outer bindings; duplicate declarations in the same scope are errors.
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
 - Function parameters require explicit types. Primitive annotations and fixed-array annotations such as `values: int[3]` are supported. Function signatures are registered before body checking, enabling forward calls. Argument count, element types, and fixed-array lengths are checked.
-- Fixed arrays may be passed to and returned from functions by value. A function returning `int[3]` must return exactly three `int` elements; an array argument must match the parameter's full fixed shape.
+- Fixed arrays may be passed to and returned from functions by value. A function returning `int[3]` must return exactly three `int` elements; an array argument must match the parameter's full fixed shape. Dynamic arrays may also be passed to and returned from functions, but they are shared references rather than copied collections; their element type must match the declared `T[]` shape.
 - A function without a return annotation is treated as `void`. A non-void function is rejected when a reachable path can reach the end of its body without returning a compatible value. Return-path analysis follows sequential statements, nested blocks, conditional branches, and loop exits. It recognizes literal boolean conditions, positive or non-positive integer literal repeat counts, and fixed-array or integer-range iteration when non-emptiness can be proven from the source. A loop that may execute zero times cannot by itself satisfy a return requirement. A path proven unable to reach the function end (for example, a literal `while true` loop without a reachable `break`) does not need a return value.
 - The built-in `say(value)` accepts one supported primitive value and returns `void`; arrays must be indexed before printing.
+- `length(array)` returns the element count for fixed or dynamic arrays (fixed-array length is lowered as a constant). `push(array, value)` appends a matching primitive value to a dynamic array and returns `void`. `pop(array)` removes and returns the last element; popping an empty dynamic array traps. `push` and `pop` reject fixed arrays and immutable bindings.
 
 ## 5. Lexical rules implemented in the current frontend
 

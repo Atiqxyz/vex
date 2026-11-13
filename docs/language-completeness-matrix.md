@@ -74,9 +74,9 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Void | Implemented | Function no-value result. |
 | Fixed-size one-dimensional arrays | Implemented | Primitive arrays support inference, explicit `type[length]` annotations, and value aggregates. |
 | Array indexing and mutation | Implemented | Runtime bounds checks; simple named-array index assignment. |
-| Array iteration | Implemented | for-in over fixed arrays. |
-| Array function parameters | Implemented | One-dimensional fixed arrays are passed by value; parameter shapes are checked. |
-| Array function returns | Implemented | One-dimensional fixed arrays are returned by value; return shapes are verified in IR. |
+| Array iteration | Implemented | for-in over fixed and dynamic arrays. Dynamic length is checked at each loop header. |
+| Array function parameters | Implemented | Fixed arrays are passed by value; dynamic arrays are passed as shared references. Shapes and element types are checked. |
+| Array function returns | Implemented | Fixed arrays are returned by value; dynamic arrays return a shared reference. IR verifies the full shape. |
 | Nested arrays | Not implemented | Requires recursive aggregate shape metadata and nested literal/indexing rules. |
 | Integer ranges | Implemented | \`start..end\` exclusive and \`start..=end\` inclusive, directly in \`for-in\`. |
 | Unsigned integer types | Not implemented | Important for systems and binary data. |
@@ -90,7 +90,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Union / untagged union | Not implemented | Low-level representation and safety rules needed. |
 | Optional / nullable values | Not implemented | Decide representation and null-safety rules. |
 | Result / error values | Not implemented | Needed for explicit recoverable error handling. |
-| Dynamic arrays / vectors | Not implemented | Requires allocation, growth, ownership and mutation rules. |
+| Dynamic arrays / vectors | Implemented | Primitive element types, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Nested collections, slices, per-scope release, and borrowing checks remain absent. |
 | Slices / views | Not implemented | Requires bounds, lifetime and aliasing rules. |
 | Multidimensional arrays | Not implemented | Important for scientific computing; decide contiguous layout and indexing. |
 | Maps / dictionaries | Not implemented | Hashing, equality, key constraints and allocation needed. |
@@ -140,7 +140,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | if / else | Implemented | Boolean condition required. |
 | Counted repeat loop | Implemented | Integer count. |
 | while loop | Implemented | Boolean condition required. |
-| for-in over arrays | Implemented | Element type inferred. |
+| for-in over arrays | Implemented | Fixed and dynamic arrays; dynamic length is checked on each loop header. |
 | for-in over integer ranges | Implemented | Exclusive and inclusive forms. |
 | break / continue | Implemented | Innermost enclosing loop. |
 | Nested loops | Implemented | Nested `while`, `repeat` and `for-in` loops target the innermost enclosing loop; inner `break`/`continue` are covered by C and LLVM runtime tests. |

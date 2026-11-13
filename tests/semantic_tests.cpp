@@ -455,6 +455,61 @@ void test_array_function_types_and_shapes(TestContext& tests) {
                 "fixed-array annotations reject zero and over-limit lengths");
 }
 
+void test_dynamic_array_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"dynamic_arrays.vex",
+        "make empty_values() -> int[] { return [] }\n"
+        "make initial_values() -> int[] { return [4, 5] }\n"
+        "make append(values: int[], value: int) -> int[] {\n"
+        "    push(values, value)\n"
+        "    return values\n"
+        "}\n"
+        "make sum_values(values: int[]) -> int {\n"
+        "    let total = 0\n"
+        "    for value in values { total += value }\n"
+        "    return total\n"
+        "}\n"
+        "make main() {\n"
+        "    let values: int[] = []\n"
+        "    push(values, 1)\n"
+        "    let shared: int[] = append(values, 2)\n"
+        "    let direct = append([3, 4], 5)\n"
+        "    values = [6, 7]\n"
+        "    let last = pop(shared)\n"
+        "    let count = length(values)\n"
+        "    say(sum_values(values))\n"
+        "    let decimals: float[] = [1.5, 2.5]\n"
+        "    push(decimals, 3)\n"
+        "    let labels: string[] = [\"VEX\"]\n"
+        "    push(labels, \"runtime\")\n"
+        "    let flags: bool[] = [true]\n"
+        "    push(flags, false)\n"
+        "    let empty: int[] = empty_values()\n"
+        "    let populated: int[] = initial_values()\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "dynamic arrays support typed empty literals, mutation, built-ins, iteration, aliases, and function signatures");
+
+    const vex::SourceFile invalid{"dynamic_array_errors.vex",
+        "make main() {\n"
+        "    let fixed = [1, 2]\n"
+        "    push(fixed, 3)\n"
+        "    let values: int[] = []\n"
+        "    push(values, \"wrong\")\n"
+        "    const immutable: int[] = []\n"
+        "    pop(immutable)\n"
+        "    let untyped_empty = []\n"
+        "    pop(fixed)\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM021"),
+                "push and pop reject fixed arrays and push rejects the wrong element type");
+    tests.check(has_code(rejected, "SEM017"),
+                "dynamic-array mutation rejects immutable bindings");
+    tests.check(has_code(rejected, "SEM041"),
+                "empty arrays require an explicit dynamic-array element type");
+}
+
 void test_integer_range_semantics(TestContext& tests) {
     const vex::SourceFile valid{"range_semantics.vex",
         "make main() {\n"
@@ -505,6 +560,7 @@ void run_semantic_tests(TestContext& tests) {
     test_top_level_execution_scope(tests);
     test_fixed_arrays_and_index_assignment(tests);
     test_array_function_types_and_shapes(tests);
+    test_dynamic_array_semantics(tests);
     test_integer_range_semantics(tests);
     test_for_in_rejects_non_array_values(tests);
 }

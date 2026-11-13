@@ -14,16 +14,17 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
-- fixed-size, one-dimensional arrays with inferred primitive element types, indexing, and indexed updates;
-- `for-in` iteration over arrays and integer ranges using `start..end` (exclusive) or `start..=end` (inclusive);
-- C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed-array access, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
+- fixed-size, one-dimensional arrays with inferred primitive element types, indexing, indexed updates, and by-value function parameters/returns;
+- heap-backed, one-dimensional dynamic arrays for primitive elements, with typed empty literals, geometric growth, checked indexing, `length`, `push`, and `pop`;
+- shared-reference dynamic arrays across aliases, function parameters, and function returns, with `for-in` iteration over fixed/dynamic arrays and integer ranges;
+- C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed/dynamic-array access, dynamic allocation and cleanup, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, LLVM IR emission, native builds, and program execution;
 - cross-platform process launching and temporary-build management;
 - unit tests plus cross-platform integration tests for the public CLI and portable compiler discovery.
 
 The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
 
-VEX is still an early language implementation. Dynamic collections, structures, a complete runtime, modules, and the memory model are not implemented yet. Fixed arrays are value aggregates; their element type and length are inferred from array literals.
+VEX is still an early language implementation. Dynamic arrays are now implemented for primitive elements, but nested collections, structures, modules, and a general-purpose ownership/borrowing system remain unfinished. Fixed arrays are value aggregates. Dynamic arrays are heap-backed shared references: aliases and function parameters/returns refer to the same collection. Their allocations are tracked by the generated program and reclaimed when its entry function returns.
 
 ## Design direction
 
@@ -31,7 +32,7 @@ VEX is still an early language implementation. Dynamic collections, structures, 
 - Newlines separate statements; semicolons are not used.
 - Curly braces delimit blocks; indentation is not semantic.
 - Function calls use parentheses.
-- A hybrid memory-management model is the selected direction, but ownership, borrowing, and allocation semantics remain open.
+- The wider memory model is still under design. Dynamic arrays currently use program-lifetime allocation tracking: aliases share one heap object, and generated entry-point completion releases all dynamic-array allocations. There is no per-scope deallocation or borrowing checker yet.
 - The C backend remains an optional bootstrap target; the IR and frontend are independent of it. LLVM is the default native compilation path.
 
 These are design goals, not claims that every feature already exists.

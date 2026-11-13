@@ -225,8 +225,10 @@ std::optional<SourceSpan> Parser::parse_type_annotation() {
     }
     const Token type = advance();
     if (!match(TokenKind::LeftBracket)) return type.span;
+    if (match(TokenKind::RightBracket))
+        return SourceSpan{type.span.begin, previous().span.end};
     static_cast<void>(expect(TokenKind::Integer,
-                             "expected a positive fixed-array length after '['"));
+                             "expected a positive fixed-array length or ']' after '['"));
     const Token closing = expect(TokenKind::RightBracket,
                                  "expected ']' after fixed-array length");
     return SourceSpan{type.span.begin, closing.span.end};

@@ -40,15 +40,17 @@ std::string array_type_name(const IRType element_type, const std::uint32_t lengt
 }
 
 std::string c_type(const IRValue& value) {
-    return value.type == IRType::Array
-        ? array_type_name(value.element_type, value.array_length)
-        : c_type(value.type);
+    if (value.type != IRType::Array) return c_type(value.type);
+    return value.array_length == 0
+        ? "vex_array *"
+        : array_type_name(value.element_type, value.array_length);
 }
 
 std::string c_return_type(const IRFunction& function) {
-    return function.return_type == IRType::Array
-        ? array_type_name(function.return_element_type, function.return_array_length)
-        : c_type(function.return_type);
+    if (function.return_type != IRType::Array) return c_type(function.return_type);
+    return function.return_array_length == 0
+        ? "vex_array *"
+        : array_type_name(function.return_element_type, function.return_array_length);
 }
 
 std::string value_name(const IRValueId id) {
@@ -220,7 +222,15 @@ private:
             << "typedef struct vex_string {\n"
             << "    const unsigned char *data;\n"
             << "    size_t length;\n"
-            << "} vex_string;\n\n";
+            << "} vex_string;\n"
+            << "typedef struct vex_array {\n"
+            << "    void *data;\n"
+            << "    size_t length;\n"
+            << "    size_t capacity;\n"
+            << "    size_t element_size;\n"
+            << "    struct vex_array *next;\n"
+            << "} vex_array;\n"
+            << "static vex_array *vex_array_head = NULL;\n\n";
     }
 
     void emit_array_types() {
@@ -241,6 +251,7 @@ private:
             }
         }
         for (const auto& [element, length] : shapes) {
+            if (length == 0) continue;
             output_ << "typedef struct " << array_type_name(element, length) << " {\n"
                     << "    " << c_type(element) << " data[" << length << "];\n"
                     << "} " << array_type_name(element, length) << ";\n";
@@ -258,6 +269,66 @@ private:
             << "    if (index < 0 || (uint64_t)index >= (uint64_t)length)\n"
             << "        vex_runtime_trap(\"array index is out of bounds\");\n"
             << "    return (size_t)index;\n"
+            << "}\n\n"
+            << "static vex_array *vex_array_new(size_t element_size) {\n"
+            << "    if (element_size == 0u) vex_runtime_trap(\"invalid dynamic array element size\");\n"
+            << "    vex_array *array = (vex_array *)calloc(1u, sizeof(vex_array));\n"
+            << "    if (array == NULL) vex_runtime_trap(\"dynamic array allocation failed\");\n"
+            << "    array->element_size = element_size;\n"
+            << "    array->next = vex_array_head;\n"
+            << "    vex_array_head = array;\n"
+            << "    return array;\n"
+            << "}\n\n"
+            << "static void vex_array_check(vex_array *array, size_t element_size) {\n"
+            << "    if (array == NULL || element_size == 0u || array->element_size != element_size)\n"
+            << "        vex_runtime_trap(\"dynamic array element type mismatch\");\n"
+            << "}\n\n"
+            << "static int64_t vex_array_length(vex_array *array) {\n"
+            << "    if (array == NULL || array->length > (size_t)INT64_MAX)\n"
+            << "        vex_runtime_trap(\"invalid dynamic array length\");\n"
+            << "    return (int64_t)array->length;\n"
+            << "}\n\n"
+            << "static void *vex_array_get(vex_array *array, int64_t index, size_t element_size) {\n"
+            << "    vex_array_check(array, element_size);\n"
+            << "    if (index < 0 || (uint64_t)index >= (uint64_t)array->length)\n"
+            << "        vex_runtime_trap(\"dynamic array index is out of bounds\");\n"
+            << "    return (unsigned char *)array->data + (size_t)index * element_size;\n"
+            << "}\n\n"
+            << "static void vex_array_set(vex_array *array, int64_t index, const void *value, size_t element_size) {\n"
+            << "    (void)memcpy(vex_array_get(array, index, element_size), value, element_size);\n"
+            << "}\n\n"
+            << "static void vex_array_push(vex_array *array, const void *value, size_t element_size) {\n"
+            << "    vex_array_check(array, element_size);\n"
+            << "    if (array->length >= (size_t)INT64_MAX) vex_runtime_trap(\"dynamic array length overflow\");\n"
+            << "    if (array->length == array->capacity) {\n"
+            << "        size_t next_capacity = array->capacity == 0u ? 4u : array->capacity;\n"
+            << "        if (array->capacity != 0u) {\n"
+            << "            if (next_capacity > (size_t)INT64_MAX / 2u) next_capacity = array->length + 1u;\n"
+            << "            else next_capacity *= 2u;\n"
+            << "        }\n"
+            << "        if (next_capacity < array->length + 1u) next_capacity = array->length + 1u;\n"
+            << "        if (next_capacity > SIZE_MAX / element_size) vex_runtime_trap(\"dynamic array allocation size overflow\");\n"
+            << "        void *next_data = realloc(array->data, next_capacity * element_size);\n"
+            << "        if (next_data == NULL) vex_runtime_trap(\"dynamic array growth failed\");\n"
+            << "        array->data = next_data;\n"
+            << "        array->capacity = next_capacity;\n"
+            << "    }\n"
+            << "    (void)memcpy((unsigned char *)array->data + array->length * element_size, value, element_size);\n"
+            << "    ++array->length;\n"
+            << "}\n\n"
+            << "static void vex_array_pop(vex_array *array, void *result, size_t element_size) {\n"
+            << "    vex_array_check(array, element_size);\n"
+            << "    if (array->length == 0u) vex_runtime_trap(\"cannot pop an empty dynamic array\");\n"
+            << "    --array->length;\n"
+            << "    (void)memcpy(result, (unsigned char *)array->data + array->length * element_size, element_size);\n"
+            << "}\n\n"
+            << "static void vex_array_cleanup(void) {\n"
+            << "    while (vex_array_head != NULL) {\n"
+            << "        vex_array *array = vex_array_head;\n"
+            << "        vex_array_head = array->next;\n"
+            << "        free(array->data);\n"
+            << "        free(array);\n"
+            << "    }\n"
             << "}\n\n"
             << "static int64_t vex_i64_add(int64_t left, int64_t right) {\n"
             << "    if ((right > 0 && left > INT64_MAX - right) ||\n"
@@ -630,25 +701,74 @@ private:
             return;
         }
         case IROp::ArrayMake: {
-            for (std::size_t index = 0; index < instruction.operands.size(); ++index)
-                output_ << "    " << result << ".data[" << index << "] = " << operand(index) << ";\n";
+            const IRValue& array = *instruction.result;
+            if (array.array_length == 0) {
+                output_ << "    " << result << " = vex_array_new(sizeof("
+                        << c_type(array.element_type) << "));\n";
+                for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
+                    const std::string temporary = "vex_array_init_" +
+                        std::to_string(array.id) + "_" + std::to_string(index);
+                    output_ << "    " << c_type(array.element_type) << " " << temporary
+                            << " = " << operand(index) << ";\n"
+                            << "    vex_array_push(" << result << ", &" << temporary
+                            << ", sizeof(" << temporary << "));\n";
+                }
+            } else {
+                for (std::size_t index = 0; index < instruction.operands.size(); ++index)
+                    output_ << "    " << result << ".data[" << index << "] = " << operand(index) << ";\n";
+            }
             return;
         }
         case IROp::ArrayGet: {
             const auto array = value_type(function, instruction.operands[0]);
             if (!array) return;
-            output_ << "    " << result << " = " << operand(0)
-                    << ".data[vex_checked_array_index(" << operand(1) << ", "
-                    << array->array_length << "u)];\n";
+            if (array->array_length == 0) {
+                output_ << "    " << result << " = *(" << c_type(array->element_type)
+                        << " *)vex_array_get(" << operand(0) << ", " << operand(1)
+                        << ", sizeof(" << c_type(array->element_type) << "));\n";
+            } else {
+                output_ << "    " << result << " = " << operand(0)
+                        << ".data[vex_checked_array_index(" << operand(1) << ", "
+                        << array->array_length << "u)];\n";
+            }
             return;
         }
         case IROp::ArraySet: {
             const auto array = value_type(function, instruction.operands[0]);
             if (!array) return;
-            output_ << "    " << result << " = " << operand(0) << ";\n"
-                    << "    " << result << ".data[vex_checked_array_index("
-                    << operand(1) << ", " << array->array_length << "u)] = "
-                    << operand(2) << ";\n";
+            if (array->array_length == 0) {
+                const std::string temporary = "vex_array_set_" +
+                    std::to_string(instruction.result->id);
+                output_ << "    " << result << " = " << operand(0) << ";\n"
+                        << "    " << c_type(array->element_type) << " " << temporary
+                        << " = " << operand(2) << ";\n"
+                        << "    vex_array_set(" << operand(0) << ", " << operand(1)
+                        << ", &" << temporary << ", sizeof(" << temporary << "));\n";
+            } else {
+                output_ << "    " << result << " = " << operand(0) << ";\n"
+                        << "    " << result << ".data[vex_checked_array_index("
+                        << operand(1) << ", " << array->array_length << "u)] = "
+                        << operand(2) << ";\n";
+            }
+            return;
+        }
+        case IROp::ArrayLength:
+            output_ << "    " << result << " = vex_array_length(" << operand(0) << ");\n";
+            return;
+        case IROp::ArrayPush: {
+            const auto array = value_type(function, instruction.operands[0]);
+            if (!array) return;
+            const std::string element_type = c_type(array->element_type);
+            output_ << "    vex_array_push(" << operand(0) << ", &(("
+                    << element_type << "[]){ " << operand(1) << " })[0], sizeof("
+                    << element_type << "));\n";
+            return;
+        }
+        case IROp::ArrayPop: {
+            const auto array = value_type(function, instruction.operands[0]);
+            if (!array) return;
+            output_ << "    vex_array_pop(" << operand(0) << ", &" << result
+                    << ", sizeof(" << result << "));\n";
             return;
         }
         case IROp::Say: {
@@ -695,10 +815,12 @@ private:
         output_ << "int main(void) {\n";
         if (entry_->return_type == IRType::Void) {
             output_ << "    " << function_name(entry_->name) << "();\n"
+                    << "    vex_array_cleanup();\n"
                     << "    return 0;\n";
         } else {
             output_ << "    const int64_t vex_status = "
                     << function_name(entry_->name) << "();\n"
+                    << "    vex_array_cleanup();\n"
                     << "    if (vex_status < 0 || vex_status > 255)\n"
                     << "        vex_runtime_trap(\"main returned an exit code outside 0..255\");\n"
                     << "    return (int)vex_status;\n";

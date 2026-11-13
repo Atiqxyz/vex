@@ -48,7 +48,10 @@ enum class IROp {
     Say,
     ArrayMake,
     ArrayGet,
-    ArraySet
+    ArraySet,
+    ArrayLength,
+    ArrayPush,
+    ArrayPop
 };
 
 [[nodiscard]] const char* ir_op_name(IROp op) noexcept;

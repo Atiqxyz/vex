@@ -34,6 +34,7 @@ std::string llvm_type(const IRType type) {
 
 std::string llvm_type(const IRValue& value) {
     if (value.type != IRType::Array) return llvm_type(value.type);
+    if (value.array_length == 0) return "ptr";
     return "[" + std::to_string(value.array_length) + " x " +
            llvm_type(value.element_type) + "]";
 }
@@ -41,6 +42,7 @@ std::string llvm_type(const IRValue& value) {
 std::string llvm_return_type(const IRFunction& function) {
     if (function.return_type != IRType::Array)
         return llvm_type(function.return_type);
+    if (function.return_array_length == 0) return "ptr";
     return "[" + std::to_string(function.return_array_length) + " x " +
            llvm_type(function.return_element_type) + "]";
 }
@@ -174,6 +176,7 @@ public:
         emit_runtime_declarations();
         emit_checked_integer_helpers();
         emit_checked_array_index_helper();
+        emit_array_runtime_helpers();
         for (const IRFunction& function : module_.functions) {
             emit_function(function);
             if (has_errors(diagnostics_)) break;
@@ -254,7 +257,9 @@ private:
                 << "@.vex_true = private unnamed_addr constant [5 x i8] "
                    "c\"true\\00\", align 1\n"
                 << "@.vex_false = private unnamed_addr constant [6 x i8] "
-                   "c\"false\\00\", align 1\n\n";
+                   "c\"false\\00\", align 1\n"
+                << "%vex.array = type { ptr, i64, i64, i64, ptr }\n"
+                << "@vex_array_head = internal global ptr null\n\n";
     }
 
     void emit_string_globals() {
@@ -271,6 +276,11 @@ private:
                 << "declare i32 @puts(ptr)\n"
                 << "declare i32 @putchar(i32)\n"
                 << "declare i32 @memcmp(ptr, ptr, i64)\n"
+                << "declare ptr @malloc(i64)\n"
+                << "declare ptr @realloc(ptr, i64)\n"
+                << "declare void @free(ptr)\n"
+                << "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1 immarg)\n"
+                << "declare { i64, i1 } @llvm.umul.with.overflow.i64(i64, i64)\n"
                 << "declare void @llvm.trap()\n"
                 << "declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)\n"
                 << "declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)\n"
@@ -316,6 +326,157 @@ private:
                 << "ok:\n"
                 << "  ret i64 %index\n"
                 << "}\n\n";
+    }
+
+    void emit_array_runtime_helpers() {
+        output_ << R"IR(
+define internal ptr @vex_array_new(i64 %element_size) {
+entry:
+  %invalid = icmp eq i64 %element_size, 0
+  br i1 %invalid, label %trap, label %allocate
+allocate:
+  %array = call ptr @malloc(i64 40)
+  %failed = icmp eq ptr %array, null
+  br i1 %failed, label %trap, label %initialize
+initialize:
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %capacity_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 2
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %next_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 4
+  store ptr null, ptr %data_ptr
+  store i64 0, ptr %length_ptr
+  store i64 0, ptr %capacity_ptr
+  store i64 %element_size, ptr %size_ptr
+  %head = load ptr, ptr @vex_array_head
+  store ptr %head, ptr %next_ptr
+  store ptr %array, ptr @vex_array_head
+  ret ptr %array
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal i64 @vex_array_length(ptr %array) {
+entry:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  ret i64 %length
+}
+
+define internal ptr @vex_array_get(ptr %array, i64 %index, i64 %element_size) {
+entry:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %actual_size = load i64, ptr %size_ptr
+  %size_ok = icmp eq i64 %actual_size, %element_size
+  br i1 %size_ok, label %check_index, label %trap
+check_index:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %negative = icmp slt i64 %index, 0
+  %past_end = icmp sge i64 %index, %length
+  %invalid = or i1 %negative, %past_end
+  br i1 %invalid, label %trap, label %address
+address:
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %data = load ptr, ptr %data_ptr
+  %offset = mul i64 %index, %element_size
+  %element = getelementptr inbounds i8, ptr %data, i64 %offset
+  ret ptr %element
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal void @vex_array_push(ptr %array, ptr %value, i64 %element_size) {
+entry:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %actual_size = load i64, ptr %size_ptr
+  %size_ok = icmp eq i64 %actual_size, %element_size
+  br i1 %size_ok, label %read_length, label %trap
+read_length:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %capacity_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 2
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %length = load i64, ptr %length_ptr
+  %capacity = load i64, ptr %capacity_ptr
+  %at_limit = icmp eq i64 %length, 9223372036854775807
+  br i1 %at_limit, label %trap, label %growth_check
+growth_check:
+  %required = add i64 %length, 1
+  %enough = icmp uge i64 %capacity, %required
+  br i1 %enough, label %ready, label %grow
+grow:
+  %capacity_zero = icmp eq i64 %capacity, 0
+  %capacity_too_large = icmp ugt i64 %capacity, 4611686018427387903
+  %doubled = mul i64 %capacity, 2
+  %initial_or_doubled = select i1 %capacity_zero, i64 4, i64 %doubled
+  %safe_capacity = select i1 %capacity_too_large, i64 %required, i64 %initial_or_doubled
+  %undersized = icmp ult i64 %safe_capacity, %required
+  %new_capacity = select i1 %undersized, i64 %required, i64 %safe_capacity
+  %size_pair = call { i64, i1 } @llvm.umul.with.overflow.i64(i64 %new_capacity, i64 %element_size)
+  %byte_count = extractvalue { i64, i1 } %size_pair, 0
+  %size_overflow = extractvalue { i64, i1 } %size_pair, 1
+  br i1 %size_overflow, label %trap, label %reallocate
+reallocate:
+  %old_data = load ptr, ptr %data_ptr
+  %new_data = call ptr @realloc(ptr %old_data, i64 %byte_count)
+  %allocation_failed = icmp eq ptr %new_data, null
+  br i1 %allocation_failed, label %trap, label %capacity_ready
+capacity_ready:
+  store ptr %new_data, ptr %data_ptr
+  store i64 %new_capacity, ptr %capacity_ptr
+  br label %ready
+ready:
+  %data = load ptr, ptr %data_ptr
+  %offset = mul i64 %length, %element_size
+  %destination = getelementptr inbounds i8, ptr %data, i64 %offset
+  call void @llvm.memcpy.p0.p0.i64(ptr %destination, ptr %value, i64 %element_size, i1 false)
+  store i64 %required, ptr %length_ptr
+  ret void
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal void @vex_array_pop(ptr %array, ptr %result, i64 %element_size) {
+entry:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %empty = icmp eq i64 %length, 0
+  br i1 %empty, label %trap, label %remove
+remove:
+  %index = sub i64 %length, 1
+  %element = call ptr @vex_array_get(ptr %array, i64 %index, i64 %element_size)
+  call void @llvm.memcpy.p0.p0.i64(ptr %result, ptr %element, i64 %element_size, i1 false)
+  store i64 %index, ptr %length_ptr
+  ret void
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal void @vex_array_cleanup() {
+entry:
+  %head = load ptr, ptr @vex_array_head
+  br label %loop
+loop:
+  %current = phi ptr [ %head, %entry ], [ %next, %body ]
+  %finished = icmp eq ptr %current, null
+  br i1 %finished, label %done, label %body
+body:
+  %data_ptr = getelementptr inbounds %vex.array, ptr %current, i32 0, i32 0
+  %next_ptr = getelementptr inbounds %vex.array, ptr %current, i32 0, i32 4
+  %data = load ptr, ptr %data_ptr
+  %next = load ptr, ptr %next_ptr
+  call void @free(ptr %data)
+  call void @free(ptr %current)
+  br label %loop
+done:
+  store ptr null, ptr @vex_array_head
+  ret void
+}
+)IR";
     }
 
     void emit_overflow_helper(const char* name, const char* intrinsic) {
@@ -788,6 +949,20 @@ private:
             return;
         case IROp::ArrayMake: {
             const IRValue& array = *instruction.result;
+            if (array.array_length == 0) {
+                const std::string dynamic_array = next_temp();
+                const std::size_t element_size = array.element_type == IRType::Bool ? 1u :
+                    array.element_type == IRType::String ? 16u : 8u;
+                output_ << "  " << dynamic_array << " = call ptr @vex_array_new(i64 "
+                        << element_size << ")\n";
+                for (const IRValueId operand_id : instruction.operands) {
+                    output_ << "  call void @vex_array_push(ptr " << dynamic_array
+                            << ", ptr " << value_slot(operand_id) << ", i64 "
+                            << element_size << ")\n";
+                }
+                store_result(instruction, dynamic_array);
+                return;
+            }
             const std::string type = llvm_type(array);
             std::string aggregate = "poison";
             for (std::size_t index = 0; index < operands.size(); ++index) {
@@ -802,6 +977,20 @@ private:
         }
         case IROp::ArrayGet: {
             const IRValue& array = value_types_.at(instruction.operands[0]);
+            if (array.array_length == 0) {
+                const std::size_t element_size =
+                    array.element_type == IRType::Bool ? 1u :
+                    array.element_type == IRType::String ? 16u : 8u;
+                const std::string pointer = next_temp();
+                const std::string value = next_temp();
+                output_ << "  " << pointer << " = call ptr @vex_array_get(ptr "
+                        << operands[0] << ", i64 " << operands[1] << ", i64 "
+                        << element_size << ")\n"
+                        << "  " << value << " = load " << llvm_type(array.element_type)
+                        << ", ptr " << pointer << "\n";
+                store_result(instruction, value);
+                return;
+            }
             const std::string checked = next_temp();
             const std::string pointer = next_temp();
             const std::string value = next_temp();
@@ -818,6 +1007,19 @@ private:
         case IROp::ArraySet: {
             const IRValue& array = value_types_.at(instruction.operands[0]);
             const IRValue& result_array = *instruction.result;
+            if (array.array_length == 0) {
+                const std::size_t element_size =
+                    array.element_type == IRType::Bool ? 1u :
+                    array.element_type == IRType::String ? 16u : 8u;
+                const std::string pointer = next_temp();
+                output_ << "  " << pointer << " = call ptr @vex_array_get(ptr "
+                        << operands[0] << ", i64 " << operands[1] << ", i64 "
+                        << element_size << ")\n"
+                        << "  store " << llvm_type(array.element_type) << ' '
+                        << operands[2] << ", ptr " << pointer << "\n";
+                store_result(instruction, operands[0]);
+                return;
+            }
             const std::string checked = next_temp();
             const std::string pointer = next_temp();
             output_ << "  store " << llvm_type(array) << ' ' << operands[0]
@@ -829,6 +1031,33 @@ private:
                     << ", i64 0, i64 " << checked << "\n"
                     << "  store " << llvm_type(array.element_type) << ' ' << operands[2]
                     << ", ptr " << pointer << "\n";
+            return;
+        }
+        case IROp::ArrayLength: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = call i64 @vex_array_length(ptr "
+                    << operands[0] << ")\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::ArrayPush: {
+            const IRValue& array = value_types_.at(instruction.operands[0]);
+            const std::size_t element_size =
+                array.element_type == IRType::Bool ? 1u :
+                array.element_type == IRType::String ? 16u : 8u;
+            output_ << "  call void @vex_array_push(ptr " << operands[0]
+                    << ", ptr " << value_slot(instruction.operands[1])
+                    << ", i64 " << element_size << ")\n";
+            return;
+        }
+        case IROp::ArrayPop: {
+            const IRValue& array = value_types_.at(instruction.operands[0]);
+            const std::size_t element_size =
+                array.element_type == IRType::Bool ? 1u :
+                array.element_type == IRType::String ? 16u : 8u;
+            output_ << "  call void @vex_array_pop(ptr " << operands[0]
+                    << ", ptr " << value_slot(instruction.result->id)
+                    << ", i64 " << element_size << ")\n";
             return;
         }
         }
@@ -891,6 +1120,7 @@ private:
         output_ << "define i32 @main() {\nentry:\n";
         if (entry_->return_type == IRType::Void) {
             output_ << "  call void " << function_symbol(entry_->name) << "()\n"
+                    << "  call void @vex_array_cleanup()\n"
                     << "  ret i32 0\n";
         } else {
             output_ << "  %vex_status = call i64 "
@@ -903,6 +1133,7 @@ private:
                     << "  call void @llvm.trap()\n"
                     << "  unreachable\n"
                     << "vex_valid_exit:\n"
+                    << "  call void @vex_array_cleanup()\n"
                     << "  %vex_exit_code = trunc i64 %vex_status to i32\n"
                     << "  ret i32 %vex_exit_code\n";
         }

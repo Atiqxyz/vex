@@ -38,6 +38,30 @@ make main() {
 - Floating-point domain errors and exceptional values follow the platform C math library behavior.
 - This is the first slice of the standard library, not a complete scientific-computing API.
 
+## Dynamic-array built-ins (implemented)
+
+Dynamic arrays use primitive element types and are declared with an empty length suffix, for example `int[]` or `string[]`. These compiler-recognized operations are available:
+
+| Function | Signature | Behavior |
+|---|---|---|
+| `length(array)` | `T[] -> int` (also accepts fixed arrays) | Returns the current element count; fixed-array length is emitted as a constant |
+| `push(array, value)` | `(T[], T) -> void` | Appends an element, growing capacity geometrically when needed |
+| `pop(array)` | `T[] -> T` | Removes and returns the final element; traps when the array is empty |
+
+Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive elements only; nested arrays, slices, manual capacity control, and per-scope deallocation are not implemented.
+
+```vex
+make main() {
+    let values: int[] = []
+    push(values, 10)
+    push(values, 20)
+
+    say(length(values))
+    say(pop(values))
+    say(length(values))
+}
+```
+
 ## Planned expansion
 
 Future library work can add constants, additional trigonometric and transcendental functions, numeric utilities, string operations, file I/O, and time/system facilities. New functions should be added with explicit signatures, IR verification rules, backend behavior, documentation, and executable integration tests.
@@ -77,7 +101,7 @@ This inventory gathers common, useful operations seen across established languag
 | Core values | type_name, compare, swap, assert, panic, checked conversion, formatting |
 | Strings | length, is_empty, contains, starts_with, ends_with, find, replace, split, join, trim, trim_start, trim_end, lower, upper, parse_int, parse_float |
 | Byte buffers | length, append, slice, read/write integer, read/write float, endian conversion, encode/decode |
-| Dynamic arrays | length, capacity, is_empty, reserve, resize, push, pop, insert, remove, clear, sort, reverse, contains, find |
+| Dynamic arrays | capacity, is_empty, reserve, resize, insert, remove, clear, sort, reverse, contains, find |
 | Maps and sets | insert, get, get_or_default, contains, remove, keys, values, entries, union, intersection, difference |
 | Algorithms | sort, stable_sort, binary_search, linear_search, min_element, max_element, accumulate, transform, filter, reduce |
 | Files and paths | open, create, read, write, append, flush, close, exists, metadata, list_directory, join_path, normalize_path |
