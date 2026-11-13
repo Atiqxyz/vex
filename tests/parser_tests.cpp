@@ -133,13 +133,20 @@ void test_control_flow_and_assignment(TestContext& tests) {
         "    repeat 3 times {\n"
         "        say(\"x\")\n"
         "    }\n"
+        "    count += 2\n"
+        "    count *= 3\n"
+        "    while count < 20 {\n"
+        "        count -= 1\n"
+        "        if count == 10 { continue }\n"
+        "        if count == 5 { break }\n"
+        "    }\n"
         "    for item in items {\n"
         "        say(item)\n"
         "    }\n"
         "}\n"};
     const vex::ParseResult parsed = parse(source);
     tests.check(!parsed.has_errors(),
-                "if/else, assignment, repeat, and for statements parse");
+                "if/else, compound assignment, repeat, while, loop control, and for statements parse");
 }
 
 void test_if_without_else_preserves_next_statement(TestContext& tests) {
