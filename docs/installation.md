@@ -2,39 +2,50 @@
 
 VEX release archives include the command-line compiler and a matching Zig toolchain. VEX uses Zig's bundled Clang/LLVM driver for its default native build path, so a separate C or LLVM installation is not required for ordinary VEX programs.
 
-## 1. Download and extract VEX
-
-Open the [VEX Releases page](https://github.com/Atiqxyz/vex/releases) and download the archive matching your operating system:
-
-- Windows x64: `vex-windows-x64.zip`
-- Linux x64: `vex-linux-x64.zip`
-- macOS Intel x64: `vex-macos-x64.zip`
-- macOS Apple Silicon ARM64: `vex-macos-arm64.zip`
-
-Extract the complete `vex` directory to a stable location. **Keep its `bin` and `toolchain` directories together**; VEX discovers the bundled compiler relative to its own executable.
+## 1. Install VEX
 
 ### Windows
 
-Extract the package to a location such as `C:\Tools\VEX`. Add `C:\Tools\VEX\bin` to your user or system `PATH`. Open a new terminal or restart VS Code after changing PATH.
+Open PowerShell and download the installer script:
 
-### Linux
+```powershell
+Invoke-WebRequest -Uri https://github.com/Atiqxyz/vex/releases/latest/download/install.ps1 -OutFile install-vex.ps1
+.\install-vex.ps1
+```
 
-Extract the package to a stable location, such as `~/.local/opt/vex`, and add `~/.local/opt/vex/bin` to your shell's `PATH`.
+The script verifies the downloaded archive against the release SHA-256 manifest, installs VEX for your Windows user, adds VEX to your user `PATH`, and installs the VS Code extension when the `code` command is available.
 
-### macOS
+### Linux and macOS
 
-Extract the package to a stable location, such as `~/Applications/VEX`, and add `~/Applications/VEX/bin` to your shell's `PATH`.
+Run:
 
-Verify the installation by running `vex --version`.
+```sh
+curl -fsSL https://github.com/Atiqxyz/vex/releases/latest/download/install.sh -o install-vex.sh
+bash install-vex.sh
+```
 
-## 2. Install the VS Code extension
+The installer selects the matching package for Linux x64, Intel macOS, or Apple Silicon macOS; verifies its SHA-256 digest; installs VEX under `~/.local/opt/vex`; and adds `VEX_HOME` and the VEX executable directory to your shell startup files. When the `code` command is available, it also installs the bundled VS Code extension.
 
-1. Download `vex-language-0.1.0.vsix` from the same release.
-2. Open Visual Studio Code and open the Extensions view.
-3. Open the Extensions view's `...` menu and select **Install from VSIX...**.
-4. Select the downloaded VSIX file and reload VS Code if prompted.
+Open a new terminal after installation, or reload your shell profile. Check the setup with:
 
-The extension recognizes `.vex` files and provides Check, Generate C Preview, Build, and Run commands. Ensure the VEX `bin` directory is on PATH, or set the VS Code setting `vex.compilerPath` to the full path of the VEX executable.
+```sh
+vex --version
+```
+
+### Manual installation
+
+Portable archives are also published for users who prefer not to run an install script:
+
+- Windows x64: `vex-windows-x64.zip`
+- Linux x64: `vex-linux-x64.tar.gz`
+- macOS Intel x64: `vex-macos-x64.tar.gz`
+- macOS Apple Silicon ARM64: `vex-macos-arm64.tar.gz`
+
+Extract the archive and keep the `bin` and `toolchain` directories together. Add the `bin` directory to `PATH`. The VS Code extension is included at `share/vex/vex-language-0.1.0.vsix`; install it from VS Code's **Install from VSIX...** command if the installer could not use the `code` command.
+
+## 2. VS Code integration
+
+The installed extension recognizes `.vex` files and provides Check, Generate C Preview, Build, and Run commands. Open a folder in VS Code, create a `hello.vex` file, and use **VEX: Run Current File**. The extension uses VEX's default LLVM native backend.
 
 ## 3. Open and run a VEX program
 
