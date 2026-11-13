@@ -751,7 +751,6 @@ private:
         case IROp::StructGet: {
             const auto object = value_type(function, instruction.operands[0]);
             if (!object) return;
-            const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
             const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
             output_ << "    " << result << " = " << operand(0) << "."
                     << struct_field_name(static_cast<std::uint32_t>(index)) << ";\n";
@@ -760,7 +759,6 @@ private:
         case IROp::StructSet: {
             const auto object = value_type(function, instruction.operands[0]);
             if (!object) return;
-            const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
             const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
             output_ << "    " << result << " = " << operand(0) << ";\n"
                     << "    " << result << "."

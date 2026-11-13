@@ -423,7 +423,7 @@ void test_struct_lowering_and_backend_aggregates(TestContext& tests) {
     const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
     tests.check(!c.has_errors() &&
                 c.source.find("typedef struct vex_struct_1") != std::string::npos &&
-                c.source.find(".x =") != std::string::npos,
+                c.source.find(".vex_field_0 =") != std::string::npos,
                 "C backend emits native structure values and field updates");
     const vex::BackendResult llvm = vex::LLVMBackend{}.emit(lowered.module);
     tests.check(!llvm.has_errors() &&
