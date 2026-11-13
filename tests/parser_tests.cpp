@@ -228,6 +228,34 @@ void test_if_without_else_preserves_next_statement(TestContext& tests) {
                 "an if without else preserves the newline before the next statement");
 }
 
+
+void test_structure_declarations_literals_and_members(TestContext& tests) {
+    const vex::SourceFile source{"structures.vex",
+        "struct Point { x: int, y: int, }\\n"
+        "make main() {\\n"
+        "    let point = Point { x: 2, y: 3 }\\n"
+        "    point.x = 5\\n"
+        "    say(point.y)\\n"
+        "}\\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(),
+                "structure declarations, named literals, member reads, and writes parse");
+    if (parsed.has_errors() || parsed.program.statements.size() < 2) return;
+    const auto* structure =
+        std::get_if<vex::StructDeclStmt>(&parsed.program.statements[0]->data);
+    tests.check(structure && structure->fields.size() == 2,
+                "structure declarations retain their ordered field list");
+    const auto* function =
+        std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements[1]->data);
+    const auto* body = function && function->body
+        ? std::get_if<vex::BlockStmt>(&function->body->data) : nullptr;
+    const auto* variable = body && !body->statements.empty()
+        ? std::get_if<vex::VariableDeclStmt>(&body->statements[0]->data) : nullptr;
+    tests.check(variable && variable->initializer &&
+                std::holds_alternative<vex::StructLiteralExpr>(variable->initializer->data),
+                "named structure construction produces a structure literal node");
+}
+
 void test_invalid_syntax_and_newline_rules(TestContext& tests) {
     const vex::SourceFile missing_expression{"missing.vex", "let value =\n"};
     const vex::LexResult missing_lex = vex::Lexer(missing_expression).scan();
@@ -263,6 +291,7 @@ void run_parser_tests(TestContext& tests) {
     test_control_flow_and_assignment(tests);
     test_array_literal_indexing_and_assignment(tests);
     test_integer_range_expressions(tests);
+    test_structure_declarations_literals_and_members(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }

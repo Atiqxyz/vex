@@ -381,6 +381,58 @@ void test_dominance_and_call_signatures(TestContext& tests) {
 }
 
 
+
+void test_struct_lowering_and_backend_aggregates(TestContext& tests) {
+    const vex::SourceFile source{"struct_ir.vex",
+        "struct Point { x: int, y: int }\\n"
+        "make change(point: Point) -> Point {\\n"
+        "    let copy = point\\n"
+        "    copy.x = copy.x + 4\\n"
+        "    return copy\\n"
+        "}\\n"
+        "make main() {\\n"
+        "    let point = Point { x: 1, y: 2 }\\n"
+        "    let changed = change(point)\\n"
+        "    say(point.x)\\n"
+        "    say(changed.x)\\n"
+        "}\\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "structure fixture passes front-end stages");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(), "structure values lower to typed IR");
+    if (lowered.has_errors()) return;
+    const vex::IRVerificationResult verified = vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(), "structure aggregate IR passes the independent verifier");
+    if (verified.has_errors()) return;
+    bool make = false, get = false, set = false;
+    for (const auto& function : lowered.module.functions)
+        for (const auto& block : function.blocks)
+            for (const auto& instruction : block.instructions) {
+                make |= instruction.op == vex::IROp::StructMake;
+                get |= instruction.op == vex::IROp::StructGet;
+                set |= instruction.op == vex::IROp::StructSet;
+            }
+    tests.check(lowered.module.struct_types.size() == 1 && make && get && set,
+                "IR carries the named layout and all three structure operations");
+    const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() &&
+                c.source.find("typedef struct vex_struct_1") != std::string::npos &&
+                c.source.find(".x =") != std::string::npos,
+                "C backend emits native structure values and field updates");
+    const vex::BackendResult llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("%vex.struct.1 = type") != std::string::npos &&
+                llvm.output.find("insertvalue") != std::string::npos &&
+                llvm.output.find("extractvalue") != std::string::npos,
+                "LLVM backend emits named aggregate types and field operations");
+}
+
 void test_fixed_array_lowering_and_backends(TestContext& tests) {
     const vex::SourceFile source{"arrays_ir.vex",
         "make main() {\n"
@@ -442,6 +494,7 @@ void test_fixed_array_lowering_and_backends(TestContext& tests) {
 void run_ir_tests(TestContext& tests) {
     test_source_to_verified_ir_lowering(tests);
     test_fixed_array_lowering_and_backends(tests);
+    test_struct_lowering_and_backend_aggregates(tests);
     test_implicit_and_explicit_entry_points(tests);
     test_valid_typed_function(tests);
     test_block_arguments_and_control_flow(tests);
