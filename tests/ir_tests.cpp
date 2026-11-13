@@ -71,7 +71,13 @@ void test_source_to_verified_ir_lowering(TestContext& tests) {
         "    repeat 2 times {\n"
         "        result = result + 1.0\n"
         "    }\n"
-        "    say(result)\n"
+        "    let ticks = 0\n"
+        "    while ticks < 6 {\n"
+        "        ticks += 1\n"
+        "        if ticks == 2 { continue }\n"
+        "        if ticks == 5 { break }\n"
+        "    }\n"
+        "    say(result + ticks)\n"
         "}\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
@@ -123,7 +129,7 @@ void test_source_to_verified_ir_lowering(TestContext& tests) {
     tests.check(has_conditional_branch,
                 "if and repeat statements lower to conditional control flow");
     tests.check(has_loop_backedge,
-                "repeat lowers to a loop with an explicit back edge");
+                "repeat and while lower to loops with explicit back edges");
 }
 
 void test_valid_typed_function(TestContext& tests) {
