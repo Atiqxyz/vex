@@ -83,9 +83,17 @@ while temperature > 30 {
 for number in numbers {
     say(number)
 }
+
+for index in 0..10 {
+    say(index)
+}
+
+for index in 1..=10 {
+    say(index)
+}
 ~~~
 
-A `repeat` count must have type `int`. A `while` condition must have type `bool`. `break` exits the innermost enclosing loop and `continue` advances to its next iteration; both are rejected outside loops. `for-in` currently iterates fixed-size arrays and infers the element type for the loop binding.
+A `repeat` count must have type `int`. A `while` condition must have type `bool`. `break` exits the innermost enclosing loop and `continue` advances to its next iteration; both are rejected outside loops. `for-in` iterates fixed-size arrays or integer ranges and infers the loop variable type. The half-open `start..end` form includes the start and excludes the end; `start..=end` includes both endpoints. Range endpoints must be `int`, are evaluated once before iteration, and advance upward by one. A range with a start greater than its end is empty. Ranges are currently supported directly in `for-in`, not as storable values.
 
 ### Multiline expressions
 
@@ -115,6 +123,7 @@ if               := "if" expression block ("else" (if | block))?
 while            := "while" expression block
 repeat           := "repeat" expression "times" block
 for              := "for" identifier "in" expression block
+range_expression := expression (".." | "..=") expression
 break            := "break"
 continue         := "continue"
 block            := "{" newline* statement* "}"
@@ -133,19 +142,20 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 1 | assignment `=`, `+=`, `-=`, `*=`, `/=`, `%=` | right |
 | 2 | logical OR `||` | left |
 | 3 | logical AND `&&` | left |
-| 4 | equality `==`, `!=` | left |
-| 5 | comparison `<`, `<=`, `>`, `>=` | left |
-| 6 | addition `+`, `-` | left |
-| 7 | multiplication `*`, `/`, `%` | left |
-| 8 | unary `+`, `-`, `!` | prefix |
-| 9 | function call `(...)` | postfix |
-| 10 | array indexing `[...]` | postfix |
+| 4 | ranges `..`, `..=` | non-associative |
+| 5 | equality `==`, `!=` | left |
+| 6 | comparison `<`, `<=`, `>`, `>=` | left |
+| 7 | addition `+`, `-` | left |
+| 8 | multiplication `*`, `/`, `%` | left |
+| 9 | unary `+`, `-`, `!` | prefix |
+| 10 | function call `(...)` | postfix |
+| 11 | array indexing `[...]` | postfix |
 
 The parser accepts assignment to a local name or a simple named-array index such as `values[index] = value`. Nested member/index assignment and compound assignment to an array element are not implemented.
 
 ## 4. Initial static semantics implemented
 
-The current semantic checker implements primitive types plus inferred fixed-array shapes. An array's element type and length are determined by its literal; array type annotations and array function parameters/returns are not implemented yet. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
+The current semantic checker implements primitive types, inferred fixed-array shapes, and a temporary integer-range type used only for direct `for-in` iteration. An array's element type and length are determined by its literal; array type annotations and array function parameters/returns are not implemented yet. Range expressions are not first-class values and cannot be assigned, stored, or passed to functions. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
 
 | Type | Meaning |
 |---|---|
@@ -155,6 +165,7 @@ The current semantic checker implements primitive types plus inferred fixed-arra
 | `string` | UTF-8 string value |
 | `void` | Function return with no value |
 | fixed array | Inferred, one-dimensional, fixed-length sequence of primitive values |
+| integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
 The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory.
 
@@ -165,6 +176,7 @@ The implemented numeric representation is signed 64-bit integers and 64-bit floa
 - Relational comparisons require numeric operands. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
 - `repeat` counts require `int`.
+- `for-in` accepts fixed arrays and integer ranges. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
 - `break` and `continue` are only valid inside loops and target the innermost enclosing loop.
 - Compound assignments are shorthand for their corresponding arithmetic operation followed by assignment; they use the same operand, mutability, and conversion checks as ordinary assignment.
 - Variables are visible after declaration in their lexical scope. Nested blocks may shadow outer bindings; duplicate declarations in the same scope are errors.
@@ -223,7 +235,7 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 - Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
 - The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, direct calls, the `say` intrinsic, and fixed-array construction, indexing, and updates.
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
-- `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, array iteration, and loop-control edges lower into explicit control-flow graphs.
+- `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, fixed-array iteration, integer-range iteration, and loop-control edges lower into explicit control-flow graphs.
 - The verifier checks instruction and call types, array element types and shapes, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
 - Source spans are retained on IR values and instructions.
 

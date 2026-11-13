@@ -43,7 +43,7 @@ The purpose is to borrow proven capabilities, not clone any language or copy its
 - if / else conditional branching.
 - Counted repeat N times and condition-driven while loops.
 - break and continue targeting the innermost enclosing loop.
-- One for-in construct for ranges, arrays, strings, and other iterable values once collection semantics exist.
+- One `for-in` construct for fixed arrays and integer ranges is implemented; strings and other iterable values remain planned once their collection semantics exist.
 - First-class range values with clearly documented inclusive/exclusive endpoints.
 - match with exhaustive patterns after enums and tagged unions exist.
 - Consider switch-like syntax only if a concrete low-level use case cannot be expressed cleanly by match.
@@ -128,11 +128,12 @@ The current `dev` branch includes:
 - compound assignment desugaring through the existing assignment and arithmetic semantic model;
 - SSA control-flow lowering for while and loop-control edges;
 - inferred one-dimensional fixed arrays with primitive elements;
+- half-open and inclusive integer ranges in `for-in` loops, lowered directly to SSA control flow;
 - array literals, checked indexing, and indexed assignment;
-- fixed-array `for-in` iteration lowered through explicit SSA control flow;
+- fixed-array and integer-range `for-in` iteration lowered through explicit SSA control flow;
 - C struct and LLVM aggregate representations for fixed arrays.
 
-With explicit main(), top-level executable statements are rejected; top-level values in implicit-entry mode are not captured by ordinary functions. Fixed arrays are value aggregates and do not require heap allocation. Dynamic arrays, slices, structs, enums, pattern matching, generics, result values, memory controls, and bitwise operators remain planned. The new array implementation still requires successful cross-platform CI and end-to-end execution tests before it is treated as release-ready.
+With explicit main(), top-level executable statements are rejected; top-level values in implicit-entry mode are not captured by ordinary functions. Fixed arrays are value aggregates and do not require heap allocation. Dynamic arrays, slices, structs, enums, pattern matching, generics, result values, memory controls, and bitwise operators remain planned. The new integer-range iteration implementation requires successful cross-platform CI and end-to-end execution tests before it is treated as release-ready.
 
 ## Primary language references
 

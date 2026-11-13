@@ -64,11 +64,11 @@ The AST represents function declarations, bindings, returns, blocks, conditional
 
 The semantic checker is a separate pass over the AST. It first registers top-level function signatures, allowing forward function calls, then checks statements and expressions in lexical scopes.
 
-The type model covers primitive `int`, `float`, `bool`, `string`, and `void` values, plus inferred one-dimensional fixed arrays. Array element types and lengths are recorded in the semantic model. Local bindings can infer their type from an initializer. Explicit annotations, assignments (including compound assignments), array element types and indexing, array mutability, arithmetic and logical operators, conditions, repeat counts, while conditions, fixed-array iteration, loop-control placement, function argument counts and types, return statements, duplicate declarations, and undefined names are checked.
+The type model covers primitive `int`, `float`, `bool`, `string`, and `void` values, plus inferred one-dimensional fixed arrays. Array element types and lengths are recorded in the semantic model. Local bindings can infer their type from an initializer. Explicit annotations, assignments (including compound assignments), array element types and indexing, array mutability, arithmetic and logical operators, conditions, repeat counts, while conditions, fixed-array and integer-range iteration, loop-control placement, function argument counts and types, return statements, duplicate declarations, and undefined names are checked.
 
 The current numeric conversion rule permits widening from `int` to `float`; narrowing is rejected. Nested blocks have lexical scopes and can shadow outer bindings. `const` bindings cannot be assigned after declaration.
 
-The `say(value)` intrinsic accepts supported primitive values and is implemented in both code-generation paths. The first mathematical standard-library functions (`sqrt`, `sin`, `cos`, `pow`, and `abs`) are registered with typed signatures, lowered to explicit math IR instructions, verified, and emitted through the C math library or LLVM math symbols. Fixed arrays support primitive elements, indexed reads and writes, and `for-in` iteration. Dynamic collections, structures, pointers, modules, generic types, and function values remain future work.
+The `say(value)` intrinsic accepts supported primitive values and is implemented in both code-generation paths. The first mathematical standard-library functions (`sqrt`, `sin`, `cos`, `pow`, and `abs`) are registered with typed signatures, lowered to explicit math IR instructions, verified, and emitted through the C math library or LLVM math symbols. Fixed arrays support primitive elements, indexed reads and writes, and `for-in` iteration. Integer ranges (`start..end` and `start..=end`) are also supported directly in `for-in` loops. Dynamic collections, structures, pointers, modules, generic types, and function values remain future work.
 
 ### Typed semantic model and SSA IR
 
@@ -76,7 +76,7 @@ Semantic analysis returns a `SemanticModel` alongside diagnostics. It records ex
 
 The IR is backend-independent and uses SSA values. Functions contain basic blocks with explicit terminators. Block parameters receive values from incoming branches and serve as control-flow merge points. Fixed arrays are typed aggregate values whose element type and length travel with the SSA value, including across branches and loops. Source spans are retained for diagnostics.
 
-The AST-to-IR lowerer consumes the semantic model. It handles function parameters, constants, name references, assignments (compound assignments are desugared in the parser), primitive operators, fixed-array literals and indexing, array element updates, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, counted `repeat` loops, condition-driven `while` loops, fixed-array `for-in` loops, SSA-safe `break`/`continue` edges, and a synthesized entry function when top-level statements are used without an explicit `main()`. Integer-to-float widening becomes an explicit conversion instruction.
+The AST-to-IR lowerer consumes the semantic model. It handles function parameters, constants, name references, assignments (compound assignments are desugared in the parser), primitive operators, fixed-array literals and indexing, array element updates, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, counted `repeat` loops, condition-driven `while` loops, fixed-array and integer-range `for-in` loops, SSA-safe `break`/`continue` edges, and a synthesized entry function when top-level statements are used without an explicit `main()`. Integer-to-float widening becomes an explicit conversion instruction.
 
 The independent verifier checks instruction and call types, SSA definitions and uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs.
 
@@ -135,6 +135,7 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Command-line semantic-check and verified IR-inspection commands
 - [x] Cross-platform CMake build and CI configuration
 - [x] Inferred fixed-size primitive arrays, indexing, indexed updates, and array iteration
+- [x] Half-open and inclusive integer ranges in `for-in` loops
 - [ ] Dynamic collections, slices, and general iterable types
 - [x] Typed SSA intermediate representation, semantic metadata, verifier, and AST-to-IR lowering
 - [x] Backend interface and factory with C and LLVM backends registered
