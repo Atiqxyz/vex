@@ -26,6 +26,8 @@ bash install-vex.sh
 
 The installer selects the matching package for Linux x64, Intel macOS, or Apple Silicon macOS; verifies its SHA-256 digest; installs VEX under `~/.local/opt/vex`; and adds `VEX_HOME` and the VEX executable directory to your shell startup files. When the `code` command is available, it also installs the bundled VS Code extension.
 
+**macOS prerequisite:** Apple's SDK is not included in the VEX archive. Native `vex build` and `vex run` therefore require Xcode or Apple's Command Line Tools. If Xcode is not already installed, install the Command Line Tools once with `xcode-select --install`. This provides the macOS SDK; you do not need to install a separate Clang or LLVM compiler. See [Apple's Command Line Tools documentation](https://developer.apple.com/documentation/xcode/installing-the-command-line-tools).
+
 Open a new terminal after installation, or reload your shell profile. Check the setup with:
 
 ```sh
