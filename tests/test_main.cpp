@@ -7,6 +7,7 @@ void run_ir_tests(TestContext& tests);
 void run_backend_tests(TestContext& tests);
 void run_c_backend_tests(TestContext& tests);
 void run_llvm_backend_tests(TestContext& tests);
+void run_toolchain_discovery_tests(TestContext& tests);
 int main() {
     TestContext tests;
     run_source_tests(tests);
@@ -17,6 +18,7 @@ int main() {
     run_backend_tests(tests);
     run_c_backend_tests(tests);
     run_llvm_backend_tests(tests);
+    run_toolchain_discovery_tests(tests);
     if (tests.failures != 0) {
         std::cerr << tests.failures << " test(s) failed\n";
         return 1;

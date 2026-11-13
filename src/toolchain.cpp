@@ -10,6 +10,7 @@
 #include "vex/process.hpp"
 #include "vex/semantic.hpp"
 #include "vex/source.hpp"
+#include "vex/detail/toolchain_discovery.hpp"
 
 #include <cstdlib>
 #include <fstream>
@@ -23,7 +24,13 @@
 #include <filesystem>
 
 #ifdef _WIN32
-#include <cstdlib>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <cstdint>
 #endif
 
 #ifndef VEX_DEFAULT_C_COMPILER
@@ -35,7 +42,52 @@
 
 namespace vex {
 namespace fs = std::filesystem;
+
+namespace detail {
+
+fs::path bundled_llvm_compiler_path(const fs::path& executable_path) {
+    if (executable_path.empty()) return {};
+
+    const fs::path installation_root =
+        executable_path.parent_path().parent_path();
+#ifdef _WIN32
+    return installation_root / "toolchain" / "bin" / "clang.exe";
+#else
+    return installation_root / "toolchain" / "bin" / "clang";
+#endif
+}
+
+} // namespace detail
+
 namespace {
+
+fs::path current_executable_path() {
+#ifdef _WIN32
+    std::vector<wchar_t> buffer(512);
+    for (;;) {
+        const DWORD length = GetModuleFileNameW(
+            nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0) return {};
+        if (length < buffer.size() - 1) {
+            return fs::path(std::wstring(buffer.data(), length));
+        }
+        if (buffer.size() >= 32768) return {};
+        buffer.resize(buffer.size() * 2);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 1024;
+    std::vector<char> buffer(size);
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        buffer.resize(size);
+        if (_NSGetExecutablePath(buffer.data(), &size) != 0) return {};
+    }
+    return fs::path(buffer.data());
+#else
+    std::error_code error;
+    const fs::path path = fs::read_symlink("/proc/self/exe", error);
+    return error ? fs::path{} : path;
+#endif
+}
 
 struct TemporaryDirectory {
     fs::path path;
@@ -163,6 +215,24 @@ std::vector<std::string> llvm_compiler_candidates() {
     };
     add(std::getenv("VEX_LLVM_CC"));
     add(std::getenv("LLVM_CC"));
+
+    // VEX_HOME is useful for portable installations where the compiler is
+    // launched through a wrapper or copied somewhere outside its install tree.
+    if (const char* home = std::getenv("VEX_HOME"); home != nullptr && *home != '\0') {
+#ifdef _WIN32
+        const fs::path configured = fs::path(home) / "toolchain" / "bin" / "clang.exe";
+#else
+        const fs::path configured = fs::path(home) / "toolchain" / "bin" / "clang";
+#endif
+        add(configured.string().c_str());
+    }
+
+    const fs::path executable = current_executable_path();
+    if (!executable.empty()) {
+        const fs::path bundled = detail::bundled_llvm_compiler_path(executable);
+        add(bundled.string().c_str());
+    }
+
 #ifdef _WIN32
     add("clang.exe");
 #else
@@ -347,7 +417,9 @@ int build_llvm_to_output(
     }
 
     std::cerr << "error: " << last_error
-              << ". Install Clang with LLVM IR support or set VEX_LLVM_CC to its executable path.\n";
+              << ". Place Clang in the VEX installation's toolchain/bin directory, "
+              << "set VEX_HOME to the installation root, install Clang, or set "
+              << "VEX_LLVM_CC to its executable path.\n";
     return 1;
 }
 
