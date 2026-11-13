@@ -36,7 +36,7 @@ These are design goals, not claims that every feature already exists.
 
 ## Install prebuilt releases
 
-Download the VEX archive for Windows, Linux, or Intel macOS from the [GitHub Releases page](https://github.com/Atiqxyz/vex/releases). Each archive contains the VEX CLI and the matching Zig 0.17.1 toolchain. Keep the `bin` and `toolchain` directories together and add the `bin` directory to PATH. Install the included VS Code VSIX from the Extensions view using **Install from VSIX...**.
+Download the VEX archive for Windows x64, Linux x64, Intel macOS, or Apple Silicon macOS from the [GitHub Releases page](https://github.com/Atiqxyz/vex/releases). Each archive contains the VEX CLI and the matching Zig 0.17.1 toolchain. Keep the `bin` and `toolchain` directories together and add the `bin` directory to PATH. Install the included VS Code VSIX from the Extensions view using **Install from VSIX...**.
 
 See [the installation guide](docs/installation.md) for complete steps. Native OS installers and automatic extension installation are not available yet.
 
