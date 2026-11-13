@@ -1,4 +1,35 @@
 make main() {
+    say(trace_int(1) - trace_int(2))
+    say(combine_values(trace_int(3), trace_int(4)))
+    let ordered_values = [trace_int(5), trace_int(6)]
+    say(ordered_values[0] + ordered_values[1])
+    let writable_values = [0]
+    writable_values[trace_int(0)] = trace_int(7)
+    say(writable_values[0])
+    let skipped_and = false && trace_bool(8, true)
+    let skipped_or = true || trace_bool(9, false)
+    let executed_and = true && trace_bool(10, true)
+    let executed_or = false || trace_bool(11, true)
+    say(executed_and)
+    say(executed_or)
+    let range_order_sum = 0
+    for index in trace_int(12)..trace_int(14) {
+        range_order_sum += index
+    }
+    say(range_order_sum)
+    let outer_iterations = 0
+    let inner_hits = 0
+    repeat 2 times {
+        outer_iterations += 1
+        for index in 1..=4 {
+            if index == 2 { continue }
+            if index == 4 { break }
+            inner_hits += 1
+        }
+    }
+    say(outer_iterations)
+    say(inner_hits)
+
     say(factorial(5))
     say(is_even(8))
     say(is_odd(7))
@@ -86,4 +117,18 @@ make is_even(n: int) -> bool {
 make is_odd(n: int) -> bool {
     if n == 0 { return false }
     return is_even(n - 1)
+}
+
+make trace_int(value: int) -> int {
+    say(value)
+    return value
+}
+
+make trace_bool(marker: int, result: bool) -> bool {
+    say(marker)
+    return result
+}
+
+make combine_values(left: int, right: int) -> int {
+    return left * 10 + right
 }
