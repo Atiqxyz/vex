@@ -416,6 +416,36 @@ void test_fixed_arrays_and_index_assignment(TestContext& tests) {
                 "array reassignment checks fixed length and element type");
 }
 
+void test_array_function_types_and_shapes(TestContext& tests) {
+    const vex::SourceFile valid{"array_function_types.vex",
+        "make identity(values: int[3]) -> int[3] { return values }\n"
+        "make first(values: int[3]) -> int { return values[0] }\n"
+        "make main() {\n"
+        "    let values: int[3] = [1, 2, 3]\n"
+        "    let copied: int[3] = identity(values)\n"
+        "    say(first(copied))\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "fixed-array annotations, function parameters, and array returns are accepted");
+
+    const vex::SourceFile invalid{"array_function_shape_errors.vex",
+        "make expect_two(values: int[2]) -> int { return values[0] }\n"
+        "make wrong_return() -> int[2] { return [1, 2, 3] }\n"
+        "make main() {\n"
+        "    let wrong_binding: int[2] = [1, 2, 3]\n"
+        "    let values = [1, 2, 3]\n"
+        "    expect_two(values)\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM021"),
+                "array arguments must match the parameter's element type and length");
+    tests.check(has_code(rejected, "SEM028"),
+                "array returns must match the function's declared element type and length");
+    tests.check(has_code(rejected, "SEM045"),
+                "annotated array initializers must match their declared shape");
+}
+
 void test_integer_range_semantics(TestContext& tests) {
     const vex::SourceFile valid{"range_semantics.vex",
         "make main() {\n"
@@ -465,6 +495,7 @@ void run_semantic_tests(TestContext& tests) {
     test_loop_control_scope_and_while_condition(tests);
     test_top_level_execution_scope(tests);
     test_fixed_arrays_and_index_assignment(tests);
+    test_array_function_types_and_shapes(tests);
     test_integer_range_semantics(tests);
     test_for_in_rejects_non_array_values(tests);
 }

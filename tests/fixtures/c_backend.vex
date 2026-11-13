@@ -1,4 +1,18 @@
 make main() {
+    say(sum_array([2, 4, 6]))
+    let source_values: int[3] = [2, 4, 6]
+    let updated_values: int[3] = replace_first(source_values, 9)
+    say(sum_array(updated_values))
+    say(sum_array(source_values))
+    let copied_values: int[3] = identity_array(updated_values)
+    say(sum_array(copied_values))
+    let decimal_values: float[2] = [1, 3.0]
+    say(average_values(decimal_values))
+    let labels: string[2] = ["VEX", "arrays"]
+    say(first_label(labels))
+    let flags: bool[2] = [true, false]
+    say(both_flags(flags))
+
     say(-7 % 3)
     say(7 % -3)
     say(-7 % -3)
@@ -156,6 +170,35 @@ make is_even(n: int) -> bool {
 make is_odd(n: int) -> bool {
     if n == 0 { return false }
     return is_even(n - 1)
+}
+
+make sum_array(values: int[3]) -> int {
+    let total = 0
+    for value in values {
+        total += value
+    }
+    return total
+}
+
+make replace_first(values: int[3], replacement: int) -> int[3] {
+    values[0] = replacement
+    return values
+}
+
+make identity_array(values: int[3]) -> int[3] {
+    return values
+}
+
+make average_values(values: float[2]) -> float {
+    return (values[0] + values[1]) / 2.0
+}
+
+make first_label(values: string[2]) -> string {
+    return values[0]
+}
+
+make both_flags(values: bool[2]) -> bool {
+    return values[0] && values[1]
 }
 
 make trace_int(value: int) -> int {

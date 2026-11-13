@@ -43,7 +43,7 @@ if(NOT program_result EQUAL 0)
 endif()
 
 string(REPLACE "\r\n" "\n" program_output "${program_output}")
-set(expected_output "-1\n1\n-1\n-1\n0\n1\n2\n-1\n3\n4\n34\n5\n6\n11\n0\n7\n7\n10\n11\ntrue\ntrue\n12\n14\n25\n2\n4\n2\n4\n2\n4\n120\ntrue\ntrue\n30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n10\n18\n9\n8\n0\n9223372036854775807\n")
+set(expected_output "12\n19\n12\n19\n2\nVEX\nfalse\n-1\n1\n-1\n-1\n0\n1\n2\n-1\n3\n4\n34\n5\n6\n11\n0\n7\n7\n10\n11\ntrue\ntrue\n12\n14\n25\n2\n4\n2\n4\n2\n4\n120\ntrue\ntrue\n30\nVEX\ncompiler\ntrue\nbranch\ntick\ntick\n144\n12\n0\n1\n8\n5\n10\n18\n9\n8\n0\n9223372036854775807\n")
 if(NOT "${program_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "LLVM-generated program produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${program_output}")
 endif()

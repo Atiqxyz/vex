@@ -217,11 +217,19 @@ StmtPtr Parser::parse_block_after_open(const Token& opening) {
         SourceSpan{opening.span.begin, closing.span.end}, BlockStmt{std::move(statements)}});
 }
 std::optional<SourceSpan> Parser::parse_type_annotation() {
-    if (check(TokenKind::Identifier) || check(TokenKind::KwInt) ||
-        check(TokenKind::KwFloat) || check(TokenKind::KwBool) ||
-        check(TokenKind::KwString)) return advance().span;
-    report_current("PAR005", "expected a type name");
-    return std::nullopt;
+    if (!(check(TokenKind::Identifier) || check(TokenKind::KwInt) ||
+          check(TokenKind::KwFloat) || check(TokenKind::KwBool) ||
+          check(TokenKind::KwString))) {
+        report_current("PAR005", "expected a type name");
+        return std::nullopt;
+    }
+    const Token type = advance();
+    if (!match(TokenKind::LeftBracket)) return type.span;
+    static_cast<void>(expect(TokenKind::Integer,
+                             "expected a positive fixed-array length after '['"));
+    const Token closing = expect(TokenKind::RightBracket,
+                                 "expected ']' after fixed-array length");
+    return SourceSpan{type.span.begin, closing.span.end};
 }
 ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_precedence) {
     if (allow_newlines) skip_newlines();

@@ -45,7 +45,9 @@ struct SemanticBinding {
 struct SemanticFunctionSignature {
     std::string name;
     std::vector<SemanticType> parameter_types;
+    std::vector<std::optional<SemanticArrayType>> parameter_array_types;
     SemanticType return_type{SemanticType::Void};
+    std::optional<SemanticArrayType> return_array_type;
     SourceSpan declaration{};
 };
 

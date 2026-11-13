@@ -53,7 +53,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Mutable local bindings | Implemented | \`let\`. |
 | Immutable local bindings | Implemented | \`const\` prevents reassignment. |
 | Local type inference | Implemented | Inferred from initializer. |
-| Explicit local type annotations | Partial | Primitive annotations exist; array and user-defined types are absent. |
+| Explicit local type annotations | Implemented | Primitive and fixed-array annotations such as `int[3]`; user-defined types remain absent. |
 | Lexical block scopes | Implemented | Nested scopes and shadowing. |
 | Duplicate declaration diagnostics | Implemented | Same-scope duplicates rejected. |
 | Top-level executable statements | Implemented | Run in source order when explicit \`main\` is absent. |
@@ -72,9 +72,12 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Boolean | Implemented | Current \`bool\`. |
 | UTF-8 string | Partial | String values and output exist; full text API, ownership and Unicode behavior need audit. |
 | Void | Implemented | Function no-value result. |
-| Fixed-size one-dimensional arrays | Implemented | Inferred primitive element type and length; value aggregates. |
+| Fixed-size one-dimensional arrays | Implemented | Primitive arrays support inference, explicit `type[length]` annotations, and value aggregates. |
 | Array indexing and mutation | Implemented | Runtime bounds checks; simple named-array index assignment. |
-| Array iteration | Implemented | \`for-in\` over fixed arrays. |
+| Array iteration | Implemented | for-in over fixed arrays. |
+| Array function parameters | Implemented | One-dimensional fixed arrays are passed by value; parameter shapes are checked. |
+| Array function returns | Implemented | One-dimensional fixed arrays are returned by value; return shapes are verified in IR. |
+| Nested arrays | Not implemented | Requires recursive aggregate shape metadata and nested literal/indexing rules. |
 | Integer ranges | Implemented | \`start..end\` exclusive and \`start..=end\` inclusive, directly in \`for-in\`. |
 | Unsigned integer types | Not implemented | Important for systems and binary data. |
 | Smaller/larger integer widths | Not implemented | Consider explicit fixed-width types rather than implicit platform-sized integers. |

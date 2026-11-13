@@ -66,6 +66,24 @@ public:
                     function_.return_type = IRType::Void;
                 } else {
                     function_.return_type = *return_type;
+                    if (function_.return_type == IRType::Array) {
+                        if (!signature->second.return_array_type) {
+                            report("IR101", "array return type is missing its fixed shape",
+                                   declaration_.name);
+                        } else {
+                            const auto element_type =
+                                to_ir_type(signature->second.return_array_type->element_type);
+                            if (!element_type || *element_type == IRType::Array ||
+                                *element_type == IRType::Void) {
+                                report("IR101", "array return element type cannot be represented in IR",
+                                       declaration_.name);
+                            } else {
+                                function_.return_element_type = *element_type;
+                                function_.return_array_length =
+                                    signature->second.return_array_type->length;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -93,7 +111,23 @@ public:
                        parameter.name);
                 continue;
             }
-            const IRValue value = make_value(*type, parameter.name);
+            IRValue value = make_value(*type, parameter.name);
+            if (*type == IRType::Array) {
+                if (!info->array_type) {
+                    report("IR104", "array parameter is missing its fixed shape",
+                           parameter.name);
+                    continue;
+                }
+                const auto element_type = to_ir_type(info->array_type->element_type);
+                if (!element_type || *element_type == IRType::Array ||
+                    *element_type == IRType::Void) {
+                    report("IR104", "array parameter element type cannot be represented in IR",
+                           parameter.name);
+                    continue;
+                }
+                value = make_array_value(*element_type, info->array_type->length,
+                                         parameter.name);
+            }
             function_.parameters.push_back(IRFunctionParameter{
                 std::string(source_.slice(parameter.name)), value
             });
@@ -589,6 +623,24 @@ private:
                        expression.span);
                 return std::nullopt;
             }
+            if (*parameter_type == IRType::Array) {
+                if (index >= signature->second.parameter_array_types.size() ||
+                    !signature->second.parameter_array_types[index]) {
+                    report("IR122", "array parameter is missing its fixed shape",
+                           call.arguments[index]->span);
+                    return std::nullopt;
+                }
+                const SemanticArrayType& expected =
+                    *signature->second.parameter_array_types[index];
+                const auto expected_element = to_ir_type(expected.element_type);
+                if (!expected_element || arguments[index].type != IRType::Array ||
+                    arguments[index].element_type != *expected_element ||
+                    arguments[index].array_length != expected.length) {
+                    report("IR122", "array argument does not match the parameter's fixed shape",
+                           call.arguments[index]->span);
+                    return std::nullopt;
+                }
+            }
             const auto converted = convert(arguments[index], *parameter_type,
                                            call.arguments[index]->span);
             if (!converted) return std::nullopt;
@@ -607,7 +659,26 @@ private:
         instruction.callee = target->second;
         instruction.span = expression.span;
         if (*return_type != IRType::Void) {
-            instruction.result = make_value(*return_type, expression.span);
+            if (*return_type == IRType::Array) {
+                if (!signature->second.return_array_type) {
+                    report("IR123", "array return type is missing its fixed shape",
+                           expression.span);
+                    return std::nullopt;
+                }
+                const auto element_type =
+                    to_ir_type(signature->second.return_array_type->element_type);
+                if (!element_type || *element_type == IRType::Array ||
+                    *element_type == IRType::Void) {
+                    report("IR123", "array return element type cannot be represented in IR",
+                           expression.span);
+                    return std::nullopt;
+                }
+                instruction.result = make_array_value(
+                    *element_type, signature->second.return_array_type->length,
+                    expression.span);
+            } else {
+                instruction.result = make_value(*return_type, expression.span);
+            }
             const IRValue result = *instruction.result;
             emit(std::move(instruction));
             return result;

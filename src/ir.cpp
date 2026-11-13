@@ -21,8 +21,10 @@ bool is_value_type(const IRType type) noexcept {
 }
 
 struct FunctionSignature {
-    std::vector<IRType> parameters;
+    std::vector<IRValue> parameters;
     IRType return_type{IRType::Void};
+    IRType return_element_type{IRType::Void};
+    std::uint32_t return_array_length{0};
 };
 
 struct Definition {
@@ -65,12 +67,24 @@ private:
             report("IR003", "function must contain at least one basic block",
                    function_.span);
         }
-        if (function_.return_type == IRType::Void ||
-            function_.return_type == IRType::Int ||
-            function_.return_type == IRType::Float ||
-            function_.return_type == IRType::Bool ||
-            function_.return_type == IRType::String) {
-            // All currently defined IR return types are valid.
+        if (function_.return_type == IRType::Array) {
+            if (function_.return_element_type == IRType::Void ||
+                function_.return_element_type == IRType::Array ||
+                function_.return_array_length == 0 ||
+                function_.return_array_length > 65536u) {
+                report("IR053", "function has an invalid fixed-array return shape",
+                       function_.span);
+            }
+        } else if (function_.return_type == IRType::Void ||
+                   function_.return_type == IRType::Int ||
+                   function_.return_type == IRType::Float ||
+                   function_.return_type == IRType::Bool ||
+                   function_.return_type == IRType::String) {
+            if (function_.return_element_type != IRType::Void ||
+                function_.return_array_length != 0) {
+                report("IR054", "primitive function return cannot carry array shape metadata",
+                       function_.span);
+            }
         } else {
             report("IR004", "function has an unknown return type", function_.span);
         }
@@ -292,16 +306,26 @@ private:
             const std::size_t count = std::min(
                 instruction.operands.size(), found->second.parameters.size());
             for (std::size_t index = 0; index < count; ++index) {
-                const auto actual = operand_type(instruction, index);
-                if (actual && *actual != found->second.parameters[index]) {
+                const IRValue* actual = operand_value(instruction, index);
+                const IRValue& expected = found->second.parameters[index];
+                if (actual && (actual->type != expected.type ||
+                    (expected.type == IRType::Array &&
+                     !same_array_shape(*actual, expected)))) {
                     report("IR023", "call argument " + std::to_string(index + 1) +
-                           " has the wrong type", instruction.span);
+                           " has the wrong type or fixed-array shape", instruction.span);
                 }
             }
             if (found->second.return_type == IRType::Void) {
                 check_no_result(instruction);
             } else {
                 check_result(instruction, found->second.return_type);
+                if (found->second.return_type == IRType::Array &&
+                    instruction.result &&
+                    (instruction.result->element_type != found->second.return_element_type ||
+                     instruction.result->array_length != found->second.return_array_length)) {
+                    report("IR055", "call result does not match the callee's fixed-array return shape",
+                           instruction.span);
+                }
             }
             break;
         }
@@ -406,10 +430,15 @@ private:
                            block.terminator->span);
                 } else {
                     const auto value = definitions_.find(*terminator.value);
-                    if (value != definitions_.end() &&
-                        value->second.value.type != function_.return_type) {
-                        report("IR031", "returned value has the wrong type",
-                               block.terminator->span);
+                    if (value != definitions_.end()) {
+                        const IRValue& returned = value->second.value;
+                        if (returned.type != function_.return_type ||
+                            (function_.return_type == IRType::Array &&
+                             (returned.element_type != function_.return_element_type ||
+                              returned.array_length != function_.return_array_length))) {
+                            report("IR031", "returned value has the wrong type or fixed-array shape",
+                                   block.terminator->span);
+                        }
                     }
                 }
             } else if constexpr (std::is_same_v<T, IRBranch>) {
@@ -653,8 +682,10 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
         }
         FunctionSignature signature;
         signature.return_type = function.return_type;
+        signature.return_element_type = function.return_element_type;
+        signature.return_array_length = function.return_array_length;
         for (const IRFunctionParameter& parameter : function.parameters) {
-            signature.parameters.push_back(parameter.value.type);
+            signature.parameters.push_back(parameter.value);
         }
         if (!functions.emplace(function.name, std::move(signature)).second) {
             result.diagnostics.push_back(Diagnostic{

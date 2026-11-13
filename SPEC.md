@@ -168,7 +168,7 @@ The parser accepts assignment to a local name or a simple named-array index such
 
 ## 4. Initial static semantics implemented
 
-The current semantic checker implements primitive types, inferred fixed-array shapes, and a temporary integer-range type used only for direct `for-in` iteration. An array's element type and length are determined by its literal; array type annotations and array function parameters/returns are not implemented yet. Range expressions are not first-class values and cannot be assigned, stored, or passed to functions. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
+The semantic checker implements primitive types, one-dimensional fixed-array shapes, and a temporary integer-range type used only for direct `for-in` iteration. Fixed-array annotations use a primitive type followed by a positive length, such as `int[3]` or `float[8]`. Array parameters and return values are passed by value; argument, initializer, assignment, and return checks require an exact element type and length. Arrays still contain primitive elements only: nested arrays and dynamic arrays are not implemented. Range expressions are not first-class values and cannot be assigned, stored, or passed to functions. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
 
 | Type | Meaning |
 |---|---|
@@ -177,7 +177,7 @@ The current semantic checker implements primitive types, inferred fixed-array sh
 | `bool` | Boolean value |
 | `string` | UTF-8 string value |
 | `void` | Function return with no value |
-| fixed array | Inferred, one-dimensional, fixed-length sequence of primitive values |
+| fixed array | One-dimensional, fixed-length sequence of primitive values; may be inferred or annotated as `int[3]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
 The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory.
@@ -194,7 +194,8 @@ The implemented numeric representation is signed 64-bit integers and 64-bit floa
 - Compound assignments are shorthand for their corresponding arithmetic operation followed by assignment; they use the same operand, mutability, and conversion checks as ordinary assignment.
 - Variables are visible after declaration in their lexical scope. Nested blocks may shadow outer bindings; duplicate declarations in the same scope are errors.
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
-- Function parameters require explicit types. Function signatures are registered before body checking, enabling forward calls. Argument count and types are checked.
+- Function parameters require explicit types. Primitive annotations and fixed-array annotations such as `values: int[3]` are supported. Function signatures are registered before body checking, enabling forward calls. Argument count, element types, and fixed-array lengths are checked.
+- Fixed arrays may be passed to and returned from functions by value. A function returning `int[3]` must return exactly three `int` elements; an array argument must match the parameter's full fixed shape.
 - A function without a return annotation is treated as `void`. A non-void function is rejected when a reachable path can reach the end of its body without returning a compatible value. Return-path analysis follows sequential statements, nested blocks, conditional branches, and loop exits. It recognizes literal boolean conditions, positive or non-positive integer literal repeat counts, and fixed-array or integer-range iteration when non-emptiness can be proven from the source. A loop that may execute zero times cannot by itself satisfy a return requirement. A path proven unable to reach the function end (for example, a literal `while true` loop without a reachable `break`) does not need a return value.
 - The built-in `say(value)` accepts one supported primitive value and returns `void`; arrays must be indexed before printing.
 

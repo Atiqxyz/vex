@@ -38,6 +38,13 @@ std::string llvm_type(const IRValue& value) {
            llvm_type(value.element_type) + "]";
 }
 
+std::string llvm_return_type(const IRFunction& function) {
+    if (function.return_type != IRType::Array)
+        return llvm_type(function.return_type);
+    return "[" + std::to_string(function.return_array_length) + " x " +
+           llvm_type(function.return_element_type) + "]";
+}
+
 std::string value_slot(const IRValueId id) {
     return "%vex_slot_" + std::to_string(id);
 }
@@ -378,7 +385,7 @@ private:
     void emit_function(const IRFunction& function) {
         current_function_ = &function;
         index_values(function);
-        output_ << "define internal " << llvm_type(function.return_type) << ' '
+        output_ << "define internal " << llvm_return_type(function) << ' '
                 << function_symbol(function.name) << '(';
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
             if (index != 0) output_ << ", ";

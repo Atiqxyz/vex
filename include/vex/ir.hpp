@@ -116,6 +116,8 @@ struct IRFunction {
     std::string name;
     std::vector<IRFunctionParameter> parameters;
     IRType return_type{IRType::Void};
+    IRType return_element_type{IRType::Void};
+    std::uint32_t return_array_length{0};
     std::vector<IRBlock> blocks;
     IRBlockId entry_block{0};
     SourceSpan span{};

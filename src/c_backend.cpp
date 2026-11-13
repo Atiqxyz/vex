@@ -45,6 +45,12 @@ std::string c_type(const IRValue& value) {
         : c_type(value.type);
 }
 
+std::string c_return_type(const IRFunction& function) {
+    return function.return_type == IRType::Array
+        ? array_type_name(function.return_element_type, function.return_array_length)
+        : c_type(function.return_type);
+}
+
 std::string value_name(const IRValueId id) {
     return "vex_v_" + std::to_string(id);
 }
@@ -220,6 +226,8 @@ private:
     void emit_array_types() {
         std::set<std::pair<IRType, std::uint32_t>> shapes;
         for (const IRFunction& function : module_.functions) {
+            if (function.return_type == IRType::Array)
+                shapes.emplace(function.return_element_type, function.return_array_length);
             for (const IRFunctionParameter& parameter : function.parameters)
                 if (parameter.value.type == IRType::Array)
                     shapes.emplace(parameter.value.element_type, parameter.value.array_length);
@@ -328,7 +336,7 @@ private:
     }
 
     void emit_function_signature(const IRFunction& function) {
-        output_ << "static " << c_type(function.return_type) << ' '
+        output_ << "static " << c_return_type(function) << ' '
                 << function_name(function.name) << '(';
         if (function.parameters.empty()) {
             output_ << "void";

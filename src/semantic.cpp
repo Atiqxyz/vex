@@ -46,8 +46,10 @@ struct Symbol {
     bool immutable{false};
     bool is_function{false};
     std::vector<Type> parameters;
+    std::vector<std::optional<SemanticArrayType>> parameter_array_types;
     SourceSpan declaration{};
     std::optional<SemanticArrayType> array_type;
+    std::optional<SemanticArrayType> return_array_type;
 };
 
 using Scope = std::unordered_map<std::string, Symbol>;
@@ -79,9 +81,50 @@ private:
         return std::string(source_.slice(span));
     }
 
-    [[nodiscard]] Type annotation_type(const SourceSpan span,
-                                       const bool allow_void) {
+    [[nodiscard]] Type annotation_type(
+        const SourceSpan span, const bool allow_void,
+        std::optional<SemanticArrayType>* array_shape = nullptr) {
         const std::string name = spelling(span);
+        const std::size_t open = name.find('[');
+        if (open != std::string::npos) {
+            const std::size_t close = name.find(']', open + 1);
+            if (close == std::string::npos || close + 1 != name.size()) {
+                report("SEM003", "malformed fixed-array type annotation", span);
+                return Type::Error;
+            }
+            std::string element_name = name.substr(0, open);
+            const auto trim = [](std::string& value) {
+                const auto whitespace = [](const char c) {
+                    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+                };
+                while (!value.empty() && whitespace(value.front())) value.erase(value.begin());
+                while (!value.empty() && whitespace(value.back())) value.pop_back();
+            };
+            trim(element_name);
+            Type element_type = Type::Error;
+            if (element_name == "int") element_type = Type::Int;
+            else if (element_name == "float") element_type = Type::Float;
+            else if (element_name == "bool") element_type = Type::Bool;
+            else if (element_name == "string") element_type = Type::String;
+            else {
+                report("SEM003", "fixed arrays require a primitive element type", span);
+                return Type::Error;
+            }
+            std::string length_text = name.substr(open + 1, close - open - 1);
+            trim(length_text);
+            std::uint32_t length = 0;
+            const auto parsed = std::from_chars(length_text.data(),
+                length_text.data() + length_text.size(), length);
+            if (length_text.empty() || parsed.ec != std::errc{} ||
+                parsed.ptr != length_text.data() + length_text.size() ||
+                length == 0 || length > 65536u) {
+                report("SEM041", "fixed-array lengths must be between 1 and 65,536", span);
+                return Type::Error;
+            }
+            if (array_shape)
+                *array_shape = SemanticArrayType{element_type, length};
+            return Type::Array;
+        }
         if (name == "int") return Type::Int;
         if (name == "float") return Type::Float;
         if (name == "bool") return Type::Bool;
@@ -96,6 +139,7 @@ private:
         say.type = Type::Void;
         say.is_function = true;
         say.parameters.push_back(Type::Any);
+        say.parameter_array_types.emplace_back(std::nullopt);
         say.declaration = {0, 0};
         scopes_.front().emplace("say", std::move(say));
 
@@ -104,6 +148,7 @@ private:
             function.type = Type::Float;
             function.is_function = true;
             function.parameters.assign(arity, Type::Float);
+            function.parameter_array_types.resize(arity);
             function.declaration = {0, 0};
             scopes_.front().emplace(name, std::move(function));
         };
@@ -126,19 +171,23 @@ private:
             signature.is_function = true;
             signature.declaration = function->name;
             signature.type = function->return_type
-                ? annotation_type(*function->return_type, true)
+                ? annotation_type(*function->return_type, true,
+                                  &signature.return_array_type)
                 : Type::Void;
 
             for (const Parameter& parameter : function->parameters) {
                 Type parameter_type = Type::Unknown;
+                std::optional<SemanticArrayType> parameter_array_type;
                 if (parameter.type_annotation) {
-                    parameter_type = annotation_type(*parameter.type_annotation, false);
+                    parameter_type = annotation_type(
+                        *parameter.type_annotation, false, &parameter_array_type);
                 } else {
                     report("SEM004",
                            "function parameters require an explicit type annotation",
                            parameter.name);
                 }
                 signature.parameters.push_back(parameter_type);
+                signature.parameter_array_types.push_back(parameter_array_type);
             }
 
             const std::string name = spelling(function->name);
@@ -152,7 +201,9 @@ private:
             SemanticFunctionSignature public_signature;
             public_signature.name = name;
             public_signature.parameter_types = signature.parameters;
+            public_signature.parameter_array_types = signature.parameter_array_types;
             public_signature.return_type = signature.type;
+            public_signature.return_array_type = signature.return_array_type;
             public_signature.declaration = function->name;
             model_.functions.emplace(function, std::move(public_signature));
             signatures_.emplace(function, std::move(signature));
@@ -565,8 +616,29 @@ private:
                            " has type " + type_name(argument_types[index]) +
                            "; expected " + type_name(function->parameters[index]),
                            call->arguments[index]->span);
+                    continue;
+                }
+                if (function->parameters[index] == Type::Array &&
+                    index < function->parameter_array_types.size() &&
+                    function->parameter_array_types[index]) {
+                    const auto actual_shape = call->arguments[index]
+                        ? model_.array_expression_types.find(call->arguments[index].get())
+                        : model_.array_expression_types.end();
+                    const SemanticArrayType& expected =
+                        *function->parameter_array_types[index];
+                    if (actual_shape == model_.array_expression_types.end() ||
+                        actual_shape->second.element_type != expected.element_type ||
+                        actual_shape->second.length != expected.length) {
+                        report("SEM021", "array argument " +
+                               std::to_string(index + 1) +
+                               " does not match the required element type and fixed length",
+                               call->arguments[index]->span);
+                    }
                 }
             }
+            if (function->type == Type::Array && function->return_array_type)
+                model_.array_expression_types[&expression] =
+                    *function->return_array_type;
             return function->type;
         }
 
@@ -586,8 +658,10 @@ private:
         const Type inferred = variable.initializer
             ? analyze_expression(*variable.initializer) : Type::Error;
         Type declared = inferred;
+        std::optional<SemanticArrayType> declared_array_type;
         if (variable.type_annotation) {
-            declared = annotation_type(*variable.type_annotation, false);
+            declared = annotation_type(*variable.type_annotation, false,
+                                       &declared_array_type);
             require_type(inferred, declared,
                          variable.initializer ? variable.initializer->span : variable.name,
                          "SEM022", "initializer type does not match variable annotation");
@@ -598,10 +672,19 @@ private:
         }
         Symbol symbol;
         symbol.type = declared;
+        if (declared == Type::Array) symbol.array_type = declared_array_type;
         if (variable.initializer && inferred == Type::Array) {
             const auto shape = model_.array_expression_types.find(variable.initializer.get());
-            if (shape != model_.array_expression_types.end())
-                symbol.array_type = shape->second;
+            if (shape != model_.array_expression_types.end()) {
+                if (declared_array_type &&
+                    (declared_array_type->element_type != shape->second.element_type ||
+                     declared_array_type->length != shape->second.length)) {
+                    report("SEM045",
+                           "array initializer does not match the annotated element type and fixed length",
+                           variable.initializer->span);
+                }
+                if (!symbol.array_type) symbol.array_type = shape->second;
+            }
         }
         symbol.immutable = variable.immutable;
         symbol.declaration = variable.name;
@@ -626,6 +709,8 @@ private:
             const Parameter& parameter = function.parameters[index];
             Symbol symbol;
             symbol.type = index < count ? signature.parameters[index] : Type::Unknown;
+            if (index < signature.parameter_array_types.size())
+                symbol.array_type = signature.parameter_array_types[index];
             symbol.declaration = parameter.name;
             SemanticBindingId binding_id = 0;
             if (define(spelling(parameter.name), std::move(symbol),
@@ -636,8 +721,10 @@ private:
 
         const bool was_in_function = inside_function_;
         const Type previous_return = current_return_type_;
+        const auto previous_return_array_type = current_return_array_type_;
         inside_function_ = true;
         current_return_type_ = signature.type;
+        current_return_array_type_ = signature.return_array_type;
 
         if (function.body) {
             analyze_block(*function.body, false);
@@ -650,6 +737,7 @@ private:
         }
 
         current_return_type_ = previous_return;
+        current_return_array_type_ = previous_return_array_type;
         inside_function_ = was_in_function;
         scopes_.pop_back();
     }
@@ -879,6 +967,17 @@ private:
                     const Type actual = analyze_expression(*returned->value);
                     require_type(actual, current_return_type_, returned->value->span,
                                  "SEM028", "return type does not match function");
+                    if (actual == Type::Array && current_return_array_type_) {
+                        const auto actual_shape =
+                            model_.array_expression_types.find(returned->value.get());
+                        if (actual_shape == model_.array_expression_types.end() ||
+                            actual_shape->second.element_type != current_return_array_type_->element_type ||
+                            actual_shape->second.length != current_return_array_type_->length) {
+                            report("SEM028",
+                                   "returned array does not match the function's annotated element type and fixed length",
+                                   returned->value->span);
+                        }
+                    }
                 }
             }
             return;
@@ -986,6 +1085,7 @@ private:
     std::size_t loop_depth_{0};
     bool allow_range_expression_{false};
     Type current_return_type_{Type::Void};
+    std::optional<SemanticArrayType> current_return_array_type_;
 };
 
 } // namespace
