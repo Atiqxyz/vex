@@ -1,6 +1,10 @@
 #include "vex/semantic.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
+#include <limits>
+#include <string_view>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -638,8 +642,9 @@ private:
         if (function.body) {
             analyze_block(*function.body, false);
             if (signature.type != Type::Void && signature.type != Type::Error &&
-                !definitely_returns(*function.body)) {
-                report("SEM024", "not every control-flow path returns a value",
+                control_flow(*function.body).falls_through) {
+                report("SEM024",
+                       "a non-void function can reach its end without returning a value",
                        statement.span);
             }
         }
@@ -649,19 +654,179 @@ private:
         scopes_.pop_back();
     }
 
-    [[nodiscard]] bool definitely_returns(const Statement& statement) const {
-        if (std::holds_alternative<ReturnStmt>(statement.data)) return true;
-        if (const auto* block = std::get_if<BlockStmt>(&statement.data)) {
-            for (const StmtPtr& child : block->statements) {
-                if (child && definitely_returns(*child)) return true;
+    struct FlowSummary {
+        bool falls_through{true};
+        bool returns{false};
+        bool breaks{false};
+        bool continues{false};
+    };
+
+    [[nodiscard]] std::optional<bool> constant_boolean(const Expr* expression) const {
+        if (!expression) return std::nullopt;
+        if (const auto* literal = std::get_if<LiteralExpr>(&expression->data)) {
+            if (literal->token_kind == TokenKind::KwTrue) return true;
+            if (literal->token_kind == TokenKind::KwFalse) return false;
+            return std::nullopt;
+        }
+        if (const auto* group = std::get_if<GroupExpr>(&expression->data))
+            return constant_boolean(group->expression.get());
+        if (const auto* unary = std::get_if<UnaryExpr>(&expression->data)) {
+            if (unary->op != TokenKind::Bang) return std::nullopt;
+            const auto operand = constant_boolean(unary->operand.get());
+            if (operand) return !*operand;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::int64_t> constant_integer(
+        const Expr* expression) const {
+        if (!expression) return std::nullopt;
+        if (const auto* group = std::get_if<GroupExpr>(&expression->data))
+            return constant_integer(group->expression.get());
+
+        if (const auto* literal = std::get_if<LiteralExpr>(&expression->data)) {
+            if (literal->token_kind != TokenKind::Integer) return std::nullopt;
+            const std::string_view text = source_.slice(expression->span);
+            std::int64_t value = 0;
+            const auto parsed = std::from_chars(
+                text.data(), text.data() + text.size(), value);
+            if (parsed.ec != std::errc{} ||
+                parsed.ptr != text.data() + text.size()) return std::nullopt;
+            return value;
+        }
+
+        if (const auto* unary = std::get_if<UnaryExpr>(&expression->data)) {
+            const auto operand = constant_integer(unary->operand.get());
+            if (!operand) return std::nullopt;
+            if (unary->op == TokenKind::Plus) return operand;
+            if (unary->op == TokenKind::Minus) {
+                if (*operand == std::numeric_limits<std::int64_t>::min())
+                    return std::nullopt;
+                return -*operand;
             }
         }
-        if (const auto* conditional = std::get_if<IfStmt>(&statement.data)) {
-            return conditional->then_branch && conditional->else_branch &&
-                   definitely_returns(*conditional->then_branch) &&
-                   definitely_returns(*conditional->else_branch);
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<bool> for_iterable_is_nonempty(
+        const ForStmt& loop) const {
+        if (!loop.iterable) return std::nullopt;
+
+        const auto array_shape =
+            model_.array_expression_types.find(loop.iterable.get());
+        if (array_shape != model_.array_expression_types.end())
+            return array_shape->second.length != 0;
+
+        const Expr* iterable = loop.iterable.get();
+        while (iterable) {
+            const auto* group = std::get_if<GroupExpr>(&iterable->data);
+            if (!group || !group->expression) break;
+            iterable = group->expression.get();
         }
-        return false;
+        const auto* range = iterable
+            ? std::get_if<RangeExpr>(&iterable->data) : nullptr;
+        if (!range) return std::nullopt;
+
+        const auto start = constant_integer(range->start.get());
+        const auto end = constant_integer(range->end.get());
+        if (!start || !end) return std::nullopt;
+        return range->inclusive ? *start <= *end : *start < *end;
+    }
+
+    [[nodiscard]] static FlowSummary join_paths(
+        const FlowSummary& left, const FlowSummary& right) {
+        return FlowSummary{
+            left.falls_through || right.falls_through,
+            left.returns || right.returns,
+            left.breaks || right.breaks,
+            left.continues || right.continues
+        };
+    }
+
+    [[nodiscard]] FlowSummary control_flow(const Statement& statement) const {
+        if (std::holds_alternative<ReturnStmt>(statement.data))
+            return FlowSummary{false, true, false, false};
+        if (std::holds_alternative<BreakStmt>(statement.data))
+            return FlowSummary{false, false, true, false};
+        if (std::holds_alternative<ContinueStmt>(statement.data))
+            return FlowSummary{false, false, false, true};
+
+        if (const auto* block = std::get_if<BlockStmt>(&statement.data)) {
+            FlowSummary result;
+            for (const StmtPtr& child : block->statements) {
+                if (!child || !result.falls_through) continue;
+                const FlowSummary next = control_flow(*child);
+                result.returns = result.returns || next.returns;
+                result.breaks = result.breaks || next.breaks;
+                result.continues = result.continues || next.continues;
+                result.falls_through = next.falls_through;
+            }
+            return result;
+        }
+
+        if (const auto* conditional = std::get_if<IfStmt>(&statement.data)) {
+            const auto condition = constant_boolean(conditional->condition.get());
+            if (condition) {
+                const StmtPtr& selected = *condition
+                    ? conditional->then_branch : conditional->else_branch;
+                return selected ? control_flow(*selected) : FlowSummary{};
+            }
+            const FlowSummary then_flow = conditional->then_branch
+                ? control_flow(*conditional->then_branch) : FlowSummary{};
+            const FlowSummary else_flow = conditional->else_branch
+                ? control_flow(*conditional->else_branch) : FlowSummary{};
+            return join_paths(then_flow, else_flow);
+        }
+
+        if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
+            const auto condition = constant_boolean(loop->condition.get());
+            if (condition && !*condition) return FlowSummary{};
+
+            const FlowSummary body = loop->body
+                ? control_flow(*loop->body) : FlowSummary{};
+            if (condition && *condition) {
+                // A literal-true loop can leave only through a reachable break.
+                // Falling through or continuing merely starts another iteration.
+                return FlowSummary{body.breaks, body.returns, false, false};
+            }
+            // Unknown conditions may be false before the first iteration.
+            return FlowSummary{true, body.returns, false, false};
+        }
+
+        if (const auto* repeat = std::get_if<RepeatStmt>(&statement.data)) {
+            const auto count = constant_integer(repeat->count.get());
+            if (count && *count <= 0) return FlowSummary{};
+
+            const FlowSummary body = repeat->body
+                ? control_flow(*repeat->body) : FlowSummary{};
+            if (count && *count > 0) {
+                // A known positive count runs the body at least once.
+                return FlowSummary{
+                    body.falls_through || body.breaks || body.continues,
+                    body.returns, false, false
+                };
+            }
+            // An unknown count may be zero, so the loop cannot prove a return.
+            return FlowSummary{true, body.returns, false, false};
+        }
+
+        if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
+            const FlowSummary body = loop->body
+                ? control_flow(*loop->body) : FlowSummary{};
+            const auto nonempty = for_iterable_is_nonempty(*loop);
+            if (nonempty && *nonempty) {
+                return FlowSummary{
+                    body.falls_through || body.breaks || body.continues,
+                    body.returns, false, false
+                };
+            }
+            // If non-emptiness is not proven, the loop may execute zero times.
+            return FlowSummary{true, body.returns, false, false};
+        }
+
+        // Declarations, expressions and nested function declarations do not
+        // terminate the current function's control flow.
+        return FlowSummary{};
     }
 
     void analyze_block(const Statement& statement, const bool create_scope) {
