@@ -27,6 +27,15 @@ make main() {
     say(cos(0.0))
     say(pow(2.0, 3.0))
     say(abs(-5.0))
+
+    let numbers = [3, 4, 5]
+    numbers[1] = 10
+    say(numbers[1])
+    let sum_numbers = 0
+    for number in numbers {
+        sum_numbers += number
+    }
+    say(sum_numbers)
 }
 
 make combine(left: int, right: int) -> int {

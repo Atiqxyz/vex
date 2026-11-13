@@ -121,6 +121,9 @@ block            := "{" newline* statement* "}"
 multiline         := "[" newline* expression newline* "]"
 array_literal     := "[" expression "," expression ("," expression)* ","? "]"
 index             := postfix "[" expression "]"
+postfix           := primary (call_suffix | index_suffix)*
+call_suffix       := "(" arguments? ")"
+index_suffix      := "[" expression "]"
 ~~~
 
 Expression operators are parsed with these precedence levels, from lowest to highest:
@@ -136,12 +139,13 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 7 | multiplication `*`, `/`, `%` | left |
 | 8 | unary `+`, `-`, `!` | prefix |
 | 9 | function call `(...)` | postfix |
+| 10 | array indexing `[...]` | postfix |
 
 The parser accepts assignment to a local name or a simple named-array index such as `values[index] = value`. Nested member/index assignment and compound assignment to an array element are not implemented.
 
 ## 4. Initial static semantics implemented
 
-The current semantic checker implements primitive types plus inferred fixed-array shapes. An array's element type and length are determined by its literal; array type annotations and array function parameters/returns are not implemented yet.
+The current semantic checker implements primitive types plus inferred fixed-array shapes. An array's element type and length are determined by its literal; array type annotations and array function parameters/returns are not implemented yet. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
 
 | Type | Meaning |
 |---|---|
