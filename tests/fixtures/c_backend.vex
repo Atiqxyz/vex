@@ -12,6 +12,12 @@ make main() {
     say(first_label(labels))
     let flags: bool[2] = [true, false]
     say(both_flags(flags))
+    let copied_decimals: float[2] = identity_floats(decimal_values)
+    say(copied_decimals[0])
+    let copied_labels: string[2] = identity_labels(labels)
+    say(copied_labels[1])
+    let copied_flags: bool[2] = identity_flags(flags)
+    say(copied_flags[0])
 
     say(-7 % 3)
     say(7 % -3)
@@ -199,6 +205,18 @@ make first_label(values: string[2]) -> string {
 
 make both_flags(values: bool[2]) -> bool {
     return values[0] && values[1]
+}
+
+make identity_floats(values: float[2]) -> float[2] {
+    return values
+}
+
+make identity_labels(values: string[2]) -> string[2] {
+    return values
+}
+
+make identity_flags(values: bool[2]) -> bool[2] {
+    return values
 }
 
 make trace_int(value: int) -> int {

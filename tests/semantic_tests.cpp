@@ -431,11 +431,18 @@ void test_array_function_types_and_shapes(TestContext& tests) {
 
     const vex::SourceFile invalid{"array_function_shape_errors.vex",
         "make expect_two(values: int[2]) -> int { return values[0] }\n"
+        "make expect_float(values: float[2]) -> float { return values[0] }\n"
         "make wrong_return() -> int[2] { return [1, 2, 3] }\n"
+        "make wrong_element_return() -> int[2] { return [1.0, 2.0] }\n"
+        "make invalid_length(values: int[0]) -> int { return 0 }\n"
+        "make oversized_length(values: bool[65537]) -> int { return 0 }\n"
         "make main() {\n"
         "    let wrong_binding: int[2] = [1, 2, 3]\n"
+        "    let wrong_element_binding: int[2] = [1.0, 2.0]\n"
         "    let values = [1, 2, 3]\n"
+        "    let integer_values = [4, 5]\n"
         "    expect_two(values)\n"
+        "    expect_float(integer_values)\n"
         "}\n"};
     const vex::SemanticResult rejected = analyze(invalid);
     tests.check(has_code(rejected, "SEM021"),
@@ -444,6 +451,8 @@ void test_array_function_types_and_shapes(TestContext& tests) {
                 "array returns must match the function's declared element type and length");
     tests.check(has_code(rejected, "SEM045"),
                 "annotated array initializers must match their declared shape");
+    tests.check(has_code(rejected, "SEM041"),
+                "fixed-array annotations reject zero and over-limit lengths");
 }
 
 void test_integer_range_semantics(TestContext& tests) {
