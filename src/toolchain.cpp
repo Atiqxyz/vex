@@ -218,30 +218,28 @@ std::vector<std::string> compiler_candidates() {
 
 struct LLVMCompilerCandidate {
     std::string executable;
-    std::vector<std::string> prefix_arguments;
+    bool is_zig{false};
 };
 
 std::vector<LLVMCompilerCandidate> llvm_compiler_candidates() {
     std::vector<LLVMCompilerCandidate> candidates;
     const auto add = [&candidates](
-        const fs::path& executable,
-        std::vector<std::string> prefix_arguments = {}) {
+        const fs::path& executable, const bool is_zig) {
         if (executable.empty()) return;
         const std::string path = executable.string();
         if (path.empty()) return;
         for (const LLVMCompilerCandidate& existing : candidates) {
-            if (existing.executable == path &&
-                existing.prefix_arguments == prefix_arguments) {
+            if (existing.executable == path && existing.is_zig == is_zig) {
                 return;
             }
         }
-        candidates.push_back({path, std::move(prefix_arguments)});
+        candidates.push_back({path, is_zig});
     };
     const auto add_clang = [&add](const char* value) {
-        if (value != nullptr && *value != '\0') add(fs::path(value));
+        if (value != nullptr && *value != '\0') add(fs::path(value), false);
     };
     const auto add_zig = [&add](const fs::path& value) {
-        if (!value.empty()) add(value, {"clang"});
+        if (!value.empty()) add(value, true);
     };
 
     add_clang(std::getenv("VEX_LLVM_CC"));
@@ -431,25 +429,57 @@ int build_llvm_to_output(
 
     std::string last_error = "no bundled Zig or Clang executable was found";
     for (const LLVMCompilerCandidate& compiler : llvm_compiler_candidates()) {
-        std::vector<std::string> arguments = compiler.prefix_arguments;
-        arguments.insert(arguments.end(), {
-            "-O2", generated_llvm.string(), "-o", output_absolute.string()
-        });
-#ifndef _WIN32
-        arguments.emplace_back("-lm");
+        ProcessResult result;
+        if (compiler.is_zig) {
+            // Compile textual LLVM IR to a native object through Zig's embedded
+            // Clang, then link it with Zig's bundled linker and target runtime.
+#ifdef _WIN32
+            const fs::path object_file = temporary_directory / "program.obj";
+#else
+            const fs::path object_file = temporary_directory / "program.o";
 #endif
-        const ProcessResult result = run_process(compiler.executable, arguments);
+            const ProcessResult compile_result = run_process(compiler.executable, {
+                "clang", "-O2", "-c", generated_llvm.string(),
+                "-o", object_file.string()
+            });
+            if (!compile_result.started) {
+                last_error = compile_result.error;
+                continue;
+            }
+            if (compile_result.exit_code != 0) {
+                std::cerr << "error: bundled Zig Clang exited with code "
+                          << compile_result.exit_code << '\\n';
+                return compile_result.exit_code;
+            }
+
+            std::vector<std::string> link_arguments{
+                "build-exe", object_file.string(), "-O", "ReleaseFast", "-lc"
+            };
+#ifndef _WIN32
+            link_arguments.emplace_back("-lm");
+#endif
+            link_arguments.emplace_back("-femit-bin=" + output_absolute.string());
+            result = run_process(compiler.executable, link_arguments);
+        } else {
+            std::vector<std::string> arguments{
+                "-O2", generated_llvm.string(), "-o", output_absolute.string()
+            };
+#ifndef _WIN32
+            arguments.emplace_back("-lm");
+#endif
+            result = run_process(compiler.executable, arguments);
+        }
         if (!result.started) {
             last_error = result.error;
             continue;
         }
         if (result.exit_code != 0) {
-            std::cerr << "error: LLVM compiler exited with code "
-                      << result.exit_code << '\n';
-            return result.exit_code == 0 ? 1 : result.exit_code;
+            std::cerr << "error: LLVM toolchain exited with code "
+                      << result.exit_code << '\\n';
+            return result.exit_code;
         }
         if (announce) {
-            std::cout << "Built " << output_absolute.string() << '\n';
+            std::cout << "Built " << output_absolute.string() << '\\n';
         }
         return 0;
     }
