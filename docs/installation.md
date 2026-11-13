@@ -9,6 +9,7 @@ Open the [VEX Releases page](https://github.com/Atiqxyz/vex/releases) and downlo
 - Windows x64: `vex-windows-x64.zip`
 - Linux x64: `vex-linux-x64.zip`
 - macOS Intel x64: `vex-macos-x64.zip`
+- macOS Apple Silicon ARM64: `vex-macos-arm64.zip`
 
 Extract the complete `vex` directory to a stable location. **Keep its `bin` and `toolchain` directories together**; VEX discovers the bundled compiler relative to its own executable.
 
@@ -107,6 +108,6 @@ The complete upstream Zig directory is staged so its compiler libraries and acco
 
 ## Distribution status
 
-The release workflow builds and tests the CLI on Windows, Linux, and Intel macOS, downloads the pinned Zig 0.17.1 toolchain for each target, verifies each archive's SHA-256 digest, stages it with VEX, and packages the VS Code extension. Version tags publish the resulting platform archives and VSIX to GitHub Releases.
+The release workflow builds and tests the CLI on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS, downloads the pinned Zig 0.17.1 toolchain for each target, verifies each archive's SHA-256 digest, stages it with VEX, and packages the VS Code extension. Version tags publish the resulting platform archives and VSIX to GitHub Releases.
 
 The current delivery is a portable extracted package rather than a native Windows installer, macOS package installer, or Linux system package. Those native installers and automatic VS Code extension setup are a later installation milestone.
