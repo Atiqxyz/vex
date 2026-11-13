@@ -33,4 +33,12 @@ make main() {
     let assignment_result = (point = Point { x: 4, y: 5 })
     say(assignment_result.x)
     say(point.x)
+
+    let branched = point
+    if true {
+        branched.x = branched.x + 2
+    } else {
+        branched.y = branched.y + 2
+    }
+    say(branched.x)
 }

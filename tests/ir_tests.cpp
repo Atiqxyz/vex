@@ -393,8 +393,15 @@ void test_struct_lowering_and_backend_aggregates(TestContext& tests) {
         "make main() {\n"
         "    let point = Point { x: 1, y: 2 }\n"
         "    let changed = change(point)\n"
+        "    let branch_value = point\n"
+        "    if true {\n"
+        "        branch_value.x = branch_value.x + 1\n"
+        "    } else {\n"
+        "        branch_value.y = branch_value.y + 1\n"
+        "    }\n"
         "    say(point.x)\n"
         "    say(changed.x)\n"
+        "    say(branch_value.x)\n"
         "}\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
