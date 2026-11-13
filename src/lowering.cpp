@@ -114,6 +114,13 @@ private:
         Environment environment;
     };
 
+    struct LoopContext {
+        IRBlockId continue_target{0};
+        IRBlockId break_target{0};
+        std::vector<SemanticBindingId> environment_ids;
+        std::optional<IRValue> counter;
+    };
+
     void report(const char* code, std::string message, const SourceSpan span) {
         diagnostics_.push_back(Diagnostic{
             DiagnosticSeverity::Error, code, std::move(message), span
@@ -714,6 +721,107 @@ private:
         merge_paths(base, paths, span, "if.end");
     }
 
+    void lower_loop_control(const bool is_break, const SourceSpan span) {
+        if (loops_.empty()) {
+            report("IR138", is_break
+                ? "break has no enclosing loop during IR lowering"
+                : "continue has no enclosing loop during IR lowering", span);
+            current_block_.reset();
+            return;
+        }
+
+        const LoopContext& loop = loops_.back();
+        std::vector<IRValueId> arguments;
+        arguments.reserve(loop.environment_ids.size() + (loop.counter && !is_break ? 1u : 0u));
+        if (!is_break && loop.counter) {
+            const IRValue one = emit_constant(IRType::Int, "1", span);
+            const IRValue next_index = emit_operation(
+                IROp::Add, IRType::Int, {loop.counter->id, one.id}, span);
+            arguments.push_back(next_index.id);
+        }
+        for (const SemanticBindingId id : loop.environment_ids) {
+            arguments.push_back(environment_value(environment_, id, span).id);
+        }
+        terminate_current(IRTerminator{
+            IRBranch{is_break ? loop.break_target : loop.continue_target,
+                     std::move(arguments)}, span
+        });
+    }
+
+    void lower_while(const WhileStmt& loop, const SourceSpan span) {
+        if (!loop.condition || !loop.body || !current_block_) return;
+
+        const Environment base = environment_;
+        const std::vector<SemanticBindingId> ids = sorted_environment_ids(base);
+        const IRBlockId preheader = *current_block_;
+
+        std::vector<IRValue> header_parameters;
+        std::vector<IRValue> body_parameters;
+        std::vector<IRValue> exit_parameters;
+        header_parameters.reserve(ids.size());
+        body_parameters.reserve(ids.size());
+        exit_parameters.reserve(ids.size());
+        for (const SemanticBindingId id : ids) {
+            header_parameters.push_back(make_value(base.at(id).type, span));
+            body_parameters.push_back(make_value(base.at(id).type, span));
+            exit_parameters.push_back(make_value(base.at(id).type, span));
+        }
+
+        const IRBlockId header = create_block("while.header", header_parameters);
+        const IRBlockId body = create_block("while.body", body_parameters);
+        const IRBlockId exit = create_block("while.exit", exit_parameters);
+
+        std::vector<IRValueId> initial_arguments;
+        initial_arguments.reserve(ids.size());
+        for (const SemanticBindingId id : ids) initial_arguments.push_back(base.at(id).id);
+        set_terminator(preheader,
+            IRTerminator{IRBranch{header, std::move(initial_arguments)}, span});
+
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = header_parameters[index];
+        current_block_ = header;
+        const auto condition = lower_expression(*loop.condition);
+        if (!condition || condition->type != IRType::Bool || !current_block_) {
+            report("IR139", "while condition did not produce a bool value",
+                   loop.condition->span);
+            current_block_.reset();
+            return;
+        }
+
+        std::vector<IRValueId> branch_arguments;
+        branch_arguments.reserve(ids.size());
+        for (const SemanticBindingId id : ids)
+            branch_arguments.push_back(environment_value(environment_, id, span).id);
+        set_terminator(*current_block_, IRTerminator{
+            IRConditionalBranch{condition->id, body, branch_arguments,
+                                exit, branch_arguments}, span
+        });
+
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = body_parameters[index];
+        current_block_ = body;
+        loops_.push_back(LoopContext{header, exit, ids, std::nullopt});
+        lower_statement(*loop.body);
+        loops_.pop_back();
+
+        if (current_block_) {
+            std::vector<IRValueId> backedge_arguments;
+            backedge_arguments.reserve(ids.size());
+            for (const SemanticBindingId id : ids)
+                backedge_arguments.push_back(environment_value(environment_, id, span).id);
+            terminate_current(IRTerminator{
+                IRBranch{header, std::move(backedge_arguments)}, span
+            });
+        }
+
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = exit_parameters[index];
+        current_block_ = exit;
+    }
+
     void lower_repeat(const RepeatStmt& repeat, const SourceSpan span) {
         if (!repeat.count || !repeat.body) return;
         const auto count = lower_expression(*repeat.count);
@@ -773,7 +881,9 @@ private:
 
         current_block_ = body;
         environment_ = loop_environment;
+        loops_.push_back(LoopContext{header, exit, ids, index_parameter});
         lower_statement(*repeat.body);
+        loops_.pop_back();
         if (current_block_) {
             const IRValue one = emit_constant(IRType::Int, "1", span);
             const IRValue next_index = emit_operation(
@@ -832,6 +942,18 @@ private:
             lower_if(*conditional, statement.span);
             return;
         }
+        if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
+            lower_while(*loop, statement.span);
+            return;
+        }
+        if (std::holds_alternative<BreakStmt>(statement.data)) {
+            lower_loop_control(true, statement.span);
+            return;
+        }
+        if (std::holds_alternative<ContinueStmt>(statement.data)) {
+            lower_loop_control(false, statement.span);
+            return;
+        }
         if (const auto* repeat = std::get_if<RepeatStmt>(&statement.data)) {
             lower_repeat(*repeat, statement.span);
             return;
@@ -854,6 +976,7 @@ private:
     std::vector<Diagnostic>& diagnostics_;
     IRFunction function_;
     Environment environment_;
+    std::vector<LoopContext> loops_;
     std::optional<IRBlockId> current_block_;
     IRValueId next_value_id_{1};
     IRBlockId next_block_id_{0};
