@@ -260,7 +260,10 @@ void test_fixed_arrays_and_index_assignment(TestContext& tests) {
                 "fixed arrays infer primitive element types and support indexed mutation and iteration");
 
     const vex::SourceFile bad_index{"bad_array_index.vex",
-        "make main() { let values = [1, 2] let bad = values[1.5] }\n"};
+        "make main() {\n"
+        "    let values = [1, 2]\n"
+        "    let bad = values[1.5]\n"
+        "}\n"};
     const vex::SemanticResult bad = analyze(bad_index);
     tests.check(has_code(bad, "SEM042"), "array indices must have type int");
 
@@ -271,13 +274,19 @@ void test_fixed_arrays_and_index_assignment(TestContext& tests) {
                 "arrays reject incompatible element types");
 
     const vex::SourceFile immutable{"immutable_array.vex",
-        "make main() { const values = [1, 2] values[0] = 7 }\n"};
+        "make main() {\n"
+        "    const values = [1, 2]\n"
+        "    values[0] = 7\n"
+        "}\n"};
     const vex::SemanticResult immutable_result = analyze(immutable);
     tests.check(has_code(immutable_result, "SEM017"),
                 "elements of const arrays cannot be modified");
 
     const vex::SourceFile mismatch{"array_shape_mismatch.vex",
-        "make main() { let values = [1, 2] values = [3, 4, 5] }\n"};
+        "make main() {\n"
+        "    let values = [1, 2]\n"
+        "    values = [3, 4, 5]\n"
+        "}\n"};
     const vex::SemanticResult mismatch_result = analyze(mismatch);
     tests.check(has_code(mismatch_result, "SEM045"),
                 "array reassignment checks fixed length and element type");
