@@ -48,6 +48,28 @@ install(FILES docs/installation.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 set(VEX_LLVM_TOOLCHAIN_DIR "" CACHE PATH
     "Optional LLVM installation root to bundle beside the VEX executable")
+set(VEX_ZIG_TOOLCHAIN_DIR "" CACHE PATH
+    "Optional Zig installation root to bundle as the portable LLVM toolchain")
+if(VEX_LLVM_TOOLCHAIN_DIR AND VEX_ZIG_TOOLCHAIN_DIR)
+    message(FATAL_ERROR "Choose either VEX_LLVM_TOOLCHAIN_DIR or VEX_ZIG_TOOLCHAIN_DIR, not both")
+endif()
+if(VEX_ZIG_TOOLCHAIN_DIR)
+    if(NOT IS_DIRECTORY "${VEX_ZIG_TOOLCHAIN_DIR}")
+        message(FATAL_ERROR "VEX_ZIG_TOOLCHAIN_DIR is not a directory: ${VEX_ZIG_TOOLCHAIN_DIR}")
+    endif()
+    if(WIN32)
+        set(VEX_BUNDLED_ZIG "${VEX_ZIG_TOOLCHAIN_DIR}/zig.exe")
+    else()
+        set(VEX_BUNDLED_ZIG "${VEX_ZIG_TOOLCHAIN_DIR}/zig")
+    endif()
+    if(NOT EXISTS "${VEX_BUNDLED_ZIG}")
+        message(FATAL_ERROR "VEX_ZIG_TOOLCHAIN_DIR must contain zig or zig.exe at its root")
+    endif()
+    install(DIRECTORY "${VEX_ZIG_TOOLCHAIN_DIR}/"
+        DESTINATION toolchain
+        USE_SOURCE_PERMISSIONS)
+endif()
+
 if(VEX_LLVM_TOOLCHAIN_DIR)
     if(NOT IS_DIRECTORY "${VEX_LLVM_TOOLCHAIN_DIR}")
         message(FATAL_ERROR "VEX_LLVM_TOOLCHAIN_DIR is not a directory: ${VEX_LLVM_TOOLCHAIN_DIR}")
