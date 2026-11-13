@@ -86,13 +86,13 @@ else()
 endif()
 
 execute_process(
-    COMMAND "${VEX_EXECUTABLE}" build "${SOURCE_FILE}" -o "${native_executable}"
+    COMMAND "${VEX_EXECUTABLE}" build-c "${SOURCE_FILE}" -o "${native_executable}"
     RESULT_VARIABLE build_result
     OUTPUT_VARIABLE build_output
     ERROR_VARIABLE build_error
 )
 if(NOT build_result EQUAL 0)
-    message(FATAL_ERROR "vex build failed (${build_result}): ${build_output}${build_error}")
+    message(FATAL_ERROR "vex build-c failed (${build_result}): ${build_output}${build_error}")
 endif()
 
 execute_process(
@@ -112,13 +112,13 @@ endif()
 # The run command builds in an isolated temporary directory, executes the
 # binary, forwards its stdout, and cleans up the temporary artifacts.
 execute_process(
-    COMMAND "${VEX_EXECUTABLE}" run "${SOURCE_FILE}"
+    COMMAND "${VEX_EXECUTABLE}" run-c "${SOURCE_FILE}"
     RESULT_VARIABLE run_result
     OUTPUT_VARIABLE run_output
     ERROR_VARIABLE run_error
 )
 if(NOT run_result EQUAL 0)
-    message(FATAL_ERROR "vex run failed (${run_result}): ${run_output}${run_error}")
+    message(FATAL_ERROR "vex run-c failed (${run_result}): ${run_output}${run_error}")
 endif()
 string(REPLACE "\r\n" "\n" run_output "${run_output}")
 if(NOT "${run_output}" STREQUAL "${expected_output}")

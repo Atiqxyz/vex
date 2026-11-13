@@ -26,12 +26,17 @@ IR lowering ------------> typed SSA values, CFG, source spans
 IR verifier ------------> verified module or IR diagnostics
     |
     v
-C backend --------------> portable C11 source (implemented)
+Backend interface ------> backend-neutral output + diagnostics
     |
-    +--------------------> native machine-code backend (future option)
+    +-------------------> C backend -> portable C11 source (implemented)
+    |
+    +-------------------> LLVM backend -> textual LLVM IR (initial implementation)
+                          -> Clang native executable path (initial integration)
 ~~~
 
 The frontend should not depend on a particular output backend. In particular, the parser should not emit C text directly. A typed, backend-independent representation gives VEX room to change its native code-generation strategy without rewriting the language frontend.
+
+The backend boundary is represented by `Backend`, `BackendResult`, and `create_backend()`. A backend consumes verified IR and returns its generated output together with structured diagnostics. The factory registers C and LLVM backends. `emit-c` and `emit-llvm` select the corresponding emitter; `build`/`run` use the C bootstrap route, while `build-llvm`/`run-llvm` send generated LLVM IR to an installed Clang driver. The LLVM emitter writes textual LLVM IR using opaque pointers; the compiler does not link LLVM libraries or bundle an LLVM toolchain yet.
 
 ## Implemented layers
 
@@ -75,7 +80,9 @@ The AST-to-IR lowerer consumes the semantic model. It currently handles function
 
 The independent verifier checks instruction and call types, SSA definitions and uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs.
 
-### C source backend
+### Backend interface and C source backend
+
+The backend interface consumes verified IR and keeps code generation behind a replaceable boundary. `BackendResult` carries generated output and diagnostics; backend-specific details remain inside the implementation. The C backend is the first registered implementation and continues to expose its existing `CBackend::generate()` API for C-specific callers.
 
 The initial C backend consumes only verified IR. It emits C11 source without mixing backend logic into parsing or semantic analysis.
 
@@ -86,6 +93,12 @@ The initial C backend consumes only verified IR. It emits C11 source without mix
 - The output helpers print the current primitive types. The generated `main` adapter accepts a zero-argument VEX `main()` returning `void` or `int`.
 
 The `vex emit-c` command runs lexing, parsing, semantic analysis, IR lowering, verification, and C emission. It writes C11 source to standard output; it does not invoke the C compiler or produce an executable.
+
+### Initial LLVM IR backend
+
+The LLVM backend translates verified VEX IR into textual LLVM IR. It maps VEX `int`, `float`, `bool`, and `string` values to `i64`, `double`, `i1`, and a pointer-plus-length aggregate. Control-flow edges use explicit edge blocks to transfer VEX block parameters, and checked integer operations use LLVM overflow intrinsics and trap paths. The output runtime handles current primitive `say` values, and math intrinsics call the corresponding math symbols.
+
+`vex emit-llvm` prints generated LLVM IR. `vex build-llvm` and `vex run-llvm` use an installed Clang driver to optimize and generate a host executable. This first native path is not yet a bundled toolchain: Clang must be installed and discoverable through `VEX_LLVM_CC` or `LLVM_CC`, or on PATH. Optimization is initially delegated to Clang's `-O2` pipeline. The C backend remains available as a fallback.
 
 ## Design constraints
 
@@ -120,8 +133,11 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Cross-platform CMake build and CI configuration
 - [ ] Collections and iterable type checking
 - [x] Typed SSA intermediate representation, semantic metadata, verifier, and AST-to-IR lowering
+- [x] Backend interface and factory with C and LLVM backends registered
 - [x] Initial C11 code-generation backend
-- [ ] C compiler integration and executable generation
+- [x] Initial textual LLVM IR code-generation backend
+- [x] LLVM-backed native build/run path through external Clang
+- [ ] Bundle/provision LLVM and Clang components for standalone installation
 - [ ] Runtime and standard library expansion
 - [ ] Native machine-code backend
 - [ ] Language server and editor tooling
