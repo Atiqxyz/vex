@@ -562,6 +562,7 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
         "    let incompatible: Point = Other { x: 1, y: 2 }\n"
         "    let unknown = Point { x: 1, y: 2, z: 3 }\n"
         "    let comparison = fixed == fixed\n"
+        "    say(fixed)\n"
         "}\n"};
     const vex::SemanticResult invalid_result = analyze(invalid);
     tests.check(has_code(invalid_result, "SEM017"),
@@ -576,6 +577,8 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
                 "unknown structure fields are rejected");
     tests.check(has_code(invalid_result, "SEM014"),
                 "structure equality is rejected until defined explicitly");
+    tests.check(has_code(invalid_result, "SEM056"),
+                "structure values cannot be printed without selecting a field");
 }
 
 void test_for_in_rejects_non_array_values(TestContext& tests) {

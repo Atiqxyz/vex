@@ -365,12 +365,19 @@ private:
                     report("IR055", "call result does not match the callee's fixed-array return shape",
                            instruction.span);
                 }
+                if (found->second.return_type == IRType::Struct &&
+                    instruction.result &&
+                    instruction.result->struct_type_id != found->second.return_struct_type_id) {
+                    report("IR071", "call result does not match the callee's structure type",
+                           instruction.span);
+                }
             }
             break;
         }
         case IROp::Say:
             check_arity(instruction, 1);
-            if (left && (!is_value_type(*left) || *left == IRType::Array)) {
+            if (left && (!is_value_type(*left) || *left == IRType::Array ||
+                         *left == IRType::Struct)) {
                 report("IR024", "say requires a printable primitive value", instruction.span);
             }
             check_no_result(instruction);
@@ -528,9 +535,7 @@ private:
         for (std::size_t index = 0; index < count; ++index) {
             const auto value = definitions_.find(branch.arguments[index]);
             if (value != definitions_.end() &&
-                (value->second.value.type != parameters[index].type ||
-                 (parameters[index].type == IRType::Array &&
-                  !same_array_shape(value->second.value, parameters[index])))) {
+                !same_value_shape(value->second.value, parameters[index])) {
                 report("IR027", "branch argument type does not match target block parameter",
                        span);
             }

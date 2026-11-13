@@ -959,6 +959,11 @@ private:
                 report("SEM046", "say does not accept array values; index an element first",
                        expression.span);
             }
+            if (builtin_name == "say" &&
+                std::find(argument_types.begin(), argument_types.end(), Type::Struct) != argument_types.end()) {
+                report("SEM056", "say does not accept structure values; select a printable field",
+                       expression.span);
+            }
             if (argument_types.size() != function->parameters.size()) {
                 report("SEM020", "function expects " +
                        std::to_string(function->parameters.size()) +
