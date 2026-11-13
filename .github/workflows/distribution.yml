@@ -242,13 +242,13 @@ jobs:
 
       - name: Package VSIX
         working-directory: editors/vscode
-        run: npx --yes @vscode/vsce package --no-dependencies --out vex-language-0.1.0.vsix
+        run: npx --yes @vscode/vsce package --no-dependencies --out vex-language.vsix
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
           name: vex-vscode-extension
-          path: editors/vscode/vex-language-0.1.0.vsix
+          path: editors/vscode/vex-language.vsix
           if-no-files-found: error
           retention-days: 14
 
