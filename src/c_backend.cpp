@@ -645,6 +645,18 @@ bool CBackendResult::has_errors() const noexcept {
         });
 }
 
+std::string_view CBackend::name() const noexcept {
+    return "c";
+}
+
+BackendResult CBackend::emit(const IRModule& module) const {
+    CBackendResult generated = generate(module);
+    return BackendResult{
+        std::move(generated.source),
+        std::move(generated.diagnostics)
+    };
+}
+
 CBackendResult CBackend::generate(const IRModule& module) const {
     return CEmitter(module).run();
 }

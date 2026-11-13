@@ -1,7 +1,7 @@
 #include "vex/toolchain.hpp"
 
 #include "vex/ast.hpp"
-#include "vex/c_backend.hpp"
+#include "vex/backend.hpp"
 #include "vex/diagnostic.hpp"
 #include "vex/ir.hpp"
 #include "vex/lexer.hpp"
@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <random>
 #include <string>
 #include <system_error>
@@ -112,11 +113,17 @@ bool generate_c(const std::string& path, std::string& generated_source) {
     print_diagnostics(std::cerr, source, verified.diagnostics);
     if (verified.has_errors()) return false;
 
-    const CBackendResult generated = CBackend{}.generate(lowered.module);
+    const std::unique_ptr<Backend> backend = create_backend(BackendKind::C);
+    if (!backend) {
+        std::cerr << "error: the requested VEX backend is not available\n";
+        return false;
+    }
+
+    const BackendResult generated = backend->emit(lowered.module);
     print_diagnostics(std::cerr, source, generated.diagnostics);
     if (generated.has_errors()) return false;
 
-    generated_source = generated.source;
+    generated_source = generated.output;
     return true;
 }
 

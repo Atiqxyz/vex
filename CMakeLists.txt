@@ -28,6 +28,7 @@ add_library(vex_frontend STATIC
     src/semantic.cpp
     src/ir.cpp
     src/lowering.cpp
+    src/backend.cpp
     src/c_backend.cpp
     src/process.cpp
     src/toolchain.cpp
@@ -58,6 +59,7 @@ if(BUILD_TESTING)
         tests/parser_tests.cpp
         tests/semantic_tests.cpp
         tests/ir_tests.cpp
+        tests/backend_tests.cpp
         tests/c_backend_tests.cpp
     )
     target_link_libraries(vex_tests PRIVATE vex_frontend vex_build_options)
