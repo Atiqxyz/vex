@@ -14,14 +14,15 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
-- an initial C11 source backend and an initial textual LLVM IR backend for the current IR instruction set, including functions, control flow, primitive values, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
+- fixed-size, one-dimensional arrays with inferred primitive element types, indexing, indexed updates, and `for-in` iteration;
+- C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed-array access, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, LLVM IR emission, native builds, and program execution;
 - cross-platform process launching and temporary-build management;
 - unit tests plus cross-platform integration tests for the public CLI and portable compiler discovery.
 
 The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
 
-VEX is still an early language implementation. Collection types, a complete runtime, modules, and the memory model are not implemented yet.
+VEX is still an early language implementation. Dynamic collections, structures, a complete runtime, modules, and the memory model are not implemented yet. Fixed arrays are value aggregates; their element type and length are inferred from array literals.
 
 ## Design direction
 

@@ -14,7 +14,7 @@ This document distinguishes current project decisions from provisional syntax an
 - **Statement separation:** newlines separate statements. Semicolons are not part of VEX syntax.
 - **Blocks:** curly braces delimit blocks. Indentation is for readability and has no structural meaning.
 - **Calls:** function calls use parentheses, including standard-library calls such as `say("Hello")`.
-- **Multiline expressions:** square brackets explicitly wrap one expression that spans multiple physical lines. They are grouping syntax, not array literals or indexing in this initial grammar.
+- **Square brackets:** comma-separated values form fixed-size array literals; a single expression without a comma remains the existing multiline/grouping form. Postfix brackets index an array.
 - **Compiler implementation:** the initial compiler is written in C++20. This does not constrain the language implementation forever.
 - **Backend direction:** the IR is backend-independent; the first implemented source-generation target is portable C11. C is a bootstrap backend, not the language definition.
 
@@ -85,7 +85,7 @@ for number in numbers {
 }
 ~~~
 
-A `repeat` count must have type `int`. A `while` condition must have type `bool`. `break` exits the innermost enclosing loop and `continue` advances to its next iteration; both are rejected outside loops. The parser recognizes `for-in`, but semantic checking rejects it until VEX has collection or iterable types.
+A `repeat` count must have type `int`. A `while` condition must have type `bool`. `break` exits the innermost enclosing loop and `continue` advances to its next iteration; both are rejected outside loops. `for-in` currently iterates fixed-size arrays and infers the element type for the loop binding.
 
 ### Multiline expressions
 
@@ -96,7 +96,7 @@ let force = [
 ]
 ~~~
 
-A newline ends an expression unless it is inside this explicit square-bracket wrapper. Parentheses remain ordinary grouping and function-call syntax; they do not silently enable multiline continuation in this initial grammar.
+A newline ends an expression unless it is inside the explicit square-bracket grouping form. Commas distinguish array literals from a single grouped expression. Parentheses remain ordinary grouping and function-call syntax; they do not silently enable multiline continuation in this initial grammar.
 
 ## 3. Initial parser grammar
 
@@ -119,6 +119,8 @@ break            := "break"
 continue         := "continue"
 block            := "{" newline* statement* "}"
 multiline         := "[" newline* expression newline* "]"
+array_literal     := "[" expression "," expression ("," expression)* ","? "]"
+index             := postfix "[" expression "]"
 ~~~
 
 Expression operators are parsed with these precedence levels, from lowest to highest:
@@ -135,11 +137,11 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 8 | unary `+`, `-`, `!` | prefix |
 | 9 | function call `(...)` | postfix |
 
-The parser checks that the left side of assignment is a variable name. More complex assignment targets require member and indexing syntax, which are not implemented.
+The parser accepts assignment to a local name or a simple named-array index such as `values[index] = value`. Nested member/index assignment and compound assignment to an array element are not implemented.
 
 ## 4. Initial static semantics implemented
 
-The current semantic checker implements the following deliberately small type system:
+The current semantic checker implements primitive types plus inferred fixed-array shapes. An array's element type and length are determined by its literal; array type annotations and array function parameters/returns are not implemented yet.
 
 | Type | Meaning |
 |---|---|
@@ -148,14 +150,15 @@ The current semantic checker implements the following deliberately small type sy
 | `bool` | Boolean value |
 | `string` | UTF-8 string value |
 | `void` | Function return with no value |
+| fixed array | Inferred, one-dimensional, fixed-length sequence of primitive values |
 
-The numeric storage widths are design targets; code generation and runtime representation have not been implemented.
+The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory.
 
 - Local `let` and `const` types are inferred from their initializers when no annotation is present.
 - Explicit local annotations are checked against initializer types.
 - An `int` value may widen to `float`; implicit conversion from `float` to `int` is rejected.
 - Arithmetic operators require numeric operands. The remainder operator `%` requires two `int` operands.
-- Relational comparisons require numeric operands. Equality supports compatible primitive types.
+- Relational comparisons require numeric operands. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
 - `repeat` counts require `int`.
 - `break` and `continue` are only valid inside loops and target the innermost enclosing loop.
@@ -164,7 +167,7 @@ The numeric storage widths are design targets; code generation and runtime repre
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
 - Function parameters require explicit types. Function signatures are registered before body checking, enabling forward calls. Argument count and types are checked.
 - A function without a return annotation is treated as `void`. A non-void function must return a compatible value on every control-flow path recognized by the current checker.
-- The built-in `say(value)` accepts one value of any supported type and returns `void`.
+- The built-in `say(value)` accepts one supported primitive value and returns `void`; arrays must be indexed before printing.
 
 ## 5. Lexical rules implemented in the current frontend
 
@@ -180,7 +183,7 @@ The numeric storage widths are design targets; code generation and runtime repre
 - Semicolons are rejected; use newlines to separate statements.
 - Spaces and tabs are insignificant outside strings.
 
-The lexer records byte-based half-open source spans. The parser treats a newline as a statement boundary except while parsing the explicit square-bracket multiline wrapper.
+The lexer records byte-based half-open source spans. The parser treats a newline as a statement boundary except while parsing the explicit square-bracket grouping wrapper or an array literal.
 
 ## 6. Memory model direction
 
@@ -214,10 +217,10 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 - Values have explicit primitive IR types and unique SSA identifiers.
 - Functions contain ordered basic blocks; each block has one explicit terminator.
 - Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
-- The initial instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, direct calls, and the `say` intrinsic.
+- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, direct calls, the `say` intrinsic, and fixed-array construction, indexing, and updates.
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
-- `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, and loop-control edges lower into explicit control-flow graphs.
-- The verifier checks instruction and call types, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
+- `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, array iteration, and loop-control edges lower into explicit control-flow graphs.
+- The verifier checks instruction and call types, array element types and shapes, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
 - Source spans are retained on IR values and instructions.
 
 ### Initial C backend implemented
@@ -231,6 +234,7 @@ The `vex emit-c <file.vex>` command runs lexing, parsing, semantic analysis, IR 
 - `say` prints integers, floating-point values, booleans, and strings followed by a newline.
 - A zero-argument VEX `main()` is adapted to the C entry point. It may return `void` or `int`; an integer result must be in the process exit-code range 0 through 255.
 - Signed integer arithmetic is checked. Overflow, division or remainder by zero, and the `INT64_MIN / -1` and `INT64_MIN % -1` cases produce a runtime failure instead of invoking C signed-overflow undefined behavior.
+- Fixed arrays use generated aggregate layouts. Index reads and writes check negative and out-of-range indices at runtime.
 - String literals are decoded from VEX escapes and emitted as length-aware byte sequences, so embedded NUL bytes are retained.
 
 The backend emits C source only. It does not invoke a C compiler, link an executable, or execute VEX programs. Those are the next integration milestone.

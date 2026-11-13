@@ -118,7 +118,7 @@ Modules/imports intentionally come later. Their visibility, initialization, pack
 
 ## Current implementation slice
 
-The feature/core-language-expansion branch currently contains:
+The current `dev` branch includes:
 
 - optional explicit main(); absent main, top-level statements run in source order through a compiler-generated entry function;
 - while condition { ... };
@@ -126,9 +126,13 @@ The feature/core-language-expansion branch currently contains:
 - Boolean checking for while conditions and diagnostics when loop controls are used outside loops;
 - compound assignment operators +=, -=, *=, /=, and %=;
 - compound assignment desugaring through the existing assignment and arithmetic semantic model;
-- SSA control-flow lowering for while and loop-control edges.
+- SSA control-flow lowering for while and loop-control edges;
+- inferred one-dimensional fixed arrays with primitive elements;
+- array literals, checked indexing, and indexed assignment;
+- fixed-array `for-in` iteration lowered through explicit SSA control flow;
+- C struct and LLVM aggregate representations for fixed arrays.
 
-With explicit main(), top-level executable statements are rejected; top-level values in implicit-entry mode are not captured by ordinary functions. These changes still require a full build and end-to-end backend validation before release-ready. for-in remains parser-only until iterable types exist. Arrays, structs, enums, pattern matching, generics, result values, memory controls, and bitwise operators remain planned.
+With explicit main(), top-level executable statements are rejected; top-level values in implicit-entry mode are not captured by ordinary functions. Fixed arrays are value aggregates and do not require heap allocation. Dynamic arrays, slices, structs, enums, pattern matching, generics, result values, memory controls, and bitwise operators remain planned. The new array implementation still requires successful cross-platform CI and end-to-end execution tests before it is treated as release-ready.
 
 ## Primary language references
 

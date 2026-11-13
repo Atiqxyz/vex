@@ -58,25 +58,25 @@ The parser uses recursive descent for declarations and statements, plus preceden
 
 AST nodes retain source spans instead of copying every identifier or literal spelling. The source file must therefore outlive the AST when source text is needed for diagnostics or AST printing.
 
-The AST represents function declarations, bindings, returns, blocks, conditionals, counted and condition-driven loops, loop exits/continues, expression statements, literals, names, unary/binary operations, assignments, calls, grouping, and explicit multiline expressions.
+The AST represents function declarations, bindings, returns, blocks, conditionals, counted and condition-driven loops, loop exits/continues, expression statements, literals, names, unary/binary operations, assignments, calls, grouping, explicit multiline expressions, array literals, and array indexing.
 
 ### Semantic analysis
 
 The semantic checker is a separate pass over the AST. It first registers top-level function signatures, allowing forward function calls, then checks statements and expressions in lexical scopes.
 
-The initial type model covers `int`, `float`, `bool`, `string`, and `void` returns. Local bindings can infer their type from an initializer. Explicit annotations, assignments (including compound assignments), arithmetic and logical operators, conditions, repeat counts, while conditions, loop-control placement, function argument counts and types, return statements, duplicate declarations, and undefined names are checked.
+The type model covers primitive `int`, `float`, `bool`, `string`, and `void` values, plus inferred one-dimensional fixed arrays. Array element types and lengths are recorded in the semantic model. Local bindings can infer their type from an initializer. Explicit annotations, assignments (including compound assignments), array element types and indexing, array mutability, arithmetic and logical operators, conditions, repeat counts, while conditions, fixed-array iteration, loop-control placement, function argument counts and types, return statements, duplicate declarations, and undefined names are checked.
 
 The current numeric conversion rule permits widening from `int` to `float`; narrowing is rejected. Nested blocks have lexical scopes and can shadow outer bindings. `const` bindings cannot be assigned after declaration.
 
-The `say(value)` intrinsic is registered for semantic checking and is implemented in the initial generated-C runtime. The first mathematical standard-library functions (`sqrt`, `sin`, `cos`, `pow`, and `abs`) are registered with typed signatures, lowered to explicit math IR instructions, verified, and emitted as C math-library calls. The C bootstrap build links the platform math library where required. The parser accepts `for-in`, but semantic analysis reports that collection types are not implemented yet. Arrays, structures, pointers, modules, generic types, and function values remain future work.
+The `say(value)` intrinsic accepts supported primitive values and is implemented in both code-generation paths. The first mathematical standard-library functions (`sqrt`, `sin`, `cos`, `pow`, and `abs`) are registered with typed signatures, lowered to explicit math IR instructions, verified, and emitted through the C math library or LLVM math symbols. Fixed arrays support primitive elements, indexed reads and writes, and `for-in` iteration. Dynamic collections, structures, pointers, modules, generic types, and function values remain future work.
 
 ### Typed semantic model and SSA IR
 
 Semantic analysis returns a `SemanticModel` alongside diagnostics. It records expression types, resolved variable and assignment bindings, parameter and local binding identities, resolved direct-call names, and function signatures. The model is tied to the lifetime of the AST it describes.
 
-The initial IR is backend-independent and uses SSA values. Functions contain basic blocks with explicit terminators. Block parameters receive values from incoming branches and serve as control-flow merge points. The IR keeps the supported primitive types explicit and retains source spans for diagnostics.
+The IR is backend-independent and uses SSA values. Functions contain basic blocks with explicit terminators. Block parameters receive values from incoming branches and serve as control-flow merge points. Fixed arrays are typed aggregate values whose element type and length travel with the SSA value, including across branches and loops. Source spans are retained for diagnostics.
 
-The AST-to-IR lowerer consumes the semantic model. It handles function parameters, constants, name references, assignments (compound assignments are desugared in the parser), primitive operators, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, counted `repeat` loops, condition-driven `while` loops, SSA-safe `break`/`continue` edges, and a synthesized entry function when top-level statements are used without an explicit `main()`. Integer-to-float widening becomes an explicit conversion instruction. Constructs that are parsed but not semantically supported, such as `for-in`, are not lowered.
+The AST-to-IR lowerer consumes the semantic model. It handles function parameters, constants, name references, assignments (compound assignments are desugared in the parser), primitive operators, fixed-array literals and indexing, array element updates, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, counted `repeat` loops, condition-driven `while` loops, fixed-array `for-in` loops, SSA-safe `break`/`continue` edges, and a synthesized entry function when top-level statements are used without an explicit `main()`. Integer-to-float widening becomes an explicit conversion instruction.
 
 The independent verifier checks instruction and call types, SSA definitions and uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs.
 
@@ -84,7 +84,7 @@ The independent verifier checks instruction and call types, SSA definitions and 
 
 The backend interface consumes verified IR and keeps code generation behind a replaceable boundary. `BackendResult` carries generated output and diagnostics; backend-specific details remain inside the implementation. The C backend is the first registered implementation and continues to expose its existing `CBackend::generate()` API for C-specific callers.
 
-The initial C backend consumes only verified IR. It emits C11 source without mixing backend logic into parsing or semantic analysis.
+The C backend consumes only verified IR. It emits C11 source without mixing backend logic into parsing or semantic analysis. Fixed arrays use generated C struct layouts and a shared runtime bounds check for indexed reads and writes.
 
 - Values use fixed-width C types where available. VEX strings use a pointer-plus-length representation, preserving embedded NUL bytes.
 - Function symbols are mangled into a private generated namespace. All prototypes precede definitions, supporting forward calls.
@@ -96,7 +96,7 @@ The `vex emit-c` command runs lexing, parsing, semantic analysis, IR lowering, v
 
 ### Initial LLVM IR backend
 
-The LLVM backend translates verified VEX IR into textual LLVM IR. It maps VEX `int`, `float`, `bool`, and `string` values to `i64`, `double`, `i1`, and a pointer-plus-length aggregate. Control-flow edges use explicit edge blocks to transfer VEX block parameters, and checked integer operations use LLVM overflow intrinsics and trap paths. The output runtime handles current primitive `say` values, and math intrinsics call the corresponding math symbols.
+The LLVM backend translates verified VEX IR into textual LLVM IR. It maps VEX `int`, `float`, `bool`, and `string` values to `i64`, `double`, `i1`, and a pointer-plus-length aggregate. Fixed arrays map to LLVM array aggregates with statically known element type and length, using a shared checked-index helper. Control-flow edges use explicit edge blocks to transfer VEX block parameters, and checked integer operations use LLVM overflow intrinsics and trap paths. The output runtime handles current primitive `say` values, and math intrinsics call the corresponding math symbols.
 
 `vex emit-llvm` prints generated LLVM IR. `vex build-llvm` and `vex run-llvm` use an installed Clang driver to optimize and generate a host executable. This first native path is not yet a bundled toolchain: Clang must be installed and discoverable through `VEX_LLVM_CC` or `LLVM_CC`, or on PATH. Optimization is initially delegated to Clang's `-O2` pipeline. The C backend remains available as a fallback.
 
@@ -134,7 +134,8 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Implicit top-level entry function when no explicit main is declared
 - [x] Command-line semantic-check and verified IR-inspection commands
 - [x] Cross-platform CMake build and CI configuration
-- [ ] Collections and iterable type checking
+- [x] Inferred fixed-size primitive arrays, indexing, indexed updates, and array iteration
+- [ ] Dynamic collections, slices, and general iterable types
 - [x] Typed SSA intermediate representation, semantic metadata, verifier, and AST-to-IR lowering
 - [x] Backend interface and factory with C and LLVM backends registered
 - [x] Initial C11 code-generation backend
