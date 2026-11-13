@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <set>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -26,8 +27,22 @@ const char* c_type(const IRType type) noexcept {
     case IRType::Float: return "double";
     case IRType::Bool: return "bool";
     case IRType::String: return "vex_string";
+    case IRType::Array: return "void";
     }
     return "void";
+}
+
+std::string array_type_name(const IRType element_type, const std::uint32_t length) {
+    const char* element = element_type == IRType::Int ? "int" :
+        element_type == IRType::Float ? "float" :
+        element_type == IRType::Bool ? "bool" : "string";
+    return "vex_array_" + std::string(element) + "_" + std::to_string(length);
+}
+
+std::string c_type(const IRValue& value) {
+    return value.type == IRType::Array
+        ? array_type_name(value.element_type, value.array_length)
+        : c_type(value.type);
 }
 
 std::string value_name(const IRValueId id) {
@@ -142,6 +157,7 @@ public:
         }
 
         emit_preamble();
+        emit_array_types();
         emit_runtime();
         emit_prototypes();
         for (const IRFunction& function : module_.functions) {
@@ -201,11 +217,39 @@ private:
             << "} vex_string;\n\n";
     }
 
+    void emit_array_types() {
+        std::set<std::pair<IRType, std::uint32_t>> shapes;
+        for (const IRFunction& function : module_.functions) {
+            for (const IRFunctionParameter& parameter : function.parameters)
+                if (parameter.value.type == IRType::Array)
+                    shapes.emplace(parameter.value.element_type, parameter.value.array_length);
+            for (const IRBlock& block : function.blocks) {
+                for (const IRValue& parameter : block.parameters)
+                    if (parameter.type == IRType::Array)
+                        shapes.emplace(parameter.element_type, parameter.array_length);
+                for (const IRInstruction& instruction : block.instructions)
+                    if (instruction.result && instruction.result->type == IRType::Array)
+                        shapes.emplace(instruction.result->element_type, instruction.result->array_length);
+            }
+        }
+        for (const auto& [element, length] : shapes) {
+            output_ << "typedef struct " << array_type_name(element, length) << " {\n"
+                    << "    " << c_type(element) << " data[" << length << "];\n"
+                    << "} " << array_type_name(element, length) << ";\n";
+        }
+        if (!shapes.empty()) output_ << '\n';
+    }
+
     void emit_runtime() {
         output_
             << "static void vex_runtime_trap(const char *message) {\n"
             << "    (void)fprintf(stderr, \"VEX runtime error: %s\\n\", message);\n"
             << "    exit(EXIT_FAILURE);\n"
+            << "}\n\n"
+            << "static size_t vex_checked_array_index(int64_t index, size_t length) {\n"
+            << "    if (index < 0 || (uint64_t)index >= (uint64_t)length)\n"
+            << "        vex_runtime_trap(\"array index is out of bounds\");\n"
+            << "    return (size_t)index;\n"
             << "}\n\n"
             << "static int64_t vex_i64_add(int64_t left, int64_t right) {\n"
             << "    if ((right > 0 && left > INT64_MAX - right) ||\n"
@@ -292,7 +336,7 @@ private:
         } else {
             for (std::size_t index = 0; index < function.parameters.size(); ++index) {
                 if (index != 0) output_ << ", ";
-                output_ << c_type(function.parameters[index].value.type) << ' '
+                output_ << c_type(function.parameters[index].value) << ' '
                         << value_name(function.parameters[index].value.id);
             }
         }
@@ -312,7 +356,7 @@ private:
         if (!destination) return;
         for (std::size_t index = 0; index < arguments.size() &&
              index < destination->parameters.size(); ++index) {
-            output_ << "    " << c_type(destination->parameters[index].type) << ' '
+            output_ << "    " << c_type(destination->parameters[index]) << ' '
                     << edge_name(source, arm, index) << ";\n";
         }
     }
@@ -365,14 +409,14 @@ private:
         for (const IRBlock& block : function.blocks) {
             for (const IRValue& parameter : block.parameters) {
                 if (parameter_ids.find(parameter.id) == parameter_ids.end()) {
-                    output_ << "    " << c_type(parameter.type) << ' '
+                    output_ << "    " << c_type(parameter) << ' '
                             << value_name(parameter.id) << ";\n";
                 }
             }
             for (const IRInstruction& instruction : block.instructions) {
                 if (instruction.result &&
                     parameter_ids.find(instruction.result->id) == parameter_ids.end()) {
-                    output_ << "    " << c_type(instruction.result->type) << ' '
+                    output_ << "    " << c_type(*instruction.result) << ' '
                             << value_name(instruction.result->id) << ";\n";
                 }
             }
@@ -391,18 +435,18 @@ private:
         output_ << "}\n\n";
     }
 
-    std::optional<IRType> value_type(const IRFunction& function,
+    std::optional<IRValue> value_type(const IRFunction& function,
                                     const IRValueId id) const {
         for (const IRFunctionParameter& parameter : function.parameters) {
-            if (parameter.value.id == id) return parameter.value.type;
+            if (parameter.value.id == id) return parameter.value;
         }
         for (const IRBlock& block : function.blocks) {
             for (const IRValue& parameter : block.parameters) {
-                if (parameter.id == id) return parameter.type;
+                if (parameter.id == id) return parameter;
             }
             for (const IRInstruction& instruction : block.instructions) {
                 if (instruction.result && instruction.result->id == id) {
-                    return instruction.result->type;
+                    return *instruction.result;
                 }
             }
         }
@@ -463,6 +507,9 @@ private:
         case IRType::Void:
             report("CG006", "void constant cannot be emitted", instruction.span);
             return false;
+        case IRType::Array:
+            report("CG009", "array values must be constructed with array_make", instruction.span);
+            return false;
         }
         return false;
     }
@@ -495,7 +542,7 @@ private:
             else operation = "%";
 
             std::string expression;
-            if (type == IRType::Int) {
+            if (type && type->type == IRType::Int) {
                 const char* helper = instruction.op == IROp::Add ? "vex_i64_add" :
                     instruction.op == IROp::Subtract ? "vex_i64_sub" :
                     instruction.op == IROp::Multiply ? "vex_i64_mul" :
@@ -510,7 +557,7 @@ private:
         }
         case IROp::Negate: {
             const auto type = value_type(function, instruction.operands[0]);
-            const std::string expression = type == IRType::Int
+            const std::string expression = type && type->type == IRType::Int
                 ? "vex_i64_neg(" + operand(0) + ")"
                 : "(-" + operand(0) + ")";
             output_ << "    " << result << " = " << expression << ";\n";
@@ -528,7 +575,7 @@ private:
         case IROp::Equal:
         case IROp::NotEqual: {
             const auto type = value_type(function, instruction.operands[0]);
-            if (type == IRType::String) {
+            if (type && type->type == IRType::String) {
                 output_ << "    " << result << " = vex_string_equal("
                         << operand(0) << ", " << operand(1) << ')';
                 if (instruction.op == IROp::NotEqual) output_ << " == false";
@@ -575,11 +622,33 @@ private:
             output_ << ");\n";
             return;
         }
+        case IROp::ArrayMake: {
+            for (std::size_t index = 0; index < instruction.operands.size(); ++index)
+                output_ << "    " << result << ".data[" << index << "] = " << operand(index) << ";\n";
+            return;
+        }
+        case IROp::ArrayGet: {
+            const auto array = value_type(function, instruction.operands[0]);
+            if (!array) return;
+            output_ << "    " << result << " = " << operand(0)
+                    << ".data[vex_checked_array_index(" << operand(1) << ", "
+                    << array->array_length << "u)];\n";
+            return;
+        }
+        case IROp::ArraySet: {
+            const auto array = value_type(function, instruction.operands[0]);
+            if (!array) return;
+            output_ << "    " << result << " = " << operand(0) << ";\n"
+                    << "    " << result << ".data[vex_checked_array_index("
+                    << operand(1) << ", " << array->array_length << "u)] = "
+                    << operand(2) << ";\n";
+            return;
+        }
         case IROp::Say: {
             const auto type = value_type(function, instruction.operands[0]);
-            const char* helper = type == IRType::Int ? "vex_say_int" :
-                type == IRType::Float ? "vex_say_float" :
-                type == IRType::Bool ? "vex_say_bool" : "vex_say_string";
+            const char* helper = type && type->type == IRType::Int ? "vex_say_int" :
+                type && type->type == IRType::Float ? "vex_say_float" :
+                type && type->type == IRType::Bool ? "vex_say_bool" : "vex_say_string";
             output_ << "    " << helper << '(' << operand(0) << ");\n";
             return;
         }
