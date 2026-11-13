@@ -83,6 +83,14 @@ void print_statement(std::ostream& output, const SourceFile& source,
                 output << "Else\n";
                 print_statement(output, source, *node.else_branch, depth + 1);
             }
+        } else if constexpr (std::is_same_v<Node, WhileStmt>) {
+            output << "While\n";
+            if (node.condition) print_expression(output, source, *node.condition, depth + 1);
+            if (node.body) print_statement(output, source, *node.body, depth + 1);
+        } else if constexpr (std::is_same_v<Node, BreakStmt>) {
+            output << "Break\n";
+        } else if constexpr (std::is_same_v<Node, ContinueStmt>) {
+            output << "Continue\n";
         } else if constexpr (std::is_same_v<Node, RepeatStmt>) {
             output << "Repeat\n";
             if (node.count) print_expression(output, source, *node.count, depth + 1);
