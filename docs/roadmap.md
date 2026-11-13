@@ -272,12 +272,12 @@ This is a conceptual target layout. Adopt it incrementally when the code justifi
 
 ## Immediate next steps
 
-1. Complete the typed IR design and agree on its control-flow and SSA representation.
-2. Implement IR lowering and the verifier with tests.
-3. Build the first executable backend.
-4. Implement the minimum runtime needed for real programs.
-5. Define the core type and memory contracts required by collections and strings.
-6. Start the core standard library.
-7. Add scientific foundations in layers, beginning with complex numbers, unit-aware quantities, vectors/matrices, statistics, and numerical methods.
+1. Broaden the executable language core: ranges, complete iteration semantics, and the control-flow features now being added.
+2. Design the type and memory contracts before adding arrays, slices, structs, enums, and pointers.
+3. Add foundational library capabilities for numerics, text, bytes, files, random numbers, and time.
+4. Add error handling and deterministic resource cleanup.
+5. Design modules/imports after enough stable language and library functionality exists to organize.
+6. Add scientific foundations in layers, beginning with complex numbers, unit-aware quantities, vectors/matrices, statistics, and numerical methods.
+7. Validate the language with end-to-end computational programs and cross-platform tests.
 
 The roadmap is intentionally ambitious. It is a long-term direction, not a requirement to implement every module before the first usable VEX release.
