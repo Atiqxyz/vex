@@ -16,21 +16,61 @@ extern char** environ;
 #endif
 
 namespace vex {
+#ifdef _WIN32
+namespace {
+
+// _spawnvp combines argv elements into a Windows command line. Quote each
+// argument using the Microsoft CRT parsing rules so paths containing spaces
+// (including the Clang installation path) remain one argument.
+std::string quote_windows_argument(const std::string& argument) {
+    const bool needs_quotes = argument.empty() ||
+        argument.find_first_of(" \t\n\v\f\r\"") != std::string::npos;
+    if (!needs_quotes) return argument;
+
+    std::string quoted;
+    quoted.reserve(argument.size() + 2);
+    quoted.push_back('"');
+    std::size_t backslashes = 0;
+    for (const char character : argument) {
+        if (character == '\\') {
+            ++backslashes;
+            continue;
+        }
+        if (character == '"') {
+            quoted.append(backslashes * 2 + 1, '\\');
+            quoted.push_back('"');
+            backslashes = 0;
+            continue;
+        }
+        quoted.append(backslashes, '\\');
+        backslashes = 0;
+        quoted.push_back(character);
+    }
+    quoted.append(backslashes * 2, '\\');
+    quoted.push_back('"');
+    return quoted;
+}
+
+} // namespace
+#endif
 
 ProcessResult run_process(
     const std::string& executable,
     const std::vector<std::string>& arguments) {
     ProcessResult result;
 #ifdef _WIN32
-    // The Windows CRT combines argv into a command line. Quote argv[0]
-    // explicitly when the executable path contains spaces (for example,
-    // C:\\Program Files\\LLVM\\bin\\clang.exe); otherwise the child
-    // process can interpret the tail of its own path as an input argument.
-    const std::string executable_argument = "\"" + executable + "\"";
+    std::vector<std::string> quoted_arguments;
+    quoted_arguments.reserve(arguments.size() + 1);
+    quoted_arguments.push_back(quote_windows_argument(executable));
+    for (const std::string& argument : arguments) {
+        quoted_arguments.push_back(quote_windows_argument(argument));
+    }
+
     std::vector<const char*> argv;
-    argv.reserve(arguments.size() + 2);
-    argv.push_back(executable_argument.c_str());
-    for (const std::string& argument : arguments) argv.push_back(argument.c_str());
+    argv.reserve(quoted_arguments.size() + 1);
+    for (const std::string& argument : quoted_arguments) {
+        argv.push_back(argument.c_str());
+    }
     argv.push_back(nullptr);
     const std::intptr_t status = _spawnvp(
         _P_WAIT, executable.c_str(), argv.data());

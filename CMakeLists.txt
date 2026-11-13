@@ -75,7 +75,7 @@ if(BUILD_TESTING)
                 -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
                 -DLLVM_CLANG=${VEX_LLVM_CLANG_EXECUTABLE}
                 -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/c_backend.vex
-                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm_backend_integration
+                "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm backend integration"
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/llvm_backend_integration.cmake
         )
         set_tests_properties(vex_llvm_backend_integration PROPERTIES TIMEOUT 60)
