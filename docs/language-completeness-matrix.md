@@ -27,10 +27,10 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Argument count/type checking | Implemented | Static semantic checks exist. |
 | Forward function calls | Implemented | Top-level signatures are registered before bodies. |
 | Direct function calls | Implemented | Direct calls lower through typed IR. |
-| Recursion | Verify | Confirm direct recursion and runtime behavior with a dedicated test. |
-| Mutual recursion | Verify | Confirm signatures and code generation for two functions calling each other. |
-| Return on every required path | Partial | Current checker recognizes some control-flow paths; audit nested loops, branches and unreachable code. |
-| Early returns | Verify | Confirm return from nested blocks/loops in both backends. |
+| Recursion | Implemented | Direct recursion is exercised with factorial; recursive calls execute in both backends. |
+| Mutual recursion | Implemented | Mutually recursive even/odd functions are checked and executed in both backends. |
+| Return on every required path | Implemented | Reachable fallthrough analysis covers sequential blocks, nested branches, early returns, loop exits, literal conditions/counts, and proven non-empty fixed-array/range iteration. |
+| Early returns | Implemented | Nested and recursive early-return paths are covered by semantic and C/LLVM runtime tests. |
 | Multiple return values | Not implemented | No tuple or multi-result return model. |
 | Function overloading | Not implemented | Explicitly absent in current specification. |
 | Default arguments | Not implemented | Design candidate only. |
@@ -304,7 +304,7 @@ These are decisions to make consciously, not features to add automatically:
 
 ## 14. Audit gates before choosing the next implementation
 
-1. **Verify existing claims:** add focused tests for recursion, mutual recursion, nested loop control, evaluation order, string operations, return-path analysis, negative modulo behavior and floating-point edge cases.
+1. **Verify existing claims:** add focused tests for nested loop control, evaluation order, string operations, negative modulo behavior and floating-point edge cases. Recursion, mutual recursion and reachable return-path analysis now have dedicated coverage.
 2. **Resolve foundational designs:** structs/layout, array-of-struct representation, dynamic arrays/slices, optional/result errors, memory ownership and resource cleanup.
 3. **Map dependencies:** do not implement a feature before its required type, lifetime, IR and backend semantics are understood.
 4. **Select a coherent milestone:** choose a group of related features that can be completed end to end, not a scattered set of syntax additions.
