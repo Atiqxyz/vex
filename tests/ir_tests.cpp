@@ -22,6 +22,14 @@ bool has_code(const vex::IRVerificationResult& result,
     return false;
 }
 
+bool has_code(const vex::IRLoweringResult& result,
+              const std::string_view code) {
+    for (const vex::Diagnostic& diagnostic : result.diagnostics) {
+        if (diagnostic.code == code) return true;
+    }
+    return false;
+}
+
 vex::IRValue value(const vex::IRValueId id, const vex::IRType type) {
     return vex::IRValue{id, type, {}};
 }
