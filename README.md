@@ -111,6 +111,7 @@ The current compiler supports a small set of primitive types, functions, control
 - [Compiler architecture](docs/architecture.md)
 - [Standard library status](docs/standard-library.md)
 - [Compiler design review and references](docs/compiler-design-review.md)
+- [Language completeness matrix](docs/language-completeness-matrix.md)
 
 ## License
 

@@ -133,7 +133,7 @@ The current `dev` branch includes:
 - fixed-array and integer-range `for-in` iteration lowered through explicit SSA control flow;
 - C struct and LLVM aggregate representations for fixed arrays.
 
-With explicit main(), top-level executable statements are rejected; top-level values in implicit-entry mode are not captured by ordinary functions. Fixed arrays are value aggregates and do not require heap allocation. Dynamic arrays, slices, structs, enums, pattern matching, generics, result values, memory controls, and bitwise operators remain planned. The new integer-range iteration implementation requires successful cross-platform CI and end-to-end execution tests before it is treated as release-ready.
+With explicit main(), top-level executable statements are rejected; top-level values in implicit-entry mode are not captured by ordinary functions. Fixed arrays are value aggregates and do not require heap allocation. Dynamic arrays, slices, structs, enums, pattern matching, generics, result values, memory controls, and bitwise operators remain planned. The integer-range iteration implementation passed the four-platform CI run recorded during its implementation; it remains an experimental development-branch feature until a release includes it.
 
 ## Primary language references
 
