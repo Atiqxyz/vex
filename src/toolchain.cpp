@@ -447,6 +447,16 @@ int build_llvm_to_output(
             compile_arguments.insert(compile_arguments.end(), {
                 "-target", "x86_64-linux-musl"
             });
+#elif defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+            // Keep Apple Silicon executables compatible with macOS 13+.
+            compile_arguments.insert(compile_arguments.end(), {
+                "-target", "aarch64-macos.13.0"
+            });
+#elif defined(__APPLE__)
+            // Keep Intel executables compatible with macOS 13+.
+            compile_arguments.insert(compile_arguments.end(), {
+                "-target", "x86_64-macos.13.0"
+            });
 #endif
             compile_arguments.insert(compile_arguments.end(), {
                 "-c", generated_llvm.string(), "-o", object_file.string()
@@ -469,6 +479,14 @@ int build_llvm_to_output(
 #ifdef __linux__
             link_arguments.insert(link_arguments.end(), {
                 "-target", "x86_64-linux-musl"
+            });
+#elif defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
+            link_arguments.insert(link_arguments.end(), {
+                "-target", "aarch64-macos.13.0"
+            });
+#elif defined(__APPLE__)
+            link_arguments.insert(link_arguments.end(), {
+                "-target", "x86_64-macos.13.0"
             });
 #endif
             link_arguments.emplace_back("-lc");
