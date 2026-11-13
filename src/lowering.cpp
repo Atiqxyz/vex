@@ -1222,11 +1222,6 @@ private:
         current_block_ = body;
         environment_ = loop_environment;
         IRValue current_array = *iterable;
-        const Expr* iterable_expression = loop.iterable.get();
-        while (const auto* group = std::get_if<GroupExpr>(&iterable_expression->data)) {
-            if (!group->expression) break;
-            iterable_expression = group->expression.get();
-        }
         if (const auto* name = std::get_if<NameExpr>(&iterable_expression->data)) {
             const auto binding = semantic_model_.resolved_names.find(name);
             if (binding != semantic_model_.resolved_names.end()) {
