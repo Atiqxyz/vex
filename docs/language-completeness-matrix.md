@@ -84,7 +84,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | 32-bit floating point | Not implemented | Useful for memory-sensitive and accelerator workloads. |
 | Character / code-point type | Not implemented | Distinguish Unicode scalar values from bytes. |
 | Byte / raw buffer type | Not implemented | Needed for binary I/O and networking. |
-| User-defined structs / records | Not implemented | Proposed next foundation; field layout and initialization need design. |
+| User-defined structs / records | Implemented | Named value types with primitive or earlier-declared nested-struct fields; full initialization, field access/mutation, by-value assignment/parameters/returns, typed IR, C and LLVM backends, semantic and runtime tests. Arrays of structs, recursive by-value fields, layout controls and equality remain deferred. |
 | Tuples | Not implemented | Could support multiple results and grouped values. |
 | Enums / tagged unions | Not implemented | Should be designed with exhaustive matching. |
 | Union / untagged union | Not implemented | Low-level representation and safety rules needed. |

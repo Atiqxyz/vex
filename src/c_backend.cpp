@@ -37,6 +37,10 @@ std::string struct_type_name(const std::uint32_t id) {
     return "vex_struct_" + std::to_string(id);
 }
 
+std::string struct_field_name(const std::uint32_t index) {
+    return "vex_field_" + std::to_string(index);
+}
+
 std::string array_type_name(const IRType element_type, const std::uint32_t length) {
     const char* element = element_type == IRType::Int ? "int" :
         element_type == IRType::Float ? "float" :
@@ -251,10 +255,12 @@ private:
         output_ << '\n';
         for (const IRStructType& structure : module_.struct_types) {
             output_ << "struct " << struct_type_name(structure.id) << " {\n";
-            for (const IRStructField& field : structure.fields) {
+            for (std::size_t index = 0; index < structure.fields.size(); ++index) {
+                const IRStructField& field = structure.fields[index];
                 const std::string field_type = field.type == IRType::Struct
                     ? struct_type_name(field.struct_type_id) : c_type(field.type);
-                output_ << "    " << field_type << ' ' << field.name << ";\n";
+                output_ << "    " << field_type << ' '
+                        << struct_field_name(static_cast<std::uint32_t>(index)) << ";\n";
             }
             output_ << "};\n";
         }
@@ -736,7 +742,8 @@ private:
             const std::uint32_t id = instruction.result->struct_type_id;
             const IRStructType& structure = module_.struct_types[id - 1u];
             for (std::size_t index = 0; index < structure.fields.size(); ++index) {
-                output_ << "    " << result << "." << structure.fields[index].name
+                output_ << "    " << result << "."
+                        << struct_field_name(static_cast<std::uint32_t>(index))
                         << " = " << operand(index) << ";\n";
             }
             return;
@@ -747,7 +754,7 @@ private:
             const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
             const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
             output_ << "    " << result << " = " << operand(0) << "."
-                    << structure.fields[index].name << ";\n";
+                    << struct_field_name(static_cast<std::uint32_t>(index)) << ";\n";
             return;
         }
         case IROp::StructSet: {
@@ -756,7 +763,8 @@ private:
             const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
             const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
             output_ << "    " << result << " = " << operand(0) << ";\n"
-                    << "    " << result << "." << structure.fields[index].name
+                    << "    " << result << "."
+                    << struct_field_name(static_cast<std::uint32_t>(index))
                     << " = " << operand(1) << ";\n";
             return;
         }

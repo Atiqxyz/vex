@@ -54,6 +54,39 @@ make calculate_force(mass: float, acceleration: float) -> float {
 
 Top-level function signatures are collected before function bodies are checked, so functions may call functions declared later in the file. Function overloading is not implemented.
 
+
+### User-defined structures
+
+VEX supports named, statically typed value structures:
+
+~~~vex
+struct Point {
+    x: float,
+    y: float,
+}
+
+make translate(point: Point, dx: float) -> Point {
+    let result = point
+    result.x = result.x + dx
+    return result
+}
+
+make main() {
+    let point = Point { x: 1.0, y: 2.0 }
+    let moved = translate(point, 4.0)
+    say(moved.x)
+}
+~~~
+
+- A `struct` declaration is file-scope only. Field names must be unique, and a structure must have at least one field.
+- A field type is a primitive VEX type or a structure declared earlier in the same source file. Arrays, forward structure references, and recursive by-value fields are not supported in this version.
+- Every structure literal must initialize every declared field exactly once using named fields. Field initializer expressions are evaluated in written order; the resulting value is laid out in declaration order.
+- Use `TypeName { field: value, ... }` to construct a value and `value.field` to read a field.
+- `let` structure bindings permit field updates. A `const` structure binding is immutable, including all of its fields.
+- Structures have value semantics. Assignment, parameter passing, and return copy the structure value. Nested structure fields are copied as part of the containing value; updating a copy does not change the source binding.
+- Struct values are not currently comparable with `==` or `!=`; define equality explicitly in a future language design before enabling it.
+- The C backend uses the target C compiler's natural structure layout and alignment. The LLVM backend uses native aggregate values. Explicit packed layout, ABI annotations, pointers, and arrays of structures are not implemented.
+
 ### Conditions
 
 ~~~vex
