@@ -42,6 +42,7 @@ struct Symbol {
     bool is_function{false};
     std::vector<Type> parameters;
     SourceSpan declaration{};
+    std::optional<SemanticArrayType> array_type;
 };
 
 using Scope = std::unordered_map<std::string, Symbol>;
@@ -182,7 +183,7 @@ private:
         if (assigned_id) *assigned_id = symbol.id;
         model_.bindings.emplace(symbol.id, SemanticBinding{
             symbol.id, name, symbol.type, !symbol.immutable && !symbol.is_function,
-            declaration
+            declaration, symbol.array_type
         });
         current.emplace(name, std::move(symbol));
         return true;
@@ -221,12 +222,81 @@ private:
                 return Type::Error;
             }
             if (symbol->id != 0) model_.resolved_names[name] = symbol->id;
+            if (symbol->array_type)
+                model_.array_expression_types[&expression] = *symbol->array_type;
             return symbol->type;
         }
 
         if (const auto* group = std::get_if<GroupExpr>(&expression.data)) {
-            return group->expression
-                ? analyze_expression(*group->expression) : Type::Error;
+            if (!group->expression) return Type::Error;
+            const Type grouped_type = analyze_expression(*group->expression);
+            const auto shape = model_.array_expression_types.find(group->expression.get());
+            if (shape != model_.array_expression_types.end())
+                model_.array_expression_types[&expression] = shape->second;
+            return grouped_type;
+        }
+
+        if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression.data)) {
+            if (array->elements.empty()) {
+                report("SEM041", "empty arrays need an explicit element type; typed empty arrays are not implemented yet",
+                       expression.span);
+                return Type::Error;
+            }
+            Type element_type = Type::Unknown;
+            for (const ExprPtr& element : array->elements) {
+                const Type actual = element ? analyze_expression(*element) : Type::Error;
+                if (actual == Type::Error || actual == Type::Void ||
+                    actual == Type::Array || actual == Type::Any) {
+                    report("SEM041", "array elements must use one supported primitive type",
+                           element ? element->span : expression.span);
+                    return Type::Error;
+                }
+                if (element_type == Type::Unknown) {
+                    element_type = actual;
+                } else if (is_numeric(element_type) && is_numeric(actual)) {
+                    if (element_type == Type::Float || actual == Type::Float)
+                        element_type = Type::Float;
+                } else if (element_type != actual) {
+                    report("SEM041", "all array elements must have compatible types",
+                           element ? element->span : expression.span);
+                    return Type::Error;
+                }
+            }
+            if (array->elements.size() > 65536u) {
+                report("SEM041", "fixed arrays are limited to 65,536 elements",
+                       expression.span);
+                return Type::Error;
+            }
+            model_.array_expression_types[&expression] = SemanticArrayType{
+                element_type, static_cast<std::uint32_t>(array->elements.size())};
+            return Type::Array;
+        }
+
+        if (const auto* index = std::get_if<IndexExpr>(&expression.data)) {
+            const Type object_type = index->object
+                ? analyze_expression(*index->object) : Type::Error;
+            const Type index_type = index->index
+                ? analyze_expression(*index->index) : Type::Error;
+            if (index_type != Type::Error && index_type != Type::Unknown &&
+                index_type != Type::Int) {
+                report("SEM042", "array index must have type int",
+                       index->index ? index->index->span : expression.span);
+            }
+            if (object_type != Type::Array) {
+                if (object_type != Type::Error && object_type != Type::Unknown)
+                    report("SEM043", "indexing requires a fixed-size array value",
+                           expression.span);
+                return Type::Error;
+            }
+            const auto shape = index->object
+                ? model_.array_expression_types.find(index->object.get())
+                : model_.array_expression_types.end();
+            if (shape == model_.array_expression_types.end()) {
+                report("SEM043", "array type information is unavailable for this expression",
+                       expression.span);
+                return Type::Error;
+            }
+            return shape->second.element_type;
         }
 
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
@@ -319,6 +389,46 @@ private:
 
         if (const auto* assignment =
                 std::get_if<AssignmentExpr>(&expression.data)) {
+            if (const auto* indexed = assignment->target
+                    ? std::get_if<IndexExpr>(&assignment->target->data) : nullptr) {
+                const auto* base_name = indexed->object
+                    ? std::get_if<NameExpr>(&indexed->object->data) : nullptr;
+                if (!base_name) {
+                    report("SEM044", "array elements can only be assigned through a named array binding",
+                           indexed->object ? indexed->object->span : expression.span);
+                    if (assignment->value)
+                        static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                const std::string identifier = spelling(base_name->name);
+                Symbol* symbol = lookup(identifier);
+                if (!symbol || symbol->type != Type::Array || !symbol->array_type) {
+                    report("SEM001", "undefined or non-array identifier '" + identifier + "'",
+                           base_name->name);
+                    if (assignment->value)
+                        static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                if (indexed->index) {
+                    const Type index_type = analyze_expression(*indexed->index);
+                    if (index_type != Type::Error && index_type != Type::Unknown &&
+                        index_type != Type::Int)
+                        report("SEM042", "array index must have type int",
+                               indexed->index->span);
+                }
+                model_.assignment_targets[assignment] = symbol->id;
+                const Type value = assignment->value
+                    ? analyze_expression(*assignment->value) : Type::Error;
+                if (symbol->immutable)
+                    report("SEM017", "cannot modify an element of immutable array binding '" +
+                           identifier + "'", base_name->name);
+                if (!is_assignable(symbol->array_type->element_type, value))
+                    report("SEM018", "cannot assign " + std::string(type_name(value)) +
+                           " to array element of type " +
+                           type_name(symbol->array_type->element_type), expression.span);
+                return symbol->array_type->element_type;
+            }
+
             const auto* target = assignment->target
                 ? std::get_if<NameExpr>(&assignment->target->data) : nullptr;
             if (!target) return Type::Error;
@@ -344,6 +454,14 @@ private:
             model_.assignment_targets[assignment] = symbol->id;
             const Type value = assignment->value
                 ? analyze_expression(*assignment->value) : Type::Error;
+            if (symbol->type == Type::Array && assignment->value) {
+                const auto shape = model_.array_expression_types.find(assignment->value.get());
+                if (symbol->array_type && shape != model_.array_expression_types.end() &&
+                    (symbol->array_type->element_type != shape->second.element_type ||
+                     symbol->array_type->length != shape->second.length))
+                    report("SEM045", "array assignment requires the same element type and length",
+                           assignment->value->span);
+            }
             if (symbol->immutable) {
                 report("SEM017", "cannot assign to immutable binding '" +
                        identifier + "'", target->name);
@@ -392,6 +510,11 @@ private:
 
             if (!function) return Type::Error;
             if (name) model_.resolved_calls[call] = spelling(name->name);
+            if (name && spelling(name->name) == "say" &&
+                std::find(argument_types.begin(), argument_types.end(), Type::Array) != argument_types.end()) {
+                report("SEM046", "say does not accept array values; index an element first",
+                       expression.span);
+            }
             if (argument_types.size() != function->parameters.size()) {
                 report("SEM020", "function expects " +
                        std::to_string(function->parameters.size()) +
@@ -439,6 +562,11 @@ private:
         }
         Symbol symbol;
         symbol.type = declared;
+        if (variable.initializer && inferred == Type::Array) {
+            const auto shape = model_.array_expression_types.find(variable.initializer.get());
+            if (shape != model_.array_expression_types.end())
+                symbol.array_type = shape->second;
+        }
         symbol.immutable = variable.immutable;
         symbol.declaration = variable.name;
         SemanticBindingId binding_id = 0;
@@ -603,17 +731,22 @@ private:
         if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
             const Type iterable = loop->iterable
                 ? analyze_expression(*loop->iterable) : Type::Error;
-            if (iterable != Type::Error) {
-                report("SEM031",
-                       "for-in is parsed but cannot be type-checked until collection types are implemented",
+            std::optional<SemanticArrayType> array_type;
+            if (iterable == Type::Array && loop->iterable) {
+                const auto shape = model_.array_expression_types.find(loop->iterable.get());
+                if (shape != model_.array_expression_types.end()) array_type = shape->second;
+            } else if (iterable != Type::Error && iterable != Type::Unknown) {
+                report("SEM031", "for-in currently requires a fixed-size array",
                        loop->iterable ? loop->iterable->span : loop->variable);
             }
             scopes_.emplace_back();
             Symbol iteration_variable;
-            iteration_variable.type = Type::Unknown;
+            iteration_variable.type = array_type ? array_type->element_type : Type::Unknown;
             iteration_variable.declaration = loop->variable;
-            static_cast<void>(define(spelling(loop->variable),
-                                     std::move(iteration_variable), loop->variable));
+            SemanticBindingId iteration_binding = 0;
+            if (define(spelling(loop->variable), std::move(iteration_variable),
+                       loop->variable, &iteration_binding))
+                model_.for_bindings[loop] = iteration_binding;
             ++loop_depth_;
             if (loop->body) analyze_statement(*loop->body);
             --loop_depth_;
@@ -652,6 +785,7 @@ const char* semantic_type_name(const SemanticType type) noexcept {
     case SemanticType::Float: return "float";
     case SemanticType::Bool: return "bool";
     case SemanticType::String: return "string";
+    case SemanticType::Array: return "array";
     }
     return "<unknown>";
 }

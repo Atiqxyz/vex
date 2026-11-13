@@ -18,7 +18,13 @@ enum class SemanticType {
     Int,
     Float,
     Bool,
-    String
+    String,
+    Array
+};
+
+struct SemanticArrayType {
+    SemanticType element_type{SemanticType::Error};
+    std::uint32_t length{0};
 };
 
 [[nodiscard]] const char* semantic_type_name(SemanticType type) noexcept;
@@ -31,6 +37,7 @@ struct SemanticBinding {
     SemanticType type{SemanticType::Unknown};
     bool mutable_binding{false};
     SourceSpan declaration{};
+    std::optional<SemanticArrayType> array_type;
 };
 
 struct SemanticFunctionSignature {
@@ -44,10 +51,12 @@ struct SemanticFunctionSignature {
 // for as long as pointers in these maps are used.
 struct SemanticModel {
     std::unordered_map<const Expr*, SemanticType> expression_types;
+    std::unordered_map<const Expr*, SemanticArrayType> array_expression_types;
     std::unordered_map<const NameExpr*, SemanticBindingId> resolved_names;
     std::unordered_map<const VariableDeclStmt*, SemanticBindingId> variable_bindings;
     std::unordered_map<const Parameter*, SemanticBindingId> parameter_bindings;
     std::unordered_map<const AssignmentExpr*, SemanticBindingId> assignment_targets;
+    std::unordered_map<const ForStmt*, SemanticBindingId> for_bindings;
     std::unordered_map<const CallExpr*, std::string> resolved_calls;
     std::unordered_map<const FunctionDeclStmt*, SemanticFunctionSignature> functions;
     std::unordered_map<SemanticBindingId, SemanticBinding> bindings;

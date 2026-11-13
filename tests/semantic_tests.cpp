@@ -245,6 +245,44 @@ void test_top_level_execution_scope(TestContext& tests) {
                 "ordinary functions cannot capture implicit-entry top-level variables");
 }
 
+
+void test_fixed_arrays_and_index_assignment(TestContext& tests) {
+    const vex::SourceFile valid{"fixed_arrays.vex",
+        "make main() {\n"
+        "    let values = [1, 2, 3]\n"
+        "    values[1] = 9\n"
+        "    let mixed = [1, 2.5, 3]\n"
+        "    say(values[1])\n"
+        "    for value in values { say(value) }\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "fixed arrays infer primitive element types and support indexed mutation and iteration");
+
+    const vex::SourceFile bad_index{"bad_array_index.vex",
+        "make main() { let values = [1, 2] let bad = values[1.5] }\n"};
+    const vex::SemanticResult bad = analyze(bad_index);
+    tests.check(has_code(bad, "SEM042"), "array indices must have type int");
+
+    const vex::SourceFile mixed{"mixed_array.vex",
+        "make main() { let values = [1, true] }\n"};
+    const vex::SemanticResult mixed_result = analyze(mixed);
+    tests.check(has_code(mixed_result, "SEM041"),
+                "arrays reject incompatible element types");
+
+    const vex::SourceFile immutable{"immutable_array.vex",
+        "make main() { const values = [1, 2] values[0] = 7 }\n"};
+    const vex::SemanticResult immutable_result = analyze(immutable);
+    tests.check(has_code(immutable_result, "SEM017"),
+                "elements of const arrays cannot be modified");
+
+    const vex::SourceFile mismatch{"array_shape_mismatch.vex",
+        "make main() { let values = [1, 2] values = [3, 4, 5] }\n"};
+    const vex::SemanticResult mismatch_result = analyze(mismatch);
+    tests.check(has_code(mismatch_result, "SEM045"),
+                "array reassignment checks fixed length and element type");
+}
+
 void test_unimplemented_iteration_is_explicit(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
@@ -272,5 +310,6 @@ void run_semantic_tests(TestContext& tests) {
     test_math_standard_library_signatures(tests);
     test_loop_control_scope_and_while_condition(tests);
     test_top_level_execution_scope(tests);
+    test_fixed_arrays_and_index_assignment(tests);
     test_unimplemented_iteration_is_explicit(tests);
 }
