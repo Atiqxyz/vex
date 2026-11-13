@@ -20,6 +20,9 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::KwConst: return "CONST";
     case TokenKind::KwIf: return "IF";
     case TokenKind::KwElse: return "ELSE";
+    case TokenKind::KwWhile: return "WHILE";
+    case TokenKind::KwBreak: return "BREAK";
+    case TokenKind::KwContinue: return "CONTINUE";
     case TokenKind::KwRepeat: return "REPEAT";
     case TokenKind::KwTimes: return "TIMES";
     case TokenKind::KwFor: return "FOR";
@@ -45,6 +48,11 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::Star: return "STAR";
     case TokenKind::Slash: return "SLASH";
     case TokenKind::Percent: return "PERCENT";
+    case TokenKind::PlusEqual: return "PLUS_EQUAL";
+    case TokenKind::MinusEqual: return "MINUS_EQUAL";
+    case TokenKind::StarEqual: return "STAR_EQUAL";
+    case TokenKind::SlashEqual: return "SLASH_EQUAL";
+    case TokenKind::PercentEqual: return "PERCENT_EQUAL";
     case TokenKind::Equal: return "EQUAL";
     case TokenKind::EqualEqual: return "EQUAL_EQUAL";
     case TokenKind::Bang: return "BANG";

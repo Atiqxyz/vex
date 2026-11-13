@@ -70,6 +70,15 @@ StmtPtr Parser::parse_statement(const bool top_level) {
     if (match(TokenKind::KwConst)) return parse_variable(previous(), true);
     if (match(TokenKind::KwReturn)) return parse_return(previous());
     if (match(TokenKind::KwIf)) return parse_if(previous());
+    if (match(TokenKind::KwWhile)) return parse_while(previous());
+    if (match(TokenKind::KwBreak)) {
+        const Token start = previous();
+        return std::make_unique<Statement>(Statement{start.span, BreakStmt{}});
+    }
+    if (match(TokenKind::KwContinue)) {
+        const Token start = previous();
+        return std::make_unique<Statement>(Statement{start.span, ContinueStmt{}});
+    }
     if (match(TokenKind::KwRepeat)) return parse_repeat(previous());
     if (match(TokenKind::KwFor)) return parse_for(previous());
     if (match(TokenKind::KwMake)) {
@@ -153,6 +162,14 @@ StmtPtr Parser::parse_if(const Token& start) {
         SourceSpan{start.span.begin, end},
         IfStmt{std::move(condition), std::move(then_branch), std::move(else_branch)}});
 }
+StmtPtr Parser::parse_while(const Token& start) {
+    ExprPtr condition = parse_expression();
+    StmtPtr body = parse_block();
+    if (!body) return nullptr;
+    return std::make_unique<Statement>(Statement{
+        SourceSpan{start.span.begin, body->span.end},
+        WhileStmt{std::move(condition), std::move(body)}});
+}
 StmtPtr Parser::parse_repeat(const Token& start) {
     ExprPtr count = parse_expression();
     static_cast<void>(expect(TokenKind::KwTimes, "expected 'times' after repeat count"));
@@ -234,7 +251,10 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
         const int operator_precedence = precedence(current().kind);
         if (operator_precedence < minimum_precedence) break;
         const Token op = advance();
-        const bool right_associative = op.kind == TokenKind::Equal;
+        const bool right_associative = op.kind == TokenKind::Equal ||
+            op.kind == TokenKind::PlusEqual || op.kind == TokenKind::MinusEqual ||
+            op.kind == TokenKind::StarEqual || op.kind == TokenKind::SlashEqual ||
+            op.kind == TokenKind::PercentEqual;
         const int next_minimum = right_associative
             ? operator_precedence : operator_precedence + 1;
         ExprPtr right = parse_expression(allow_newlines, next_minimum);
@@ -243,11 +263,32 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
             break;
         }
         const SourceSpan span{left->span.begin, right->span.end};
-        if (op.kind == TokenKind::Equal) {
-            if (!is_assignment_target(*left))
+        const bool is_compound_assignment =
+            op.kind == TokenKind::PlusEqual || op.kind == TokenKind::MinusEqual ||
+            op.kind == TokenKind::StarEqual || op.kind == TokenKind::SlashEqual ||
+            op.kind == TokenKind::PercentEqual;
+        if (op.kind == TokenKind::Equal || is_compound_assignment) {
+            if (!is_assignment_target(*left)) {
                 diagnostics_.error("PAR007",
                     "the left side of an assignment must be a variable name", left->span);
-            left = make_expression(span, AssignmentExpr{std::move(left), std::move(right)});
+                left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
+            } else if (op.kind == TokenKind::Equal) {
+                left = make_expression(span, AssignmentExpr{std::move(left), std::move(right)});
+            } else {
+                const auto* target = std::get_if<NameExpr>(&left->data);
+                const SourceSpan target_span = target->name;
+                const TokenKind binary_op =
+                    op.kind == TokenKind::PlusEqual ? TokenKind::Plus :
+                    op.kind == TokenKind::MinusEqual ? TokenKind::Minus :
+                    op.kind == TokenKind::StarEqual ? TokenKind::Star :
+                    op.kind == TokenKind::SlashEqual ? TokenKind::Slash :
+                    TokenKind::Percent;
+                ExprPtr target_read = make_expression(target_span, NameExpr{target_span});
+                ExprPtr combined = make_expression(span,
+                    BinaryExpr{binary_op, std::move(target_read), std::move(right)});
+                left = make_expression(span,
+                    AssignmentExpr{std::move(left), std::move(combined)});
+            }
         } else {
             left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
         }
@@ -316,7 +357,12 @@ ExprPtr Parser::make_expression(
 }
 int Parser::precedence(const TokenKind kind) noexcept {
     switch (kind) {
-    case TokenKind::Equal: return 1;
+    case TokenKind::Equal:
+    case TokenKind::PlusEqual:
+    case TokenKind::MinusEqual:
+    case TokenKind::StarEqual:
+    case TokenKind::SlashEqual:
+    case TokenKind::PercentEqual: return 1;
     case TokenKind::OrOr: return 2;
     case TokenKind::AndAnd: return 3;
     case TokenKind::EqualEqual:

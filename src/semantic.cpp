@@ -154,9 +154,17 @@ private:
     }
 
     [[nodiscard]] Symbol* lookup(const std::string& name) {
-        for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
-            const auto found = scope->find(name);
-            if (found != scope->end()) return &found->second;
+        for (std::size_t index = scopes_.size(); index > 0; --index) {
+            Scope& scope = scopes_[index - 1];
+            const auto found = scope.find(name);
+            if (found == scope.end()) continue;
+
+            // File-scope values belong to implicit top-level execution. They
+            // are not globals that separately declared functions can capture.
+            if (inside_function_ && index == 1 && !found->second.is_function) {
+                return nullptr;
+            }
+            return &found->second;
         }
         return nullptr;
     }
@@ -550,6 +558,16 @@ private:
             }
             return;
         }
+        if (std::holds_alternative<BreakStmt>(statement.data)) {
+            if (loop_depth_ == 0)
+                report("SEM032", "break is only valid inside a loop", statement.span);
+            return;
+        }
+        if (std::holds_alternative<ContinueStmt>(statement.data)) {
+            if (loop_depth_ == 0)
+                report("SEM033", "continue is only valid inside a loop", statement.span);
+            return;
+        }
         if (const auto* conditional = std::get_if<IfStmt>(&statement.data)) {
             if (conditional->condition) {
                 const Type condition = analyze_expression(*conditional->condition);
@@ -560,13 +578,26 @@ private:
             if (conditional->else_branch) analyze_statement(*conditional->else_branch);
             return;
         }
+        if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
+            if (loop->condition) {
+                const Type condition = analyze_expression(*loop->condition);
+                require_type(condition, Type::Bool, loop->condition->span,
+                             "SEM034", "while condition must be boolean");
+            }
+            ++loop_depth_;
+            if (loop->body) analyze_statement(*loop->body);
+            --loop_depth_;
+            return;
+        }
         if (const auto* repeat = std::get_if<RepeatStmt>(&statement.data)) {
             if (repeat->count) {
                 const Type count = analyze_expression(*repeat->count);
                 require_type(count, Type::Int, repeat->count->span,
                              "SEM030", "repeat count must be an integer");
             }
+            ++loop_depth_;
             if (repeat->body) analyze_statement(*repeat->body);
+            --loop_depth_;
             return;
         }
         if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
@@ -583,7 +614,9 @@ private:
             iteration_variable.declaration = loop->variable;
             static_cast<void>(define(spelling(loop->variable),
                                      std::move(iteration_variable), loop->variable));
+            ++loop_depth_;
             if (loop->body) analyze_statement(*loop->body);
+            --loop_depth_;
             scopes_.pop_back();
             return;
         }
@@ -603,6 +636,7 @@ private:
     SemanticModel model_;
     SemanticBindingId next_binding_id_{1};
     bool inside_function_{false};
+    std::size_t loop_depth_{0};
     Type current_return_type_{Type::Void};
 };
 

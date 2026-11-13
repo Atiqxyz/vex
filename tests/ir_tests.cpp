@@ -1,6 +1,8 @@
 #include "test_support.hpp"
 
 #include "vex/ir.hpp"
+#include "vex/c_backend.hpp"
+#include "vex/llvm_backend.hpp"
 #include "vex/lexer.hpp"
 #include "vex/lowering.hpp"
 #include "vex/parser.hpp"
@@ -13,6 +15,14 @@
 namespace {
 
 bool has_code(const vex::IRVerificationResult& result,
+              const std::string_view code) {
+    for (const vex::Diagnostic& diagnostic : result.diagnostics) {
+        if (diagnostic.code == code) return true;
+    }
+    return false;
+}
+
+bool has_code(const vex::IRLoweringResult& result,
               const std::string_view code) {
     for (const vex::Diagnostic& diagnostic : result.diagnostics) {
         if (diagnostic.code == code) return true;
@@ -71,7 +81,19 @@ void test_source_to_verified_ir_lowering(TestContext& tests) {
         "    repeat 2 times {\n"
         "        result = result + 1.0\n"
         "    }\n"
-        "    say(result)\n"
+        "    let iterations = 0\n"
+        "    repeat 4 times {\n"
+        "        iterations += 1\n"
+        "        if iterations == 2 { continue }\n"
+        "        if iterations == 3 { break }\n"
+        "    }\n"
+        "    let ticks = 0\n"
+        "    while ticks < 6 {\n"
+        "        ticks += 1\n"
+        "        if ticks == 2 { continue }\n"
+        "        if ticks == 5 { break }\n"
+        "    }\n"
+        "    say(result + ticks)\n"
         "}\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
@@ -92,6 +114,19 @@ void test_source_to_verified_ir_lowering(TestContext& tests) {
         vex::IRVerifier{}.verify(lowered.module);
     tests.check(!verified.has_errors(),
                 "lowered functions pass the independent IR verifier");
+
+    const vex::CBackendResult generated_c =
+        vex::CBackend{}.generate(lowered.module);
+    tests.check(!generated_c.has_errors() && !generated_c.source.empty(),
+                "C backend accepts and emits the new loop-control IR");
+
+    const vex::BackendResult generated_llvm =
+        vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!generated_llvm.has_errors() && !generated_llvm.output.empty(),
+                "LLVM backend accepts and emits the new loop-control IR");
+    tests.check(generated_llvm.output.find("br i1") != std::string::npos,
+                "LLVM backend preserves while-loop conditional branches");
+
     tests.check(lowered.module.functions.size() == 2,
                 "IR module contains every top-level function");
 
@@ -123,7 +158,62 @@ void test_source_to_verified_ir_lowering(TestContext& tests) {
     tests.check(has_conditional_branch,
                 "if and repeat statements lower to conditional control flow");
     tests.check(has_loop_backedge,
-                "repeat lowers to a loop with an explicit back edge");
+                "repeat and while lower to loops with explicit back edges");
+}
+
+void test_implicit_and_explicit_entry_points(TestContext& tests) {
+    const auto lower_source = [](const vex::SourceFile& source) {
+        const vex::LexResult lexed = vex::Lexer(source).scan();
+        const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+        const vex::SemanticResult semantic =
+            vex::SemanticAnalyzer(source, parsed.program).analyze();
+        if (lexed.has_errors()) {
+            return vex::IRLoweringResult{{}, lexed.diagnostics};
+        }
+        if (parsed.has_errors()) {
+            return vex::IRLoweringResult{{}, parsed.diagnostics};
+        }
+        if (semantic.has_errors()) {
+            return vex::IRLoweringResult{{}, semantic.diagnostics};
+        }
+        return vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    };
+
+    const vex::SourceFile script{"implicit_main.vex",
+        "let velocity = 7.5\n"
+        "let time = 12.0\n"
+        "say(velocity * time)\n"};
+    const vex::IRLoweringResult implicit = lower_source(script);
+    tests.check(!implicit.has_errors(),
+                "top-level code lowers without an explicit main function");
+    if (!implicit.has_errors()) {
+        tests.check(implicit.module.functions.size() == 1 &&
+                    implicit.module.functions.front().name == "main",
+                    "compiler synthesizes a main entry point for top-level code");
+        const vex::CBackendResult c = vex::CBackend{}.generate(implicit.module);
+        const vex::BackendResult llvm = vex::LLVMBackend{}.emit(implicit.module);
+        tests.check(!c.has_errors() && !c.source.empty(),
+                    "C backend accepts the synthesized main function");
+        tests.check(!llvm.has_errors() && !llvm.output.empty(),
+                    "LLVM backend accepts the synthesized main function");
+    }
+
+    const vex::SourceFile explicit_main{"explicit_main.vex",
+        "make main() {\n"
+        "    say(\"controlled\")\n"
+        "}\n"};
+    const vex::IRLoweringResult explicit_result = lower_source(explicit_main);
+    tests.check(!explicit_result.has_errors(),
+                "an explicit main function remains valid");
+
+    const vex::SourceFile mixed{"mixed_entry.vex",
+        "say(\"top level\")\n"
+        "make main() {\n"
+        "    say(\"explicit\")\n"
+        "}\n"};
+    const vex::IRLoweringResult mixed_result = lower_source(mixed);
+    tests.check(has_code(mixed_result, "IR140"),
+                "top-level executable statements are rejected when explicit main exists");
 }
 
 void test_valid_typed_function(TestContext& tests) {
@@ -294,6 +384,7 @@ void test_dominance_and_call_signatures(TestContext& tests) {
 
 void run_ir_tests(TestContext& tests) {
     test_source_to_verified_ir_lowering(tests);
+    test_implicit_and_explicit_entry_points(tests);
     test_valid_typed_function(tests);
     test_block_arguments_and_control_flow(tests);
     test_invalid_ir_is_rejected(tests);

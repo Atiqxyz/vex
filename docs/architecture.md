@@ -58,13 +58,13 @@ The parser uses recursive descent for declarations and statements, plus preceden
 
 AST nodes retain source spans instead of copying every identifier or literal spelling. The source file must therefore outlive the AST when source text is needed for diagnostics or AST printing.
 
-The initial AST represents function declarations, bindings, returns, blocks, conditionals, loops, expression statements, literals, names, unary/binary operations, assignments, calls, grouping, and explicit multiline expressions.
+The AST represents function declarations, bindings, returns, blocks, conditionals, counted and condition-driven loops, loop exits/continues, expression statements, literals, names, unary/binary operations, assignments, calls, grouping, and explicit multiline expressions.
 
 ### Semantic analysis
 
 The semantic checker is a separate pass over the AST. It first registers top-level function signatures, allowing forward function calls, then checks statements and expressions in lexical scopes.
 
-The initial type model covers `int`, `float`, `bool`, `string`, and `void` returns. Local bindings can infer their type from an initializer. Explicit annotations, assignments, arithmetic and logical operators, conditions, repeat counts, function argument counts and types, return statements, duplicate declarations, and undefined names are checked.
+The initial type model covers `int`, `float`, `bool`, `string`, and `void` returns. Local bindings can infer their type from an initializer. Explicit annotations, assignments (including compound assignments), arithmetic and logical operators, conditions, repeat counts, while conditions, loop-control placement, function argument counts and types, return statements, duplicate declarations, and undefined names are checked.
 
 The current numeric conversion rule permits widening from `int` to `float`; narrowing is rejected. Nested blocks have lexical scopes and can shadow outer bindings. `const` bindings cannot be assigned after declaration.
 
@@ -76,7 +76,7 @@ Semantic analysis returns a `SemanticModel` alongside diagnostics. It records ex
 
 The initial IR is backend-independent and uses SSA values. Functions contain basic blocks with explicit terminators. Block parameters receive values from incoming branches and serve as control-flow merge points. The IR keeps the supported primitive types explicit and retains source spans for diagnostics.
 
-The AST-to-IR lowerer consumes the semantic model. It currently handles function parameters, constants, name references, assignments, primitive operators, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, and counted `repeat` loops. Integer-to-float widening becomes an explicit conversion instruction. Constructs that are parsed but not semantically supported, such as `for-in`, are not lowered.
+The AST-to-IR lowerer consumes the semantic model. It handles function parameters, constants, name references, assignments (compound assignments are desugared in the parser), primitive operators, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, counted `repeat` loops, condition-driven `while` loops, SSA-safe `break`/`continue` edges, and a synthesized entry function when top-level statements are used without an explicit `main()`. Integer-to-float widening becomes an explicit conversion instruction. Constructs that are parsed but not semantically supported, such as `for-in`, are not lowered.
 
 The independent verifier checks instruction and call types, SSA definitions and uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs.
 
@@ -129,6 +129,9 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Identifier resolution and duplicate declaration diagnostics
 - [x] Local primitive type inference and annotation checking
 - [x] Operator, condition, assignment, call, and return type checking
+- [x] Boolean while-loop conditions and loop-control scope checking
+- [x] While loops, break/continue, and compound assignment lowering
+- [x] Implicit top-level entry function when no explicit main is declared
 - [x] Command-line semantic-check and verified IR-inspection commands
 - [x] Cross-platform CMake build and CI configuration
 - [ ] Collections and iterable type checking

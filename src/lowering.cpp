@@ -36,27 +36,35 @@ public:
     FunctionLowerer(const SourceFile& source, const SemanticModel& semantic_model,
                     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures,
                     const FunctionDeclStmt& declaration,
-                    std::vector<Diagnostic>& diagnostics)
+                    std::vector<Diagnostic>& diagnostics,
+                    const std::vector<const Statement*>* implicit_body = nullptr)
         : source_(source), semantic_model_(semantic_model), signatures_(signatures),
-          declaration_(declaration), diagnostics_(diagnostics) {}
+          declaration_(declaration), diagnostics_(diagnostics),
+          implicit_body_(implicit_body) {}
 
     IRFunction lower() {
-        function_.name = std::string(source_.slice(declaration_.name));
-        function_.span = declaration_.name;
+        const bool is_implicit_entry = implicit_body_ != nullptr;
+        function_.name = is_implicit_entry
+            ? "main" : std::string(source_.slice(declaration_.name));
+        function_.span = is_implicit_entry ? SourceSpan{} : declaration_.name;
 
-        const auto signature = semantic_model_.functions.find(&declaration_);
-        if (signature == semantic_model_.functions.end()) {
-            report("IR100", "function is missing its semantic signature",
-                   declaration_.name);
+        if (is_implicit_entry) {
             function_.return_type = IRType::Void;
         } else {
-            const auto return_type = to_ir_type(signature->second.return_type);
-            if (!return_type) {
-                report("IR101", "function has a type that cannot be represented in the initial IR",
+            const auto signature = semantic_model_.functions.find(&declaration_);
+            if (signature == semantic_model_.functions.end()) {
+                report("IR100", "function is missing its semantic signature",
                        declaration_.name);
                 function_.return_type = IRType::Void;
             } else {
-                function_.return_type = *return_type;
+                const auto return_type = to_ir_type(signature->second.return_type);
+                if (!return_type) {
+                    report("IR101", "function has a type that cannot be represented in the initial IR",
+                           declaration_.name);
+                    function_.return_type = IRType::Void;
+                } else {
+                    function_.return_type = *return_type;
+                }
             }
         }
 
@@ -90,18 +98,22 @@ public:
             environment_[binding->second] = value;
         }
 
-        if (declaration_.body) {
+        if (implicit_body_) {
+            for (const Statement* statement : *implicit_body_) {
+                if (statement && current_block_) lower_statement(*statement);
+            }
+        } else if (declaration_.body) {
             lower_statement(*declaration_.body);
         }
 
         if (current_block_) {
             if (function_.return_type == IRType::Void) {
-                set_terminator(*current_block_, IRTerminator{IRReturn{}, declaration_.name});
+                set_terminator(*current_block_, IRTerminator{IRReturn{}, function_.span});
             } else {
                 report("IR105", "non-void function reaches the end without a return",
-                       declaration_.name);
+                       function_.span);
                 set_terminator(*current_block_,
-                               IRTerminator{IRUnreachable{}, declaration_.name});
+                               IRTerminator{IRUnreachable{}, function_.span});
             }
         }
 
@@ -112,6 +124,13 @@ private:
     struct FlowPath {
         IRBlockId block{0};
         Environment environment;
+    };
+
+    struct LoopContext {
+        IRBlockId continue_target{0};
+        IRBlockId break_target{0};
+        std::vector<SemanticBindingId> environment_ids;
+        std::optional<IRValue> counter;
     };
 
     void report(const char* code, std::string message, const SourceSpan span) {
@@ -714,6 +733,107 @@ private:
         merge_paths(base, paths, span, "if.end");
     }
 
+    void lower_loop_control(const bool is_break, const SourceSpan span) {
+        if (loops_.empty()) {
+            report("IR138", is_break
+                ? "break has no enclosing loop during IR lowering"
+                : "continue has no enclosing loop during IR lowering", span);
+            current_block_.reset();
+            return;
+        }
+
+        const LoopContext& loop = loops_.back();
+        std::vector<IRValueId> arguments;
+        arguments.reserve(loop.environment_ids.size() + (loop.counter && !is_break ? 1u : 0u));
+        if (!is_break && loop.counter) {
+            const IRValue one = emit_constant(IRType::Int, "1", span);
+            const IRValue next_index = emit_operation(
+                IROp::Add, IRType::Int, {loop.counter->id, one.id}, span);
+            arguments.push_back(next_index.id);
+        }
+        for (const SemanticBindingId id : loop.environment_ids) {
+            arguments.push_back(environment_value(environment_, id, span).id);
+        }
+        terminate_current(IRTerminator{
+            IRBranch{is_break ? loop.break_target : loop.continue_target,
+                     std::move(arguments)}, span
+        });
+    }
+
+    void lower_while(const WhileStmt& loop, const SourceSpan span) {
+        if (!loop.condition || !loop.body || !current_block_) return;
+
+        const Environment base = environment_;
+        const std::vector<SemanticBindingId> ids = sorted_environment_ids(base);
+        const IRBlockId preheader = *current_block_;
+
+        std::vector<IRValue> header_parameters;
+        std::vector<IRValue> body_parameters;
+        std::vector<IRValue> exit_parameters;
+        header_parameters.reserve(ids.size());
+        body_parameters.reserve(ids.size());
+        exit_parameters.reserve(ids.size());
+        for (const SemanticBindingId id : ids) {
+            header_parameters.push_back(make_value(base.at(id).type, span));
+            body_parameters.push_back(make_value(base.at(id).type, span));
+            exit_parameters.push_back(make_value(base.at(id).type, span));
+        }
+
+        const IRBlockId header = create_block("while.header", header_parameters);
+        const IRBlockId body = create_block("while.body", body_parameters);
+        const IRBlockId exit = create_block("while.exit", exit_parameters);
+
+        std::vector<IRValueId> initial_arguments;
+        initial_arguments.reserve(ids.size());
+        for (const SemanticBindingId id : ids) initial_arguments.push_back(base.at(id).id);
+        set_terminator(preheader,
+            IRTerminator{IRBranch{header, std::move(initial_arguments)}, span});
+
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = header_parameters[index];
+        current_block_ = header;
+        const auto condition = lower_expression(*loop.condition);
+        if (!condition || condition->type != IRType::Bool || !current_block_) {
+            report("IR139", "while condition did not produce a bool value",
+                   loop.condition->span);
+            current_block_.reset();
+            return;
+        }
+
+        std::vector<IRValueId> branch_arguments;
+        branch_arguments.reserve(ids.size());
+        for (const SemanticBindingId id : ids)
+            branch_arguments.push_back(environment_value(environment_, id, span).id);
+        set_terminator(*current_block_, IRTerminator{
+            IRConditionalBranch{condition->id, body, branch_arguments,
+                                exit, branch_arguments}, span
+        });
+
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = body_parameters[index];
+        current_block_ = body;
+        loops_.push_back(LoopContext{header, exit, ids, std::nullopt});
+        lower_statement(*loop.body);
+        loops_.pop_back();
+
+        if (current_block_) {
+            std::vector<IRValueId> backedge_arguments;
+            backedge_arguments.reserve(ids.size());
+            for (const SemanticBindingId id : ids)
+                backedge_arguments.push_back(environment_value(environment_, id, span).id);
+            terminate_current(IRTerminator{
+                IRBranch{header, std::move(backedge_arguments)}, span
+            });
+        }
+
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = exit_parameters[index];
+        current_block_ = exit;
+    }
+
     void lower_repeat(const RepeatStmt& repeat, const SourceSpan span) {
         if (!repeat.count || !repeat.body) return;
         const auto count = lower_expression(*repeat.count);
@@ -773,7 +893,9 @@ private:
 
         current_block_ = body;
         environment_ = loop_environment;
+        loops_.push_back(LoopContext{header, exit, ids, index_parameter});
         lower_statement(*repeat.body);
+        loops_.pop_back();
         if (current_block_) {
             const IRValue one = emit_constant(IRType::Int, "1", span);
             const IRValue next_index = emit_operation(
@@ -832,6 +954,18 @@ private:
             lower_if(*conditional, statement.span);
             return;
         }
+        if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
+            lower_while(*loop, statement.span);
+            return;
+        }
+        if (std::holds_alternative<BreakStmt>(statement.data)) {
+            lower_loop_control(true, statement.span);
+            return;
+        }
+        if (std::holds_alternative<ContinueStmt>(statement.data)) {
+            lower_loop_control(false, statement.span);
+            return;
+        }
         if (const auto* repeat = std::get_if<RepeatStmt>(&statement.data)) {
             lower_repeat(*repeat, statement.span);
             return;
@@ -852,8 +986,10 @@ private:
     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures_;
     const FunctionDeclStmt& declaration_;
     std::vector<Diagnostic>& diagnostics_;
+    const std::vector<const Statement*>* implicit_body_{nullptr};
     IRFunction function_;
     Environment environment_;
+    std::vector<LoopContext> loops_;
     std::optional<IRBlockId> current_block_;
     IRValueId next_value_id_{1};
     IRBlockId next_block_id_{0};
@@ -871,20 +1007,35 @@ public:
             signatures.emplace(entry.second.name, entry.second);
         }
 
+        bool has_explicit_main = false;
+        std::vector<const Statement*> top_level_statements;
+
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
             const auto* function =
                 std::get_if<FunctionDeclStmt>(&statement->data);
             if (!function) {
-                diagnostics_.push_back(Diagnostic{
-                    DiagnosticSeverity::Error, "IR137",
-                    "top-level executable statements are not supported by the initial IR",
-                    statement->span
-                });
+                top_level_statements.push_back(statement.get());
                 continue;
             }
+            if (source_.slice(function->name) == "main") has_explicit_main = true;
             module_.functions.push_back(FunctionLowerer(
                 source_, semantic_model_, signatures, *function, diagnostics_).lower());
+        }
+
+        if (has_explicit_main) {
+            if (!top_level_statements.empty()) {
+                diagnostics_.push_back(Diagnostic{
+                    DiagnosticSeverity::Error, "IR140",
+                    "top-level executable statements cannot be combined with an explicit main(); move them into main()",
+                    top_level_statements.front()->span
+                });
+            }
+        } else {
+            const FunctionDeclStmt implicit_entry{};
+            module_.functions.push_back(FunctionLowerer(
+                source_, semantic_model_, signatures, implicit_entry,
+                diagnostics_, &top_level_statements).lower());
         }
         return IRLoweringResult{std::move(module_), std::move(diagnostics_)};
     }

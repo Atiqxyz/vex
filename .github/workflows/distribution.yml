@@ -258,6 +258,9 @@ jobs:
     needs: [build-cli, package-vscode]
     runs-on: ubuntu-latest
     steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
       - name: Download distribution artifacts
         uses: actions/download-artifact@v4
         with:

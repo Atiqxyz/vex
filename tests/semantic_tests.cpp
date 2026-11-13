@@ -192,6 +192,59 @@ void test_math_standard_library_signatures(TestContext& tests) {
                 "math builtins reject arguments with incompatible types");
 }
 
+void test_loop_control_scope_and_while_condition(TestContext& tests) {
+    const vex::SourceFile valid{"loop_control.vex",
+        "make main() {\n"
+        "    let count = 0\n"
+        "    while count < 5 {\n"
+        "        count += 1\n"
+        "        if count == 2 { continue }\n"
+        "        if count == 4 { break }\n"
+        "    }\n"
+        "    repeat 2 times {\n"
+        "        count += 1\n"
+        "        continue\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "while, break, continue, and compound assignment pass semantic analysis");
+
+    const vex::SourceFile outside{"loop_control_outside.vex",
+        "make main() {\n"
+        "    break\n"
+        "    continue\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(outside);
+    tests.check(has_code(rejected, "SEM032"), "break outside a loop is diagnosed");
+    tests.check(has_code(rejected, "SEM033"), "continue outside a loop is diagnosed");
+
+    const vex::SourceFile bad_condition{"bad_while.vex",
+        "make main() { while 1 { break } }\n"};
+    const vex::SemanticResult bad = analyze(bad_condition);
+    tests.check(has_code(bad, "SEM034"), "while requires a boolean condition");
+}
+
+void test_top_level_execution_scope(TestContext& tests) {
+    const vex::SourceFile script{"top_level.vex",
+        "let mass = 1200.0\n"
+        "let acceleration = 9.81\n"
+        "let force = mass * acceleration\n"
+        "say(force)\n"};
+    const vex::SemanticResult accepted = analyze(script);
+    tests.check(!accepted.has_errors(),
+                "top-level executable statements can reference earlier top-level bindings");
+
+    const vex::SourceFile captured{"top_level_capture.vex",
+        "let gravity = 9.81\n"
+        "make calculate(mass: float) -> float {\n"
+        "    return mass * gravity\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(captured);
+    tests.check(has_code(rejected, "SEM001"),
+                "ordinary functions cannot capture implicit-entry top-level variables");
+}
+
 void test_unimplemented_iteration_is_explicit(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
@@ -217,5 +270,7 @@ void run_semantic_tests(TestContext& tests) {
     test_function_signatures_and_returns(tests);
     test_semantic_model_exposes_typed_resolutions(tests);
     test_math_standard_library_signatures(tests);
+    test_loop_control_scope_and_while_condition(tests);
+    test_top_level_execution_scope(tests);
     test_unimplemented_iteration_is_explicit(tests);
 }
