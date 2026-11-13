@@ -15,24 +15,70 @@ jobs:
   build-cli:
     name: Build CLI (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             platform: windows-x64
+            zig_archive: zig-x86_64-windows-0.17.1.zip
+            zig_sha256: b03f477a1943673e02aca0f570e8030dffd536ce1f45cbc4d3326ec31159562e
           - os: ubuntu-latest
             platform: linux-x64
+            zig_archive: zig-x86_64-linux-0.17.1.tar.xz
+            zig_sha256: 3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a
           - os: macos-26-intel
             platform: macos-x64
+            zig_archive: zig-x86_64-macos-0.17.1.tar.xz
+            zig_sha256: 9af07b20319fbd0c92ee46ad23e81d6a782b1aaea2cfb8dcbff35f1d2c7ddbb7
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
 
+      - name: Download and verify Zig (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ZIG_ARCHIVE: ${{ matrix.zig_archive }}
+          ZIG_SHA256: ${{ matrix.zig_sha256 }}
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP $env:ZIG_ARCHIVE
+          $unpack = Join-Path $env:RUNNER_TEMP "zig-unpack"
+          $stage = Join-Path $env:GITHUB_WORKSPACE "zig-staging"
+          $url = "https://ziglang.org/download/0.17.1/$($env:ZIG_ARCHIVE)"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:ZIG_SHA256) {
+            throw "Zig archive SHA-256 mismatch. Expected $env:ZIG_SHA256, got $actual"
+          }
+          Expand-Archive -Path $archive -DestinationPath $unpack -Force
+          $zigExe = Get-ChildItem -Path $unpack -Filter "zig.exe" -File -Recurse | Select-Object -First 1
+          if (-not $zigExe) { throw "The verified Zig archive did not contain zig.exe" }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Path (Join-Path $zigExe.Directory.FullName "*") -Destination $stage -Recurse -Force
+          if (-not (Test-Path (Join-Path $stage "lib"))) { throw "The Zig lib directory was not staged" }
+
+      - name: Download and verify Zig (Linux and macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          ZIG_ARCHIVE: ${{ matrix.zig_archive }}
+          ZIG_SHA256: ${{ matrix.zig_sha256 }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/$ZIG_ARCHIVE"
+          url="https://ziglang.org/download/0.17.1/$ZIG_ARCHIVE"
+          curl --fail --location --retry 3 "$url" --output "$archive"
+          printf '%s  %s\n' "$ZIG_SHA256" "$archive" | shasum -a 256 -c -
+          mkdir -p zig-staging
+          tar -xf "$archive" --strip-components=1 -C zig-staging
+          test -x zig-staging/zig
+          test -d zig-staging/lib
+
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVEX_ZIG_TOOLCHAIN_DIR="${{ github.workspace }}/zig-staging"
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -42,6 +88,25 @@ jobs:
 
       - name: Install distribution files
         run: cmake --install build --config Release --prefix dist/vex
+
+      - name: Verify installed package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $compiler = Join-Path $env:GITHUB_WORKSPACE "dist/vex/bin/vex.exe"
+          $source = Join-Path $env:GITHUB_WORKSPACE "examples/hello.vex"
+          $work = Join-Path $env:GITHUB_WORKSPACE "dist/smoke-test"
+          cmake "-DVEX_EXECUTABLE=$compiler" "-DSOURCE_FILE=$source" "-DWORK_DIR=$work" -P tests/portable_install_smoke.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify installed package (Linux and macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake "-DVEX_EXECUTABLE=$GITHUB_WORKSPACE/dist/vex/bin/vex" \
+                "-DSOURCE_FILE=$GITHUB_WORKSPACE/examples/hello.vex" \
+                "-DWORK_DIR=$GITHUB_WORKSPACE/dist/smoke-test" \
+                -P tests/portable_install_smoke.cmake
 
       - name: Archive CLI
         shell: bash
