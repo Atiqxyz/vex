@@ -43,7 +43,7 @@ Portable archives are also published for users who prefer not to run an install 
 - macOS Intel x64: `vex-macos-x64.tar.gz`
 - macOS Apple Silicon ARM64: `vex-macos-arm64.tar.gz`
 
-Extract the archive and keep the `bin` and `toolchain` directories together. Add the `bin` directory to `PATH`. The VS Code extension is included at `share/vex/vex-language-0.1.0.vsix`; install it from VS Code's **Install from VSIX...** command if the installer could not use the `code` command.
+Extract the archive and keep the `bin` and `toolchain` directories together. Add the `bin` directory to `PATH`. The VS Code extension is included at `share/vex/vex-language.vsix`; install it from VS Code's **Install from VSIX...** command if the installer could not use the `code` command.
 
 ## 2. VS Code integration
 
