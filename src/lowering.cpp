@@ -36,27 +36,35 @@ public:
     FunctionLowerer(const SourceFile& source, const SemanticModel& semantic_model,
                     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures,
                     const FunctionDeclStmt& declaration,
-                    std::vector<Diagnostic>& diagnostics)
+                    std::vector<Diagnostic>& diagnostics,
+                    const std::vector<const Statement*>* implicit_body = nullptr)
         : source_(source), semantic_model_(semantic_model), signatures_(signatures),
-          declaration_(declaration), diagnostics_(diagnostics) {}
+          declaration_(declaration), diagnostics_(diagnostics),
+          implicit_body_(implicit_body) {}
 
     IRFunction lower() {
-        function_.name = std::string(source_.slice(declaration_.name));
-        function_.span = declaration_.name;
+        const bool is_implicit_entry = implicit_body_ != nullptr;
+        function_.name = is_implicit_entry
+            ? "main" : std::string(source_.slice(declaration_.name));
+        function_.span = is_implicit_entry ? SourceSpan{} : declaration_.name;
 
-        const auto signature = semantic_model_.functions.find(&declaration_);
-        if (signature == semantic_model_.functions.end()) {
-            report("IR100", "function is missing its semantic signature",
-                   declaration_.name);
+        if (is_implicit_entry) {
             function_.return_type = IRType::Void;
         } else {
-            const auto return_type = to_ir_type(signature->second.return_type);
-            if (!return_type) {
-                report("IR101", "function has a type that cannot be represented in the initial IR",
+            const auto signature = semantic_model_.functions.find(&declaration_);
+            if (signature == semantic_model_.functions.end()) {
+                report("IR100", "function is missing its semantic signature",
                        declaration_.name);
                 function_.return_type = IRType::Void;
             } else {
-                function_.return_type = *return_type;
+                const auto return_type = to_ir_type(signature->second.return_type);
+                if (!return_type) {
+                    report("IR101", "function has a type that cannot be represented in the initial IR",
+                           declaration_.name);
+                    function_.return_type = IRType::Void;
+                } else {
+                    function_.return_type = *return_type;
+                }
             }
         }
 
@@ -90,18 +98,22 @@ public:
             environment_[binding->second] = value;
         }
 
-        if (declaration_.body) {
+        if (implicit_body_) {
+            for (const Statement* statement : *implicit_body_) {
+                if (statement && current_block_) lower_statement(*statement);
+            }
+        } else if (declaration_.body) {
             lower_statement(*declaration_.body);
         }
 
         if (current_block_) {
             if (function_.return_type == IRType::Void) {
-                set_terminator(*current_block_, IRTerminator{IRReturn{}, declaration_.name});
+                set_terminator(*current_block_, IRTerminator{IRReturn{}, function_.span});
             } else {
                 report("IR105", "non-void function reaches the end without a return",
-                       declaration_.name);
+                       function_.span);
                 set_terminator(*current_block_,
-                               IRTerminator{IRUnreachable{}, declaration_.name});
+                               IRTerminator{IRUnreachable{}, function_.span});
             }
         }
 
@@ -974,6 +986,7 @@ private:
     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures_;
     const FunctionDeclStmt& declaration_;
     std::vector<Diagnostic>& diagnostics_;
+    const std::vector<const Statement*>* implicit_body_{nullptr};
     IRFunction function_;
     Environment environment_;
     std::vector<LoopContext> loops_;
@@ -994,20 +1007,35 @@ public:
             signatures.emplace(entry.second.name, entry.second);
         }
 
+        bool has_explicit_main = false;
+        std::vector<const Statement*> top_level_statements;
+
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
             const auto* function =
                 std::get_if<FunctionDeclStmt>(&statement->data);
             if (!function) {
-                diagnostics_.push_back(Diagnostic{
-                    DiagnosticSeverity::Error, "IR137",
-                    "top-level executable statements are not supported by the initial IR",
-                    statement->span
-                });
+                top_level_statements.push_back(statement.get());
                 continue;
             }
+            if (source_.slice(function->name) == "main") has_explicit_main = true;
             module_.functions.push_back(FunctionLowerer(
                 source_, semantic_model_, signatures, *function, diagnostics_).lower());
+        }
+
+        if (has_explicit_main) {
+            if (!top_level_statements.empty()) {
+                diagnostics_.push_back(Diagnostic{
+                    DiagnosticSeverity::Error, "IR140",
+                    "top-level executable statements cannot be combined with an explicit main(); move them into main()",
+                    top_level_statements.front()->span
+                });
+            }
+        } else {
+            const FunctionDeclStmt implicit_entry{};
+            module_.functions.push_back(FunctionLowerer(
+                source_, semantic_model_, signatures, implicit_entry,
+                diagnostics_, &top_level_statements).lower());
         }
         return IRLoweringResult{std::move(module_), std::move(diagnostics_)};
     }
