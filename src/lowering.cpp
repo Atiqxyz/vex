@@ -1039,7 +1039,7 @@ private:
 
         const IRBlockId header = create_block("for.header", header_parameters);
         const IRBlockId body = create_block("for.body");
-        const IRBlockId exit = create_block("for.exit");
+        const IRBlockId exit = create_block("for.exit", exit_parameters);
 
         std::vector<IRValueId> initial_arguments;
         initial_arguments.reserve(ids.size() + 1);

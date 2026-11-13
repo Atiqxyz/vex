@@ -4,6 +4,7 @@
 #include "vex/diagnostic.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>

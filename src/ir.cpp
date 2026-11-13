@@ -87,6 +87,16 @@ private:
         if (!is_value_type(value.type)) {
             report("IR006", "SSA values cannot have type void", value.span);
         }
+        if (value.type == IRType::Array &&
+            (value.element_type == IRType::Void || value.element_type == IRType::Array ||
+             value.array_length == 0 || value.array_length > 65536u)) {
+            report("IR050", "SSA array value has an invalid element type or fixed length",
+                   value.span);
+        } else if (value.type != IRType::Array &&
+                   (value.element_type != IRType::Void || value.array_length != 0)) {
+            report("IR051", "primitive SSA value cannot carry array shape metadata",
+                   value.span);
+        }
         const auto inserted = definitions_.emplace(
             value.id, Definition{value, block, position});
         if (!inserted.second) {

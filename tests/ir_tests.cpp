@@ -380,10 +380,68 @@ void test_dominance_and_call_signatures(TestContext& tests) {
                 "direct calls validate against signatures even when the callee is declared later");
 }
 
+
+void test_fixed_array_lowering_and_backends(TestContext& tests) {
+    const vex::SourceFile source{"arrays_ir.vex",
+        "make main() {\n"
+        "    let values = [1, 2, 3]\n"
+        "    values[1] = 9\n"
+        "    let selected = values[1]\n"
+        "    for item in values { say(item) }\n"
+        "    say(selected)\n"
+        "}\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() &&
+                !semantic.has_errors(),
+                "fixed array fixture passes lexing, parsing, and semantic analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(),
+                "fixed arrays, indexed writes, and for-in lower to SSA");
+    if (lowered.has_errors()) return;
+
+    const vex::IRVerificationResult verified =
+        vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(),
+                "array SSA values and loop-carried aggregate values verify");
+    if (verified.has_errors()) return;
+
+    bool has_array_make = false;
+    bool has_array_get = false;
+    bool has_array_set = false;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                has_array_make |= instruction.op == vex::IROp::ArrayMake;
+                has_array_get |= instruction.op == vex::IROp::ArrayGet;
+                has_array_set |= instruction.op == vex::IROp::ArraySet;
+            }
+        }
+    }
+    tests.check(has_array_make && has_array_get && has_array_set,
+                "IR contains array construction, reads, and updates");
+
+    const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() && c.source.find("vex_array_int_3") != std::string::npos &&
+                c.source.find("vex_checked_array_index") != std::string::npos,
+                "C backend emits fixed array storage and bounds checks");
+
+    const vex::BackendResult llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() && llvm.output.find("[3 x i64]") != std::string::npos &&
+                llvm.output.find("@vex_checked_array_index") != std::string::npos,
+                "LLVM backend emits aggregate arrays and bounds checks");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
     test_source_to_verified_ir_lowering(tests);
+    test_fixed_array_lowering_and_backends(tests);
     test_implicit_and_explicit_entry_points(tests);
     test_valid_typed_function(tests);
     test_block_arguments_and_control_flow(tests);

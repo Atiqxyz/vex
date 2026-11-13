@@ -364,6 +364,10 @@ private:
                 return Type::Bool;
             case TokenKind::EqualEqual:
             case TokenKind::BangEqual:
+                if (left == Type::Array || right == Type::Array) {
+                    report("SEM014", "fixed arrays cannot be compared as whole values", expression.span);
+                    return Type::Error;
+                }
                 if ((!is_numeric(left) || !is_numeric(right)) && left != right) {
                     report("SEM014", "equality operands must have compatible types; got " +
                            std::string(type_name(left)) + " and " + type_name(right),
