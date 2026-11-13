@@ -28,11 +28,17 @@ std::string llvm_type(const IRType type) {
     case IRType::Bool: return "i1";
     case IRType::String: return "{ ptr, i64 }";
     case IRType::Array: return "[0 x i8]";
+    case IRType::Struct: return "%vex.struct.0";
     }
     return "void";
 }
 
+std::string llvm_struct_type_name(const std::uint32_t id) {
+    return "%vex.struct." + std::to_string(id);
+}
+
 std::string llvm_type(const IRValue& value) {
+    if (value.type == IRType::Struct) return llvm_struct_type_name(value.struct_type_id);
     if (value.type != IRType::Array) return llvm_type(value.type);
     if (value.array_length == 0) return "ptr";
     return "[" + std::to_string(value.array_length) + " x " +
@@ -40,6 +46,8 @@ std::string llvm_type(const IRValue& value) {
 }
 
 std::string llvm_return_type(const IRFunction& function) {
+    if (function.return_type == IRType::Struct)
+        return llvm_struct_type_name(function.return_struct_type_id);
     if (function.return_type != IRType::Array)
         return llvm_type(function.return_type);
     if (function.return_array_length == 0) return "ptr";
@@ -258,8 +266,20 @@ private:
                    "c\"true\\00\", align 1\n"
                 << "@.vex_false = private unnamed_addr constant [6 x i8] "
                    "c\"false\\00\", align 1\n"
-                << "%vex.array = type { ptr, i64, i64, i64, ptr }\n"
-                << "@vex_array_head = internal global ptr null\n\n";
+                << "%vex.array = type { ptr, i64, i64, i64, ptr }\n";
+        for (const IRStructType& structure : module_.struct_types) {
+            output_ << llvm_struct_type_name(structure.id) << " = type { ";
+            for (std::size_t index = 0; index < structure.fields.size(); ++index) {
+                if (index != 0) output_ << ", ";
+                const IRStructField& field = structure.fields[index];
+                if (field.type == IRType::Struct)
+                    output_ << llvm_struct_type_name(field.struct_type_id);
+                else
+                    output_ << llvm_type(field.type);
+            }
+            output_ << " }\n";
+        }
+        output_ << "@vex_array_head = internal global ptr null\n\n";
     }
 
     void emit_string_globals() {
@@ -676,6 +696,9 @@ done:
         case IRType::Array:
             report("LLVM009", "array values must be constructed with array_make", instruction.span);
             return;
+        case IRType::Struct:
+            report("LLVM010", "structure values must be constructed with struct_make", instruction.span);
+            return;
         }
         store_result(instruction, result);
     }
@@ -947,6 +970,42 @@ done:
         case IROp::Say:
             emit_say(instruction, operands.front());
             return;
+        case IROp::StructMake: {
+            const IRValue& structure_value = *instruction.result;
+            const IRStructType& structure = module_.struct_types[structure_value.struct_type_id - 1u];
+            std::string aggregate = "poison";
+            const std::string type = llvm_type(structure_value);
+            for (std::size_t index = 0; index < structure.fields.size(); ++index) {
+                const std::string inserted = next_temp();
+                const IRValue& field_value = value_types_.at(instruction.operands[index]);
+                output_ << "  " << inserted << " = insertvalue " << type << ' '
+                        << aggregate << ", " << llvm_type(field_value) << ' '
+                        << operands[index] << ", " << index << "\n";
+                aggregate = inserted;
+            }
+            store_result(instruction, aggregate);
+            return;
+        }
+        case IROp::StructGet: {
+            const IRValue& object = value_types_.at(instruction.operands[0]);
+            const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
+            const std::string extracted = next_temp();
+            output_ << "  " << extracted << " = extractvalue " << llvm_type(object)
+                    << ' ' << operands[0] << ", " << index << "\n";
+            store_result(instruction, extracted);
+            return;
+        }
+        case IROp::StructSet: {
+            const IRValue& object = value_types_.at(instruction.operands[0]);
+            const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
+            const std::string inserted = next_temp();
+            const IRValue& field_value = value_types_.at(instruction.operands[1]);
+            output_ << "  " << inserted << " = insertvalue " << llvm_type(object)
+                    << ' ' << operands[0] << ", " << llvm_type(field_value) << ' '
+                    << operands[1] << ", " << index << "\n";
+            store_result(instruction, inserted);
+            return;
+        }
         case IROp::ArrayMake: {
             const IRValue& array = *instruction.result;
             if (array.array_length == 0) {
