@@ -27,7 +27,7 @@ case "$os:$arch" in
     ;;
 esac
 
-base_url="https://github.com/$repo/releases/latest/download"
+base_url="${VEX_RELEASE_BASE_URL:-https://github.com/$repo/releases/latest/download}"
 install_root="${VEX_INSTALL_DIR:-$HOME/.local/opt/vex}"
 install_root="$(mkdir -p "$(dirname "$install_root")" && cd "$(dirname "$install_root")" && pwd)/$(basename "$install_root")"
 tmp="$(mktemp -d)"
@@ -92,7 +92,9 @@ export VEX_HOME="$install_root"
 export PATH="$VEX_HOME/bin:$PATH"
 
 vsix="$install_root/share/vex/vex-language-0.1.0.vsix"
-if command -v code >/dev/null 2>&1 && [[ -f "$vsix" ]]; then
+if [[ -n "${VEX_SKIP_VSCODE:-}" ]]; then
+  : # Installer integration tests intentionally skip editor modification.
+elif command -v code >/dev/null 2>&1 && [[ -f "$vsix" ]]; then
   echo "Installing the VEX extension in Visual Studio Code..."
   code --install-extension "$vsix" --force || echo "VS Code extension installation failed; install it manually from: $vsix" >&2
 elif [[ -f "$vsix" ]]; then
