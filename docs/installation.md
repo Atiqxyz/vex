@@ -13,7 +13,7 @@ Invoke-WebRequest -Uri https://github.com/Atiqxyz/vex/releases/latest/download/i
 .\install-vex.ps1
 ```
 
-The script verifies the downloaded archive against the release SHA-256 manifest, installs VEX for your Windows user, adds VEX to your user `PATH`, and installs the VS Code extension when the `code` command is available.
+The script verifies the downloaded archive against the release SHA-256 manifest, installs VEX for your Windows user, adds VEX to your user `PATH`, and installs the VS Code extension when the `code` command is available. If Windows blocks the script because of the current execution policy, run it for this session with `powershell -ExecutionPolicy Bypass -File .\install-vex.ps1`; this does not change your system-wide execution policy.
 
 ### Linux and macOS
 
