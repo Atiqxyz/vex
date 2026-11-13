@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
 # Statically link the MSVC runtime so VEX itself does not require users to
-# install a separate Visual C++ Redistributable.
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
+# install a separate Visual C++ Redistributable. CMake must know this before
+# project() enables compiler languages; the setting is ignored by other compilers.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 project(VEX VERSION 0.1.0 LANGUAGES CXX)
 include(CTest)
