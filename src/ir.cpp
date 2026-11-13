@@ -73,6 +73,7 @@ private:
         if (function_.return_type == IRType::Array) {
             if (function_.return_element_type == IRType::Void ||
                 function_.return_element_type == IRType::Array ||
+                function_.return_element_type == IRType::Struct ||
                 function_.return_array_length > 65536u) {
                 report("IR053", "function has an invalid fixed-array return shape",
                        function_.span);
@@ -111,7 +112,7 @@ private:
         }
         if (value.type == IRType::Array &&
             (value.element_type == IRType::Void || value.element_type == IRType::Array ||
-             value.array_length > 65536u)) {
+             value.element_type == IRType::Struct || value.array_length > 65536u)) {
             report("IR050", "SSA array value has an invalid element type or fixed length",
                    value.span);
         } else if (value.type == IRType::Struct) {
@@ -389,7 +390,7 @@ private:
             }
             const IRValue& result = *instruction.result;
             if (result.element_type == IRType::Void || result.element_type == IRType::Array ||
-                result.array_length > 65536u)
+                result.element_type == IRType::Struct || result.array_length > 65536u)
                 report("IR042", "array result has an invalid element type or length", result.span);
             if (result.array_length != 0 &&
                 instruction.operands.size() != result.array_length)

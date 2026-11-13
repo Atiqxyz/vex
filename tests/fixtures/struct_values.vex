@@ -29,4 +29,8 @@ make main() {
     say(shifted.x)
     say(point.x)
     say(assigned.x)
+
+    let assignment_result = (point = Point { x: 4, y: 5 })
+    say(assignment_result.x)
+    say(point.x)
 }

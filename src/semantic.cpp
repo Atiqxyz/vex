@@ -445,7 +445,7 @@ private:
             for (const ExprPtr& element : array->elements) {
                 const Type actual = element ? analyze_expression(*element) : Type::Error;
                 if (actual == Type::Error || actual == Type::Void ||
-                    actual == Type::Array || actual == Type::Any) {
+                    actual == Type::Array || actual == Type::Struct || actual == Type::Any) {
                     report("SEM041", "array elements must use one supported primitive type",
                            element ? element->span : expression.span);
                     return Type::Error;
@@ -754,6 +754,8 @@ private:
                     (target_type == Type::Struct && target_struct != actual_struct))
                     report("SEM018", "cannot assign an incompatible value to structure field",
                            expression.span);
+                if (target_type == Type::Struct && target_struct != 0)
+                    model_.struct_expression_types[&expression] = target_struct;
                 return target_type;
             }
             if (const auto* indexed = assignment->target
@@ -851,6 +853,8 @@ private:
                        " to " + type_name(symbol->type) + " binding '" + identifier + "'",
                        expression.span);
             }
+            if (symbol->type == Type::Struct)
+                model_.struct_expression_types[&expression] = symbol->struct_type_id;
             return symbol->type;
         }
 
