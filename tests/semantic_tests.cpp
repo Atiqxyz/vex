@@ -153,7 +153,7 @@ void test_control_flow_return_analysis(TestContext& tests) {
         "    repeat 2 times { return 9 }\n"
         "}\n"
         "make array_returns() -> int {\n"
-        "    let values = [10]\n"
+        "    let values = [10,]\n"
         "    for value in values { return value }\n"
         "}\n"
         "make range_returns() -> int {\n"
