@@ -225,6 +225,26 @@ void test_loop_control_scope_and_while_condition(TestContext& tests) {
     tests.check(has_code(bad, "SEM034"), "while requires a boolean condition");
 }
 
+void test_top_level_execution_scope(TestContext& tests) {
+    const vex::SourceFile script{"top_level.vex",
+        "let mass = 1200.0\n"
+        "let acceleration = 9.81\n"
+        "let force = mass * acceleration\n"
+        "say(force)\n"};
+    const vex::SemanticResult accepted = analyze(script);
+    tests.check(!accepted.has_errors(),
+                "top-level executable statements can reference earlier top-level bindings");
+
+    const vex::SourceFile captured{"top_level_capture.vex",
+        "let gravity = 9.81\n"
+        "make calculate(mass: float) -> float {\n"
+        "    return mass * gravity\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(captured);
+    tests.check(has_code(rejected, "SEM001"),
+                "ordinary functions cannot capture implicit-entry top-level variables");
+}
+
 void test_unimplemented_iteration_is_explicit(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
@@ -251,5 +271,6 @@ void run_semantic_tests(TestContext& tests) {
     test_semantic_model_exposes_typed_resolutions(tests);
     test_math_standard_library_signatures(tests);
     test_loop_control_scope_and_while_condition(tests);
+    test_top_level_execution_scope(tests);
     test_unimplemented_iteration_is_explicit(tests);
 }
