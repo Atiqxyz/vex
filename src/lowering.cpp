@@ -1331,13 +1331,22 @@ private:
         for (std::size_t index = 0; index < ids.size(); ++index)
             loop_environment[ids[index]] = header_parameters[index + 1];
 
+        IRValue current_array = *iterable;
+        if (const auto* name = std::get_if<NameExpr>(&iterable_expression->data)) {
+            const auto binding = semantic_model_.resolved_names.find(name);
+            if (binding != semantic_model_.resolved_names.end()) {
+                const auto current = loop_environment.find(binding->second);
+                if (current != loop_environment.end()) current_array = current->second;
+            }
+        }
+
         current_block_ = header;
         environment_ = loop_environment;
         IRValue length;
         if (iterable->array_length == 0) {
             IRInstruction length_instruction;
             length_instruction.op = IROp::ArrayLength;
-            length_instruction.operands = {iterable->id};
+            length_instruction.operands = {current_array.id};
             length_instruction.result = make_value(IRType::Int, span);
             length_instruction.span = span;
             length = *length_instruction.result;
@@ -1361,14 +1370,6 @@ private:
 
         current_block_ = body;
         environment_ = loop_environment;
-        IRValue current_array = *iterable;
-        if (const auto* name = std::get_if<NameExpr>(&iterable_expression->data)) {
-            const auto binding = semantic_model_.resolved_names.find(name);
-            if (binding != semantic_model_.resolved_names.end()) {
-                const auto current = environment_.find(binding->second);
-                if (current != environment_.end()) current_array = current->second;
-            }
-        }
         IRInstruction read_element;
         read_element.op = IROp::ArrayGet;
         read_element.operands = {current_array.id, index_parameter.id};
