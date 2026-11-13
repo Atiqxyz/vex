@@ -2,12 +2,12 @@ $ErrorActionPreference = "Stop"
 
 $repo = "Atiqxyz/vex"
 $asset = "vex-windows-x64.zip"
-$baseUrl = "https://github.com/$repo/releases/latest/download"
+$baseUrl = if ($env:VEX_RELEASE_BASE_URL) { $env:VEX_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/latest/download" }
 $tempRoot = Join-Path $env:TEMP ("vex-install-" + [guid]::NewGuid().ToString("N"))
 $archive = Join-Path $tempRoot $asset
 $checksums = Join-Path $tempRoot "SHA256SUMS.txt"
 $unpackRoot = Join-Path $tempRoot "unpacked"
-$installRoot = Join-Path $env:LOCALAPPDATA "Programs\VEX"
+$installRoot = if ($env:VEX_INSTALL_DIR) { $env:VEX_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\VEX" }
 $binPath = Join-Path $installRoot "bin"
 
 try {
@@ -57,7 +57,9 @@ try {
 
     $vsix = Join-Path $installRoot "share\vex\vex-language-0.1.0.vsix"
     $codeCommand = Get-Command code -ErrorAction SilentlyContinue
-    if ($codeCommand -and (Test-Path $vsix)) {
+    if ($env:VEX_SKIP_VSCODE) {
+        # Installer integration tests intentionally skip editor modification.
+    } elseif ($codeCommand -and (Test-Path $vsix)) {
         Write-Host "Installing the VEX extension in Visual Studio Code..."
         & $codeCommand.Source --install-extension $vsix --force
         if ($LASTEXITCODE -ne 0) {
