@@ -57,6 +57,18 @@ fs::path bundled_llvm_compiler_path(const fs::path& executable_path) {
 #endif
 }
 
+fs::path bundled_zig_compiler_path(const fs::path& executable_path) {
+    if (executable_path.empty()) return {};
+
+    const fs::path installation_root =
+        executable_path.parent_path().parent_path();
+#ifdef _WIN32
+    return installation_root / "toolchain" / "zig.exe";
+#else
+    return installation_root / "toolchain" / "zig";
+#endif
+}
+
 } // namespace detail
 
 namespace {
@@ -204,39 +216,64 @@ std::vector<std::string> compiler_candidates() {
     return candidates;
 }
 
-std::vector<std::string> llvm_compiler_candidates() {
-    std::vector<std::string> candidates;
-    const auto add = [&candidates](const char* value) {
-        if (value == nullptr || *value == '\0') return;
-        for (const std::string& existing : candidates) {
-            if (existing == value) return;
-        }
-        candidates.emplace_back(value);
-    };
-    add(std::getenv("VEX_LLVM_CC"));
-    add(std::getenv("LLVM_CC"));
+struct LLVMCompilerCandidate {
+    std::string executable;
+    std::vector<std::string> prefix_arguments;
+};
 
-    // VEX_HOME is useful for portable installations where the compiler is
-    // launched through a wrapper or copied somewhere outside its install tree.
-    if (const char* home = std::getenv("VEX_HOME"); home != nullptr && *home != '\0') {
+std::vector<LLVMCompilerCandidate> llvm_compiler_candidates() {
+    std::vector<LLVMCompilerCandidate> candidates;
+    const auto add = [&candidates](
+        const fs::path& executable,
+        std::vector<std::string> prefix_arguments = {}) {
+        if (executable.empty()) return;
+        const std::string path = executable.string();
+        if (path.empty()) return;
+        for (const LLVMCompilerCandidate& existing : candidates) {
+            if (existing.executable == path &&
+                existing.prefix_arguments == prefix_arguments) {
+                return;
+            }
+        }
+        candidates.push_back({path, std::move(prefix_arguments)});
+    };
+    const auto add_clang = [&add](const char* value) {
+        if (value != nullptr && *value != '\0') add(fs::path(value));
+    };
+    const auto add_zig = [&add](const fs::path& value) {
+        if (!value.empty()) add(value, {"clang"});
+    };
+
+    add_clang(std::getenv("VEX_LLVM_CC"));
+    if (const char* zig = std::getenv("VEX_LLVM_ZIG");
+        zig != nullptr && *zig != '\0') {
+        add_zig(fs::path(zig));
+    }
+    add_clang(std::getenv("LLVM_CC"));
+
+    if (const char* home = std::getenv("VEX_HOME");
+        home != nullptr && *home != '\0') {
 #ifdef _WIN32
-        const fs::path configured = fs::path(home) / "toolchain" / "bin" / "clang.exe";
+        add_zig(fs::path(home) / "toolchain" / "zig.exe");
+        add_clang((fs::path(home) / "toolchain" / "bin" / "clang.exe").string().c_str());
 #else
-        const fs::path configured = fs::path(home) / "toolchain" / "bin" / "clang";
+        add_zig(fs::path(home) / "toolchain" / "zig");
+        add_clang((fs::path(home) / "toolchain" / "bin" / "clang").string().c_str());
 #endif
-        add(configured.string().c_str());
     }
 
     const fs::path executable = current_executable_path();
     if (!executable.empty()) {
-        const fs::path bundled = detail::bundled_llvm_compiler_path(executable);
-        add(bundled.string().c_str());
+        add_zig(detail::bundled_zig_compiler_path(executable));
+        add_clang(detail::bundled_llvm_compiler_path(executable).string().c_str());
     }
 
 #ifdef _WIN32
-    add("clang.exe");
+    add_clang("clang.exe");
+    add_zig("zig.exe");
 #else
-    add("clang");
+    add_clang("clang");
+    add_zig("zig");
 #endif
     return candidates;
 }
@@ -392,15 +429,16 @@ int build_llvm_to_output(
         return 1;
     }
 
-    std::string last_error = "no Clang executable was found";
-    for (const std::string& compiler : llvm_compiler_candidates()) {
-        std::vector<std::string> arguments{
+    std::string last_error = "no bundled Zig or Clang executable was found";
+    for (const LLVMCompilerCandidate& compiler : llvm_compiler_candidates()) {
+        std::vector<std::string> arguments = compiler.prefix_arguments;
+        arguments.insert(arguments.end(), {
             "-O2", generated_llvm.string(), "-o", output_absolute.string()
-        };
+        });
 #ifndef _WIN32
         arguments.emplace_back("-lm");
 #endif
-        const ProcessResult result = run_process(compiler, arguments);
+        const ProcessResult result = run_process(compiler.executable, arguments);
         if (!result.started) {
             last_error = result.error;
             continue;
@@ -417,9 +455,9 @@ int build_llvm_to_output(
     }
 
     std::cerr << "error: " << last_error
-              << ". Place Clang in the VEX installation's toolchain/bin directory, "
-              << "set VEX_HOME to the installation root, install Clang, or set "
-              << "VEX_LLVM_CC to its executable path.\n";
+              << ". Install VEX with its bundled toolchain, place Zig in the VEX "
+              << "installation's toolchain directory, install Clang, or set "
+              << "VEX_LLVM_ZIG or VEX_LLVM_CC to an executable path.\n";
     return 1;
 }
 
