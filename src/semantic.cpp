@@ -154,9 +154,17 @@ private:
     }
 
     [[nodiscard]] Symbol* lookup(const std::string& name) {
-        for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
-            const auto found = scope->find(name);
-            if (found != scope->end()) return &found->second;
+        for (std::size_t index = scopes_.size(); index > 0; --index) {
+            Scope& scope = scopes_[index - 1];
+            const auto found = scope.find(name);
+            if (found == scope.end()) continue;
+
+            // File-scope values belong to implicit top-level execution. They
+            // are not globals that separately declared functions can capture.
+            if (inside_function_ && index == 1 && !found->second.is_function) {
+                return nullptr;
+            }
+            return &found->second;
         }
         return nullptr;
     }
