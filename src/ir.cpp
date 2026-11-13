@@ -407,7 +407,7 @@ private:
             } else if constexpr (std::is_same_v<T, IRConditionalBranch>) {
                 const auto condition = definitions_.find(terminator.condition);
                 if (condition != definitions_.end() &&
-                    condition->second.type != IRType::Bool) {
+                    condition->second.value.type != IRType::Bool) {
                     report("IR032", "conditional branch requires a bool condition",
                            block.terminator->span);
                 }

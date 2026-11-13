@@ -340,7 +340,7 @@ private:
         std::vector<IRValue> parameters;
         parameters.reserve(changed.size());
         for (const SemanticBindingId id : changed) {
-            parameters.push_back(make_value(base.at(id).type, span));
+            parameters.push_back(make_value_like(base.at(id), span));
         }
         const IRBlockId merge = create_block(block_name, parameters);
 
@@ -407,7 +407,7 @@ private:
         std::vector<IRValue> parameters;
         parameters.reserve(changed.size() + 1);
         for (const SemanticBindingId id : changed) {
-            parameters.push_back(make_value(base.at(id).type, expression.span));
+            parameters.push_back(make_value_like(base.at(id), expression.span));
         }
         const IRValue result_parameter = make_value(IRType::Bool, expression.span);
         parameters.push_back(result_parameter);
@@ -640,6 +640,49 @@ private:
         if (const auto* group = std::get_if<GroupExpr>(&expression.data)) {
             return group->expression ? lower_expression(*group->expression) : std::nullopt;
         }
+        if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression.data)) {
+            const auto shape = semantic_model_.array_expression_types.find(&expression);
+            if (shape == semantic_model_.array_expression_types.end()) {
+                report("IR141", "array literal is missing semantic shape information", expression.span);
+                return std::nullopt;
+            }
+            const auto element_type = to_ir_type(shape->second.element_type);
+            if (!element_type || *element_type == IRType::Void || *element_type == IRType::Array) {
+                report("IR142", "array element type cannot be represented in IR", expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::ArrayMake;
+            instruction.span = expression.span;
+            instruction.result = make_array_value(*element_type, shape->second.length, expression.span);
+            instruction.operands.reserve(array->elements.size());
+            for (const ExprPtr& element : array->elements) {
+                if (!element) return std::nullopt;
+                const auto value = lower_expression(*element);
+                if (!value) return std::nullopt;
+                const auto converted = convert(*value, *element_type, element->span);
+                if (!converted) return std::nullopt;
+                instruction.operands.push_back(converted->id);
+            }
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
+        if (const auto* indexed = std::get_if<IndexExpr>(&expression.data)) {
+            if (!indexed->object || !indexed->index) return std::nullopt;
+            const auto array = lower_expression(*indexed->object);
+            const auto index = lower_expression(*indexed->index);
+            if (!array || !index || array->type != IRType::Array || index->type != IRType::Int)
+                return std::nullopt;
+            IRInstruction instruction;
+            instruction.op = IROp::ArrayGet;
+            instruction.operands = {array->id, index->id};
+            instruction.result = make_value(array->element_type, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
             if (!unary->operand) return std::nullopt;
             const auto operand = lower_expression(*unary->operand);
@@ -656,6 +699,34 @@ private:
         }
         if (const auto* assignment =
                 std::get_if<AssignmentExpr>(&expression.data)) {
+            if (const auto* indexed = assignment->target
+                    ? std::get_if<IndexExpr>(&assignment->target->data) : nullptr) {
+                const auto target = semantic_model_.assignment_targets.find(assignment);
+                if (target == semantic_model_.assignment_targets.end() ||
+                    !indexed->index || !assignment->value) {
+                    report("IR143", "array element assignment is missing resolved target information", expression.span);
+                    return std::nullopt;
+                }
+                const IRValue array = current_value(target->second, expression.span);
+                if (array.type != IRType::Array) {
+                    report("IR144", "array element assignment target is not an array value", expression.span);
+                    return std::nullopt;
+                }
+                const auto index = lower_expression(*indexed->index);
+                const auto value = lower_expression(*assignment->value);
+                if (!index || !value || index->type != IRType::Int) return std::nullopt;
+                const auto converted = convert(*value, array.element_type, expression.span);
+                if (!converted) return std::nullopt;
+                IRInstruction instruction;
+                instruction.op = IROp::ArraySet;
+                instruction.operands = {array.id, index->id, converted->id};
+                instruction.result = make_value_like(array, expression.span);
+                instruction.span = expression.span;
+                const IRValue updated = *instruction.result;
+                emit(std::move(instruction));
+                environment_[target->second] = updated;
+                return *converted;
+            }
             const auto target = semantic_model_.assignment_targets.find(assignment);
             if (target == semantic_model_.assignment_targets.end()) {
                 report("IR126", "assignment has no resolved target binding",
@@ -792,9 +863,9 @@ private:
         body_parameters.reserve(ids.size());
         exit_parameters.reserve(ids.size());
         for (const SemanticBindingId id : ids) {
-            header_parameters.push_back(make_value(base.at(id).type, span));
-            body_parameters.push_back(make_value(base.at(id).type, span));
-            exit_parameters.push_back(make_value(base.at(id).type, span));
+            header_parameters.push_back(make_value_like(base.at(id), span));
+            body_parameters.push_back(make_value_like(base.at(id), span));
+            exit_parameters.push_back(make_value_like(base.at(id), span));
         }
 
         const IRBlockId header = create_block("while.header", header_parameters);
@@ -867,13 +938,13 @@ private:
         const IRValue index_parameter = make_value(IRType::Int, span);
         header_parameters.push_back(index_parameter);
         for (const SemanticBindingId id : ids) {
-            header_parameters.push_back(make_value(base.at(id).type, span));
+            header_parameters.push_back(make_value_like(base.at(id), span));
         }
 
         std::vector<IRValue> exit_parameters;
         exit_parameters.reserve(ids.size());
         for (const SemanticBindingId id : ids) {
-            exit_parameters.push_back(make_value(base.at(id).type, span));
+            exit_parameters.push_back(make_value_like(base.at(id), span));
         }
 
         const IRBlockId header = create_block("repeat.header", header_parameters);
@@ -936,6 +1007,116 @@ private:
         }
     }
 
+    void lower_for(const ForStmt& loop, const SourceSpan span) {
+        if (!loop.iterable || !loop.body || !current_block_) return;
+        const auto iterable = lower_expression(*loop.iterable);
+        if (!iterable || iterable->type != IRType::Array || iterable->array_length == 0) {
+            report("IR145", "for-in requires a non-empty fixed-size array", span);
+            return;
+        }
+        const auto iteration_binding = semantic_model_.for_bindings.find(&loop);
+        if (iteration_binding == semantic_model_.for_bindings.end()) {
+            report("IR146", "for-in variable is missing its semantic binding", loop.variable);
+            return;
+        }
+
+        const Environment base = environment_;
+        const std::vector<SemanticBindingId> ids = sorted_environment_ids(base);
+        const IRBlockId preheader = *current_block_;
+        const IRValue zero = emit_constant(IRType::Int, "0", span);
+        const IRValue index_parameter = make_value(IRType::Int, span);
+
+        std::vector<IRValue> header_parameters;
+        header_parameters.reserve(ids.size() + 1);
+        header_parameters.push_back(index_parameter);
+        for (const SemanticBindingId id : ids)
+            header_parameters.push_back(make_value_like(base.at(id), span));
+
+        std::vector<IRValue> exit_parameters;
+        exit_parameters.reserve(ids.size());
+        for (const SemanticBindingId id : ids)
+            exit_parameters.push_back(make_value_like(base.at(id), span));
+
+        const IRBlockId header = create_block("for.header", header_parameters);
+        const IRBlockId body = create_block("for.body");
+        const IRBlockId exit = create_block("for.exit");
+
+        std::vector<IRValueId> initial_arguments;
+        initial_arguments.reserve(ids.size() + 1);
+        initial_arguments.push_back(zero.id);
+        for (const SemanticBindingId id : ids)
+            initial_arguments.push_back(base.at(id).id);
+        set_terminator(preheader,
+            IRTerminator{IRBranch{header, std::move(initial_arguments)}, span});
+
+        Environment loop_environment = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            loop_environment[ids[index]] = header_parameters[index + 1];
+
+        current_block_ = header;
+        environment_ = loop_environment;
+        const IRValue length = emit_constant(IRType::Int,
+            std::to_string(iterable->array_length), span);
+        const IRValue condition = emit_operation(
+            IROp::Less, IRType::Bool,
+            {index_parameter.id, length.id}, span);
+
+        std::vector<IRValueId> exit_arguments;
+        exit_arguments.reserve(ids.size());
+        for (const SemanticBindingId id : ids)
+            exit_arguments.push_back(loop_environment.at(id).id);
+        set_terminator(header, IRTerminator{
+            IRConditionalBranch{condition.id, body, {}, exit,
+                                std::move(exit_arguments)}, span
+        });
+
+        current_block_ = body;
+        environment_ = loop_environment;
+        IRValue current_array = *iterable;
+        const Expr* iterable_expression = loop.iterable.get();
+        while (const auto* group = std::get_if<GroupExpr>(&iterable_expression->data)) {
+            if (!group->expression) break;
+            iterable_expression = group->expression.get();
+        }
+        if (const auto* name = std::get_if<NameExpr>(&iterable_expression->data)) {
+            const auto binding = semantic_model_.resolved_names.find(name);
+            if (binding != semantic_model_.resolved_names.end()) {
+                const auto current = environment_.find(binding->second);
+                if (current != environment_.end()) current_array = current->second;
+            }
+        }
+        IRInstruction read_element;
+        read_element.op = IROp::ArrayGet;
+        read_element.operands = {current_array.id, index_parameter.id};
+        read_element.result = make_value(iterable->element_type, span);
+        read_element.span = span;
+        const IRValue element = *read_element.result;
+        emit(std::move(read_element));
+        environment_[iteration_binding->second] = element;
+
+        loops_.push_back(LoopContext{header, exit, ids, index_parameter});
+        lower_statement(*loop.body);
+        loops_.pop_back();
+        if (current_block_) {
+            const IRValue one = emit_constant(IRType::Int, "1", span);
+            const IRValue next_index = emit_operation(
+                IROp::Add, IRType::Int, {index_parameter.id, one.id}, span);
+            std::vector<IRValueId> backedge_arguments;
+            backedge_arguments.reserve(ids.size() + 1);
+            backedge_arguments.push_back(next_index.id);
+            for (const SemanticBindingId id : ids)
+                backedge_arguments.push_back(environment_value(environment_, id, span).id);
+            terminate_current(IRTerminator{
+                IRBranch{header, std::move(backedge_arguments)}, span
+            });
+        }
+
+        environment_ = base;
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            environment_[ids[index]] = exit_parameters[index];
+        current_block_ = exit;
+    }
+
     void lower_statement(const Statement& statement) {
         if (!current_block_) return;
 
@@ -988,9 +1169,8 @@ private:
             lower_repeat(*repeat, statement.span);
             return;
         }
-        if (std::holds_alternative<ForStmt>(statement.data)) {
-            report("IR135", "for-in cannot be lowered until iterable types are implemented",
-                   statement.span);
+        if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
+            lower_for(*loop, statement.span);
             return;
         }
         if (std::holds_alternative<FunctionDeclStmt>(statement.data)) {
