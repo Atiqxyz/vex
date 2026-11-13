@@ -438,10 +438,21 @@ int build_llvm_to_output(
 #else
             const fs::path object_file = temporary_directory / "program.o";
 #endif
-            const ProcessResult compile_result = run_process(compiler.executable, {
-                "clang", "-O2", "-c", generated_llvm.string(),
-                "-o", object_file.string()
+            std::vector<std::string> compile_arguments{
+                "clang", "-O2"
+            };
+#ifdef __linux__
+            // Produce Linux programs against bundled musl rather than the
+            // build host's glibc version.
+            compile_arguments.insert(compile_arguments.end(), {
+                "-target", "x86_64-linux-musl"
             });
+#endif
+            compile_arguments.insert(compile_arguments.end(), {
+                "-c", generated_llvm.string(), "-o", object_file.string()
+            });
+            const ProcessResult compile_result =
+                run_process(compiler.executable, compile_arguments);
             if (!compile_result.started) {
                 last_error = compile_result.error;
                 continue;
@@ -453,8 +464,14 @@ int build_llvm_to_output(
             }
 
             std::vector<std::string> link_arguments{
-                "build-exe", object_file.string(), "-O", "ReleaseFast", "-lc"
+                "build-exe", object_file.string(), "-O", "ReleaseFast"
             };
+#ifdef __linux__
+            link_arguments.insert(link_arguments.end(), {
+                "-target", "x86_64-linux-musl"
+            });
+#endif
+            link_arguments.emplace_back("-lc");
 #ifndef _WIN32
             link_arguments.emplace_back("-lm");
 #endif
