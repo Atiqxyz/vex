@@ -1,6 +1,8 @@
 #include "test_support.hpp"
 
 #include "vex/ir.hpp"
+#include "vex/c_backend.hpp"
+#include "vex/llvm_backend.hpp"
 #include "vex/lexer.hpp"
 #include "vex/lowering.hpp"
 #include "vex/parser.hpp"
@@ -104,6 +106,19 @@ void test_source_to_verified_ir_lowering(TestContext& tests) {
         vex::IRVerifier{}.verify(lowered.module);
     tests.check(!verified.has_errors(),
                 "lowered functions pass the independent IR verifier");
+
+    const vex::CBackendResult generated_c =
+        vex::CBackend{}.generate(lowered.module);
+    tests.check(!generated_c.has_errors() && !generated_c.source.empty(),
+                "C backend accepts and emits the new loop-control IR");
+
+    const vex::BackendResult generated_llvm =
+        vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!generated_llvm.has_errors() && !generated_llvm.output.empty(),
+                "LLVM backend accepts and emits the new loop-control IR");
+    tests.check(generated_llvm.output.find("br i1") != std::string::npos,
+                "LLVM backend preserves while-loop conditional branches");
+
     tests.check(lowered.module.functions.size() == 2,
                 "IR module contains every top-level function");
 
