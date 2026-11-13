@@ -73,7 +73,7 @@ mv "$payload" "$install_root"
 
 path_line='export PATH="$VEX_HOME/bin:$PATH"'
 home_line="export VEX_HOME=\"$install_root\""
-profile_files=("$HOME/.profile" "$HOME/.bashrc")
+profile_files=("$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc")
 if [[ "$os" == "Darwin" ]]; then
   profile_files+=("$HOME/.zprofile")
 fi
@@ -103,5 +103,5 @@ fi
 
 echo
 echo "VEX is installed at $install_root"
-echo "Open a new terminal, or run: source ~/.profile"
+echo "Open a new terminal or reload your shell configuration."
 echo "Then run: vex --version"
