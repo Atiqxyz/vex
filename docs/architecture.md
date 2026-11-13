@@ -76,7 +76,7 @@ Semantic analysis returns a `SemanticModel` alongside diagnostics. It records ex
 
 The initial IR is backend-independent and uses SSA values. Functions contain basic blocks with explicit terminators. Block parameters receive values from incoming branches and serve as control-flow merge points. The IR keeps the supported primitive types explicit and retains source spans for diagnostics.
 
-The AST-to-IR lowerer consumes the semantic model. It handles function parameters, constants, name references, assignments (compound assignments are desugared in the parser), primitive operators, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, counted `repeat` loops, condition-driven `while` loops, and SSA-safe `break`/`continue` edges. Integer-to-float widening becomes an explicit conversion instruction. Constructs that are parsed but not semantically supported, such as `for-in`, are not lowered.
+The AST-to-IR lowerer consumes the semantic model. It handles function parameters, constants, name references, assignments (compound assignments are desugared in the parser), primitive operators, direct calls, `say`, `if/else`, short-circuit `&&` and `||`, counted `repeat` loops, condition-driven `while` loops, SSA-safe `break`/`continue` edges, and a synthesized entry function when top-level statements are used without an explicit `main()`. Integer-to-float widening becomes an explicit conversion instruction. Constructs that are parsed but not semantically supported, such as `for-in`, are not lowered.
 
 The independent verifier checks instruction and call types, SSA definitions and uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs.
 
@@ -131,6 +131,7 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Operator, condition, assignment, call, and return type checking
 - [x] Boolean while-loop conditions and loop-control scope checking
 - [x] While loops, break/continue, and compound assignment lowering
+- [x] Implicit top-level entry function when no explicit main is declared
 - [x] Command-line semantic-check and verified IR-inspection commands
 - [x] Cross-platform CMake build and CI configuration
 - [ ] Collections and iterable type checking
