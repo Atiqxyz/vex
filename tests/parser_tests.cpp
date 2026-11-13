@@ -152,6 +152,44 @@ void test_control_flow_and_assignment(TestContext& tests) {
                 "if/else, compound assignment, repeat, while, loop control, and for statements parse");
 }
 
+
+void test_array_literal_indexing_and_assignment(TestContext& tests) {
+    const vex::SourceFile source{"arrays.vex",
+        "make main() {\n"
+        "    let values = [10, 20, 30]\n"
+        "    say(values[1])\n"
+        "    values[2] = 42\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(),
+                "array literals, indexing, and indexed assignment parse");
+    if (parsed.has_errors()) return;
+    const auto* function =
+        std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements.front()->data);
+    if (!function || !function->body) return;
+    const auto* body = std::get_if<vex::BlockStmt>(&function->body->data);
+    if (!body || body->statements.size() < 3) return;
+    const auto* variable =
+        std::get_if<vex::VariableDeclStmt>(&body->statements[0]->data);
+    tests.check(variable && variable->initializer &&
+                std::holds_alternative<vex::ArrayLiteralExpr>(variable->initializer->data),
+                "comma-separated brackets produce an array literal AST node");
+    const auto* output =
+        std::get_if<vex::ExpressionStmt>(&body->statements[1]->data);
+    const auto* call = output && output->expression
+        ? std::get_if<vex::CallExpr>(&output->expression->data) : nullptr;
+    tests.check(call && call->arguments.size() == 1 &&
+                std::holds_alternative<vex::IndexExpr>(call->arguments[0]->data),
+                "postfix brackets produce an array-index AST node");
+    const auto* assignment_stmt =
+        std::get_if<vex::ExpressionStmt>(&body->statements[2]->data);
+    const auto* assignment = assignment_stmt && assignment_stmt->expression
+        ? std::get_if<vex::AssignmentExpr>(&assignment_stmt->expression->data) : nullptr;
+    tests.check(assignment && assignment->target &&
+                std::holds_alternative<vex::IndexExpr>(assignment->target->data),
+                "array indexing can be used as a simple assignment target");
+}
+
 void test_if_without_else_preserves_next_statement(TestContext& tests) {
     const vex::SourceFile source{"if_separator.vex",
         "make main() {\n"
@@ -198,6 +236,7 @@ void run_parser_tests(TestContext& tests) {
     test_unary_expression_in_call_argument(tests);
     test_multiline_expression(tests);
     test_control_flow_and_assignment(tests);
+    test_array_literal_indexing_and_assignment(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }

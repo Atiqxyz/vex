@@ -229,6 +229,18 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
     if (!left) return nullptr;
     while (true) {
         if (allow_newlines) skip_newlines();
+        if (check(TokenKind::LeftBracket) && minimum_precedence <= 10) {
+            static_cast<void>(advance());
+            skip_newlines();
+            ExprPtr index = parse_expression(true);
+            const Token closing = expect(TokenKind::RightBracket,
+                                         "expected ']' after array index");
+            if (!index) return nullptr;
+            const std::size_t begin = left->span.begin;
+            left = make_expression(SourceSpan{begin, closing.span.end},
+                                   IndexExpr{std::move(left), std::move(index)});
+            continue;
+        }
         if (check(TokenKind::LeftParen) && minimum_precedence <= 9) {
             static_cast<void>(advance());
             std::vector<ExprPtr> arguments;
@@ -270,12 +282,12 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
         if (op.kind == TokenKind::Equal || is_compound_assignment) {
             if (!is_assignment_target(*left)) {
                 diagnostics_.error("PAR007",
-                    "the left side of an assignment must be a variable name", left->span);
+                    "the left side of an assignment must be a variable or array element",
+                    left->span);
                 left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
             } else if (op.kind == TokenKind::Equal) {
                 left = make_expression(span, AssignmentExpr{std::move(left), std::move(right)});
-            } else {
-                const auto* target = std::get_if<NameExpr>(&left->data);
+            } else if (const auto* target = std::get_if<NameExpr>(&left->data)) {
                 const SourceSpan target_span = target->name;
                 const TokenKind binary_op =
                     op.kind == TokenKind::PlusEqual ? TokenKind::Plus :
@@ -288,6 +300,11 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
                     BinaryExpr{binary_op, std::move(target_read), std::move(right)});
                 left = make_expression(span,
                     AssignmentExpr{std::move(left), std::move(combined)});
+            } else {
+                diagnostics_.error("PAR007",
+                    "compound assignment to an array element is not supported yet",
+                    left->span);
+                left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
             }
         } else {
             left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
@@ -318,16 +335,34 @@ ExprPtr Parser::parse_prefix(const bool allow_newlines) {
     if (match(TokenKind::LeftBracket)) {
         const Token opening = previous();
         skip_newlines();
-        ExprPtr expression = parse_expression(true);
+        std::vector<ExprPtr> elements;
+        if (match(TokenKind::RightBracket)) {
+            return make_expression(SourceSpan{opening.span.begin, previous().span.end},
+                                   ArrayLiteralExpr{std::move(elements)});
+        }
+        ExprPtr first = parse_expression(true);
+        if (!first) return nullptr;
+        if (match(TokenKind::Comma)) {
+            elements.push_back(std::move(first));
+            skip_newlines();
+            while (!check(TokenKind::RightBracket) && !check(TokenKind::EndOfFile)) {
+                ExprPtr element = parse_expression(true);
+                if (!element) break;
+                elements.push_back(std::move(element));
+                skip_newlines();
+                if (!match(TokenKind::Comma)) break;
+                skip_newlines();
+            }
+            const Token closing = expect(TokenKind::RightBracket,
+                                         "expected ']' after array elements");
+            return make_expression(SourceSpan{opening.span.begin, closing.span.end},
+                                   ArrayLiteralExpr{std::move(elements)});
+        }
         skip_newlines();
         const Token closing = expect(TokenKind::RightBracket,
                                      "expected ']' after multiline expression");
-        if (!expression) {
-            diagnostics_.error("PAR009", "multiline expression cannot be empty", opening.span);
-            return nullptr;
-        }
         return make_expression(SourceSpan{opening.span.begin, closing.span.end},
-                               GroupExpr{std::move(expression), true});
+                               GroupExpr{std::move(first), true});
     }
     if (check(TokenKind::Integer) || check(TokenKind::Float) ||
         check(TokenKind::String) || check(TokenKind::KwTrue) ||
@@ -352,7 +387,8 @@ ExprPtr Parser::parse_prefix(const bool allow_newlines) {
 ExprPtr Parser::make_expression(
     const SourceSpan span,
     std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
-                 AssignmentExpr, CallExpr, GroupExpr> data) {
+                 AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
+                 IndexExpr> data) {
     return std::make_unique<Expr>(Expr{span, std::move(data)});
 }
 int Parser::precedence(const TokenKind kind) noexcept {
@@ -380,6 +416,7 @@ int Parser::precedence(const TokenKind kind) noexcept {
     }
 }
 bool Parser::is_assignment_target(const Expr& expression) noexcept {
-    return std::holds_alternative<NameExpr>(expression.data);
+    return std::holds_alternative<NameExpr>(expression.data) ||
+           std::holds_alternative<IndexExpr>(expression.data);
 }
 } // namespace vex

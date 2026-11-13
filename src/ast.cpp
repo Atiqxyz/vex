@@ -35,6 +35,14 @@ void print_expression(std::ostream& output, const SourceFile& source,
             output << (node.multiline ? "MultilineExpression\n" : "Grouping\n");
             if (node.expression)
                 print_expression(output, source, *node.expression, depth + 1);
+        } else if constexpr (std::is_same_v<Node, ArrayLiteralExpr>) {
+            output << "ArrayLiteral (" << node.elements.size() << " element(s))\n";
+            for (const ExprPtr& element : node.elements)
+                if (element) print_expression(output, source, *element, depth + 1);
+        } else if constexpr (std::is_same_v<Node, IndexExpr>) {
+            output << "Index\n";
+            if (node.object) print_expression(output, source, *node.object, depth + 1);
+            if (node.index) print_expression(output, source, *node.index, depth + 1);
         }
     }, expression.data);
 }

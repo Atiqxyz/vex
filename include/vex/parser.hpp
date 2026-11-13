@@ -44,7 +44,8 @@ private:
     [[nodiscard]] ExprPtr make_expression(
         SourceSpan span,
         std::variant<LiteralExpr, NameExpr, UnaryExpr, BinaryExpr,
-                     AssignmentExpr, CallExpr, GroupExpr> data);
+                     AssignmentExpr, CallExpr, GroupExpr, ArrayLiteralExpr,
+                     IndexExpr> data);
     [[nodiscard]] static int precedence(TokenKind kind) noexcept;
     [[nodiscard]] static bool is_assignment_target(const Expr& expression) noexcept;
     const SourceFile& source_;
