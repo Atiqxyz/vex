@@ -1,4 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Statically link the MSVC runtime so VEX itself does not require users to
+# install a separate Visual C++ Redistributable. CMake must know this before
+# project() enables compiler languages; the setting is ignored by other compilers.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+# Build the VEX CLI for an older macOS baseline instead of inheriting the
+# current GitHub runner's deployment target.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
+endif()
+
 project(VEX VERSION 0.1.0 LANGUAGES CXX)
 include(CTest)
 include(CheckLanguage)
@@ -41,6 +53,11 @@ add_executable(vex src/main.cpp)
 target_link_libraries(vex PRIVATE vex_frontend vex_build_options)
 target_compile_definitions(vex PRIVATE VEX_VERSION="${PROJECT_VERSION}")
 
+# Keep the Linux CLI independent of the distro's libstdc++ package version.
+if(UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_link_options(vex PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 include(GNUInstallDirs)
 install(TARGETS vex RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES README.md LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
@@ -48,6 +65,28 @@ install(FILES docs/installation.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 set(VEX_LLVM_TOOLCHAIN_DIR "" CACHE PATH
     "Optional LLVM installation root to bundle beside the VEX executable")
+set(VEX_ZIG_TOOLCHAIN_DIR "" CACHE PATH
+    "Optional Zig installation root to bundle as the portable LLVM toolchain")
+if(VEX_LLVM_TOOLCHAIN_DIR AND VEX_ZIG_TOOLCHAIN_DIR)
+    message(FATAL_ERROR "Choose either VEX_LLVM_TOOLCHAIN_DIR or VEX_ZIG_TOOLCHAIN_DIR, not both")
+endif()
+if(VEX_ZIG_TOOLCHAIN_DIR)
+    if(NOT IS_DIRECTORY "${VEX_ZIG_TOOLCHAIN_DIR}")
+        message(FATAL_ERROR "VEX_ZIG_TOOLCHAIN_DIR is not a directory: ${VEX_ZIG_TOOLCHAIN_DIR}")
+    endif()
+    if(WIN32)
+        set(VEX_BUNDLED_ZIG "${VEX_ZIG_TOOLCHAIN_DIR}/zig.exe")
+    else()
+        set(VEX_BUNDLED_ZIG "${VEX_ZIG_TOOLCHAIN_DIR}/zig")
+    endif()
+    if(NOT EXISTS "${VEX_BUNDLED_ZIG}")
+        message(FATAL_ERROR "VEX_ZIG_TOOLCHAIN_DIR must contain zig or zig.exe at its root")
+    endif()
+    install(DIRECTORY "${VEX_ZIG_TOOLCHAIN_DIR}/"
+        DESTINATION toolchain
+        USE_SOURCE_PERMISSIONS)
+endif()
+
 if(VEX_LLVM_TOOLCHAIN_DIR)
     if(NOT IS_DIRECTORY "${VEX_LLVM_TOOLCHAIN_DIR}")
         message(FATAL_ERROR "VEX_LLVM_TOOLCHAIN_DIR is not a directory: ${VEX_LLVM_TOOLCHAIN_DIR}")

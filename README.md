@@ -15,11 +15,13 @@ The current C++20 development build has:
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
 - an initial C11 source backend and an initial textual LLVM IR backend for the current IR instruction set, including functions, control flow, primitive values, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
-- a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, native builds, and program execution;
-- cross-platform process launching and temporary-build management for the bootstrap toolchain;
-- unit tests plus a cross-platform integration test that builds and executes VEX programs through the public CLI.
+- a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, LLVM IR emission, native builds, and program execution;
+- cross-platform process launching and temporary-build management;
+- unit tests plus cross-platform integration tests for the public CLI and portable compiler discovery.
 
-VEX can emit portable C11 and LLVM IR. The C `build`/`run` commands use an installed C11 compiler; the LLVM `build-llvm`/`run-llvm` commands use an installed Clang driver to optimize LLVM IR and generate native executables without generating C. The LLVM toolchain is not bundled yet, and the compiler is not self-hosted. Collection types, a complete runtime, and the memory model are not implemented.
+The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
+
+VEX is still an early language implementation. Collection types, a complete runtime, modules, and the memory model are not implemented yet.
 
 ## Design direction
 
@@ -28,43 +30,43 @@ VEX can emit portable C11 and LLVM IR. The C `build`/`run` commands use an insta
 - Curly braces delimit blocks; indentation is not semantic.
 - Function calls use parentheses.
 - A hybrid memory-management model is the selected direction, but ownership, borrowing, and allocation semantics remain open.
-- The C backend is a bootstrap target; the IR and frontend remain independent of it. A native backend is a future goal.
+- The C backend remains an optional bootstrap target; the IR and frontend are independent of it. LLVM is the default native compilation path.
 
 These are design goals, not claims that every feature already exists.
 
 ## Install prebuilt releases
 
-Prebuilt command-line binaries for Windows, Linux, and macOS, plus the VS Code extension package, are published on the [GitHub Releases page](https://github.com/Atiqxyz/vex/releases). See [the installation guide](docs/installation.md) for setup instructions.
+Install VEX with the Windows PowerShell script or the Linux/macOS shell script from the [GitHub Releases page](https://github.com/Atiqxyz/vex/releases). The scripts verify the archive, install the bundled Zig 0.17.1 toolchain, configure the user PATH, and install the VS Code extension when its command-line launcher is available. Portable archives are also available for manual installation.
 
-The command-line binary does not bundle C or LLVM compiler toolchains. Frontend commands and `emit-c`/`emit-llvm` work without one; `build`/`run` require a C11 compiler, while `build-llvm`/`run-llvm` require Clang with LLVM IR support. Set `VEX_CC` or `VEX_LLVM_CC` to choose the corresponding compiler executable.
+See [the installation guide](docs/installation.md) for complete steps. Native MSI/EXE, macOS PKG, and Linux DEB/RPM packages are not available yet.
 
-## Build
+## Build from source
 
-Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is required for `build` and `run`; CMake detects and records the configured C compiler when available. You can override compiler discovery with the `VEX_CC` environment variable. The frontend-only commands and `emit-c` do not invoke a C compiler.
+Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is optional and is only required to use the `build-c` and `run-c` fallback commands.
 
-~~~sh
+```sh
 cmake -S . -B build
 cmake --build build --config Release
 ctest --test-dir build --config Release --output-on-failure
-~~~
+```
 
 ## Compiler commands
 
 On Windows with a multi-configuration CMake generator:
 
-~~~powershell
+```powershell
 .\build\Release\vex.exe --help
 .\build\Release\vex.exe --version
 .\build\Release\vex.exe lex examples\hello.vex
 .\build\Release\vex.exe parse examples\hello.vex
 .\build\Release\vex.exe check examples\hello.vex
 .\build\Release\vex.exe ir examples\hello.vex
-.\build\Release\vex.exe emit-c examples\hello.vex
-~~~
+.\build\Release\vex.exe emit-llvm examples\hello.vex
+```
 
 On Linux or macOS:
 
-~~~sh
+```sh
 ./build/vex --help
 ./build/vex --version
 ./build/vex lex examples/hello.vex
@@ -74,35 +76,32 @@ On Linux or macOS:
 ./build/vex emit-c examples/hello.vex > hello.c
 ./build/vex emit-llvm examples/hello.vex > hello.ll
 ./build/vex build examples/hello.vex
-./build/vex build examples/hello.vex -o hello
 ./build/vex run examples/hello.vex
-./build/vex build-llvm examples/hello.vex
-./build/vex run-llvm examples/hello.vex
-~~~
+./build/vex build-c examples/hello.vex
+./build/vex run-c examples/hello.vex
+```
 
 - `lex` prints token kinds and source positions.
 - `parse` prints the parsed abstract syntax tree.
 - `check` resolves identifiers and validates the supported static type rules.
 - `ir` lowers a semantically valid program into typed SSA IR, verifies it, and prints the result.
-- `emit-c` runs the frontend, lowers and verifies IR, then emits C11 source to standard output.
-- `build` compiles a VEX source file into a native executable. By default the executable is written beside the source file; use `-o` to choose another path.
-- `run` builds through the C backend in a temporary directory, executes it, and removes the temporary build artifacts.
-- `emit-llvm` emits textual LLVM IR from verified VEX IR.
-- `build-llvm` uses Clang and LLVM optimization/code generation to build a native executable without generating C.
-- `run-llvm` builds through the LLVM backend in a temporary directory and executes the native program.
+- `emit-c` emits C11 source; `emit-llvm` emits textual LLVM IR.
+- `build` and `run` compile through the LLVM backend and bundled Zig/Clang toolchain.
+- `build-llvm` and `run-llvm` are explicit aliases for the default LLVM path.
+- `build-c` and `run-c` use the optional C11 bootstrap backend.
 
-The C `build` and `run` commands use a C11 compiler as the bootstrap backend. The LLVM build/run commands use Clang as the native code-generation driver. Neither compiler toolchain is bundled in the current release packages.
+The compiler itself remains implemented in C++. VEX does not need to be self-hosted to become a general-purpose language.
 
 ## Example syntax direction
 
-~~~vex
+```vex
 make main() {
     let message = "Hello, VEX!"
     say(message)
 }
-~~~
+```
 
-The initial C backend supplies a small output runtime for `int`, `float`, `bool`, and length-aware UTF-8 strings. It is a bootstrap runtime, not yet the complete VEX standard library or finalized memory model.
+The current compiler supports a small set of primitive types, functions, control flow, strings, output, arithmetic, comparisons, and math intrinsics. The runtime and language features are still under active development.
 
 ## Project documents
 
@@ -113,4 +112,4 @@ The initial C backend supplies a small output runtime for `int`, `float`, `bool`
 
 ## License
 
-VEX is distributed under the MIT License. See [LICENSE](LICENSE).
+VEX is distributed under the MIT License. See [LICENSE](LICENSE). The portable package also retains the upstream Zig toolchain distribution files and license notices in its `toolchain/` directory.

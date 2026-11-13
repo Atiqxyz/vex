@@ -1,40 +1,53 @@
 # Installing VEX
 
-VEX releases contain the command-line compiler and a VS Code extension package.
+VEX release archives include the command-line compiler and a matching Zig toolchain. VEX uses Zig's bundled Clang/LLVM driver for its default native build path, so a separate C or LLVM installation is not required for ordinary VEX programs.
 
-## 1. Download the compiler
-
-Open the [VEX Releases page](https://github.com/Atiqxyz/vex/releases) and download the archive matching your operating system:
-
-- Windows x64: `vex-windows-x64.zip`
-- Linux x64: `vex-linux-x64.zip`
-- macOS Intel x64: `vex-macos-x64.zip`
-
-Extract the archive. The executable is in the `bin` directory.
+## 1. Install VEX
 
 ### Windows
 
-Move the extracted `bin` directory to a stable location, such as `C:\\Tools\\VEX\\bin`, and add that directory to your user or system `PATH`. Open a new terminal or restart VS Code after changing PATH.
+Open PowerShell and download the installer script:
 
-### Linux
+```powershell
+Invoke-WebRequest -Uri https://github.com/Atiqxyz/vex/releases/latest/download/install.ps1 -OutFile install-vex.ps1
+.\install-vex.ps1
+```
 
-Move the extracted `bin/vex` executable to a directory on your PATH, for example `~/.local/bin`. Ensure that directory is included in your shell's PATH.
+The script verifies the downloaded archive against the release SHA-256 manifest, installs VEX for your Windows user, adds VEX to your user `PATH`, and installs the VS Code extension when the `code` command is available. If Windows blocks the script because of the current execution policy, run it for this session with `powershell -ExecutionPolicy Bypass -File .\install-vex.ps1`; this does not change your system-wide execution policy.
 
-### macOS
+### Linux and macOS
 
-Move `bin/vex` to a directory on your PATH, such as `/usr/local/bin` or `~/.local/bin`. On first use, macOS may ask you to confirm that you want to run the downloaded executable.
+Run:
 
-Verify the installation by running `vex --version` in a terminal. This is an optional verification step; the VS Code commands do not require manually entering compiler commands.
+```sh
+curl -fsSL https://github.com/Atiqxyz/vex/releases/latest/download/install.sh -o install-vex.sh
+bash install-vex.sh
+```
 
-## 2. Install the VS Code extension
+The installer selects the matching package for Linux x64, Intel macOS, or Apple Silicon macOS; verifies its SHA-256 digest; installs VEX under `~/.local/opt/vex`; and adds `VEX_HOME` and the VEX executable directory to your shell startup files. When the `code` command is available, it also installs the bundled VS Code extension.
 
-1. Download `vex-language-0.1.0.vsix` from the same release.
-2. Open Visual Studio Code.
-3. Open the Extensions view.
-4. Open its `...` menu and select **Install from VSIX...**.
-5. Select the downloaded VSIX file.
+**macOS prerequisite:** Apple's SDK is not included in the VEX archive. Native `vex build` and `vex run` therefore require Xcode or Apple's Command Line Tools. If Xcode is not already installed, install the Command Line Tools once with `xcode-select --install`. This provides the macOS SDK; you do not need to install a separate Clang or LLVM compiler. See [Apple's Command Line Tools documentation](https://developer.apple.com/documentation/xcode/installing-the-command-line-tools).
 
-The extension recognizes `.vex` files and provides Check, Generate C Preview, Build, and Run commands.
+Open a new terminal after installation, or reload your shell profile. Check the setup with:
+
+```sh
+vex --version
+```
+
+### Manual installation
+
+Portable archives are also published for users who prefer not to run an install script:
+
+- Windows x64: `vex-windows-x64.zip`
+- Linux x64: `vex-linux-x64.tar.gz`
+- macOS Intel x64: `vex-macos-x64.tar.gz`
+- macOS Apple Silicon ARM64: `vex-macos-arm64.tar.gz`
+
+Extract the archive and keep the `bin` and `toolchain` directories together. Add the `bin` directory to `PATH`. The VS Code extension is included at `share/vex/vex-language.vsix`; install it from VS Code's **Install from VSIX...** command if the installer could not use the `code` command.
+
+## 2. VS Code integration
+
+The installed extension recognizes `.vex` files and provides Check, Generate C Preview, Build, and Run commands. Open a folder in VS Code, create a `hello.vex` file, and use **VEX: Run Current File**. The extension uses VEX's default LLVM native backend.
 
 ## 3. Open and run a VEX program
 
@@ -51,62 +64,63 @@ make main() {
 4. Save the file.
 5. Choose **VEX: Run Current File** from the Command Palette or use the Run action in the editor title bar.
 
-Program output appears in the **VEX** output channel.
+Program output appears in the **VEX** output channel. The editor's Build and Run actions use VEX's default LLVM native backend.
 
-## 4. C compiler requirement
+## 4. Compiler backends
 
-The VEX frontend and syntax tools do not need a C compiler. The current `build` and `run` commands use the C11 bootstrap backend, so a C compiler must also be installed on the computer:
+The default commands use VEX's LLVM backend:
 
-- Windows: a working MSVC developer environment, Clang, or GCC.
-- Linux: GCC or Clang (often available as `cc`).
-- macOS: Apple Command Line Tools (Clang).
+- `vex build file.vex` builds a native executable.
+- `vex run file.vex` builds and executes a program.
+- `vex emit-llvm file.vex` prints LLVM IR.
 
-VEX checks `VEX_CC`, `CC`, its configured compiler fallback, and common compiler executable names. If automatic discovery does not find your compiler, set `VEX_CC` to the compiler executable path. The extension itself can be pointed to the VEX executable with the VS Code setting `vex.compilerPath`.
+The release package includes Zig 0.17.1, whose Clang/LLVM toolchain is used to compile the generated LLVM IR. You do not need to install a separate C compiler or LLVM for ordinary VEX development.
 
-VEX does not currently bundle a C compiler, and it is not yet a self-hosted compiler or a direct machine-code backend.
+Advanced users can override toolchain discovery with `VEX_LLVM_ZIG` (path to Zig) or `VEX_LLVM_CC` / `LLVM_CC` (path to a Clang driver). `VEX_HOME` can point to the package root when VEX is launched through a wrapper or custom layout.
 
-## 5. Experimental LLVM backend
+The C backend remains available as an explicit fallback:
 
-The development build also provides `vex emit-llvm`, `vex build-llvm`, and `vex run-llvm`. These commands use the LLVM backend and an installed Clang driver; they do not generate C as an intermediate compilation step. Set `VEX_LLVM_CC` to the Clang executable path when Clang is not on PATH. Current release packages do not bundle Clang or LLVM, so this is not yet a standalone dependency-free installation path.
+- `vex emit-c file.vex`
+- `vex build-c file.vex`
+- `vex run-c file.vex`
 
-### Portable LLVM toolchain layout for packagers
+Those `-c` commands require an installed C11 compiler. Set `VEX_CC` or `CC` to select it when automatic discovery is insufficient.
 
-A VEX package can include a complete LLVM installation alongside the compiler. Configure CMake with
-`-DVEX_LLVM_TOOLCHAIN_DIR=/path/to/llvm-installation`, where that directory contains
-`bin/clang` (or `bin/clang.exe` on Windows) and the rest of the matching LLVM
-installation. `cmake --install` copies that directory into the VEX install prefix as
-`toolchain/`, producing this layout:
+## 5. Portable toolchain layout for packagers
+
+CMake can stage a supplied Zig installation alongside VEX:
+
+```sh
+cmake -S . -B build -DVEX_ZIG_TOOLCHAIN_DIR=/path/to/zig-installation
+cmake --build build --config Release
+cmake --install build --prefix dist/vex
+```
+
+The supplied directory must contain the `zig` executable (or `zig.exe` on Windows) at its root and its complete matching `lib/` directory. VEX expects:
 
 ```text
 vex/
   bin/
     vex
   toolchain/
-    bin/
-      clang
+    zig
     lib/
+    LICENSE
     ...
 ```
 
-VEX looks for the bundled driver relative to its own executable, so a portable package
-does not need to edit the user's PATH or set `VEX_LLVM_CC`. Set `VEX_HOME` to the
-package root only when VEX is launched through a wrapper or from a custom layout.
-Explicit `VEX_LLVM_CC` and `LLVM_CC` settings still take precedence.
-
-This is packaging support, not a claim that the published release archives already
-contain LLVM. The release workflow does not currently download or bundle the LLVM
-toolchain. The bundled compiler still relies on the host operating system's native
-linking/runtime environment; packaging a compiler does not remove the need for the
-platform's system libraries or SDK where those are required.
+The complete upstream Zig directory is staged so its compiler libraries and accompanying license notices remain together. The CMake option `VEX_LLVM_TOOLCHAIN_DIR` remains available for packagers who provide a conventional LLVM installation containing `bin/clang`.
 
 ## Troubleshooting
 
-- **VS Code cannot start VEX:** confirm that `vex` is on PATH, restart VS Code, or set `vex.compilerPath` to the full executable path.
-- **Build or Run reports that no C11 compiler was found:** install a C compiler and ensure it is available on PATH, or set `VEX_CC` to its executable path.
-- **LLVM build or run reports that Clang was not found:** install Clang with LLVM IR support, or set `VEX_LLVM_CC` to its executable path.
-- **MSVC is installed but not found:** launch VS Code from a Visual Studio Developer Command Prompt, or configure an available Clang/GCC compiler.
-- **The extension does not activate:** confirm that the file extension is `.vex` and reload the VS Code window.
+- **VS Code cannot start VEX:** confirm that the VEX `bin` directory is on PATH, restart VS Code, or set `vex.compilerPath` to the full executable path.
+- **VEX reports that its bundled Zig toolchain is missing:** restore the complete package layout; do not move `bin/vex` away from its sibling `toolchain` directory.
+- **The LLVM build fails on a particular platform:** check the diagnostic in the VEX output channel. The default path uses the bundled Clang/LLVM driver; the C fallback is available with `build-c` and `run-c`.
+- **The C fallback cannot find a compiler:** install a C11 compiler and ensure it is on PATH, or set `VEX_CC`.
+- **The VS Code extension does not activate:** confirm that the file extension is `.vex` and reload the VS Code window.
 
 ## Distribution status
 
-The release workflow builds and tests the CLI on Windows, Linux, and macOS, packages the VS Code extension as a VSIX, and attaches the resulting files to GitHub Releases when a version tag is pushed. A GitHub release must exist before these download instructions provide actual release assets.
+The release workflow builds and tests the CLI on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS. It downloads the pinned Zig 0.17.1 toolchain for each target, verifies its SHA-256 digest, stages it with VEX, and bundles the VS Code extension. Version tags publish portable archives, installer scripts, the VSIX, and a SHA-256 manifest to GitHub Releases.
+
+The current installer scripts provide per-user setup on Windows, Linux, and macOS. Native MSI/EXE, macOS PKG, and Linux DEB/RPM installers are not part of this release yet.
