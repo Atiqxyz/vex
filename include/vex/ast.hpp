@@ -40,12 +40,16 @@ struct ReturnStmt { ExprPtr value; };
 struct ExpressionStmt { ExprPtr expression; };
 struct BlockStmt { std::vector<StmtPtr> statements; };
 struct IfStmt { ExprPtr condition; StmtPtr then_branch; StmtPtr else_branch; };
+struct WhileStmt { ExprPtr condition; StmtPtr body; };
+struct BreakStmt {};
+struct ContinueStmt {};
 struct RepeatStmt { ExprPtr count; StmtPtr body; };
 struct ForStmt { SourceSpan variable{}; ExprPtr iterable; StmtPtr body; };
 struct Statement {
     SourceSpan span{};
     std::variant<FunctionDeclStmt, VariableDeclStmt, ReturnStmt,
-                 ExpressionStmt, BlockStmt, IfStmt, RepeatStmt, ForStmt> data;
+                 ExpressionStmt, BlockStmt, IfStmt, WhileStmt, BreakStmt,
+                 ContinueStmt, RepeatStmt, ForStmt> data;
 };
 struct Program { std::vector<StmtPtr> statements; };
 void print_ast(std::ostream& output, const SourceFile& source, const Program& program);
