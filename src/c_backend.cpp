@@ -28,8 +28,13 @@ const char* c_type(const IRType type) noexcept {
     case IRType::Bool: return "bool";
     case IRType::String: return "vex_string";
     case IRType::Array: return "void";
+    case IRType::Struct: return "void";
     }
     return "void";
+}
+
+std::string struct_type_name(const std::uint32_t id) {
+    return "vex_struct_" + std::to_string(id);
 }
 
 std::string array_type_name(const IRType element_type, const std::uint32_t length) {
@@ -40,6 +45,7 @@ std::string array_type_name(const IRType element_type, const std::uint32_t lengt
 }
 
 std::string c_type(const IRValue& value) {
+    if (value.type == IRType::Struct) return struct_type_name(value.struct_type_id);
     if (value.type != IRType::Array) return c_type(value.type);
     return value.array_length == 0
         ? "vex_array *"
@@ -47,6 +53,8 @@ std::string c_type(const IRValue& value) {
 }
 
 std::string c_return_type(const IRFunction& function) {
+    if (function.return_type == IRType::Struct)
+        return struct_type_name(function.return_struct_type_id);
     if (function.return_type != IRType::Array) return c_type(function.return_type);
     return function.return_array_length == 0
         ? "vex_array *"
@@ -165,6 +173,7 @@ public:
         }
 
         emit_preamble();
+        emit_struct_types();
         emit_array_types();
         emit_runtime();
         emit_prototypes();
@@ -231,6 +240,25 @@ private:
             << "    struct vex_array *next;\n"
             << "} vex_array;\n"
             << "static vex_array *vex_array_head = NULL;\n\n";
+    }
+
+    void emit_struct_types() {
+        if (module_.struct_types.empty()) return;
+        for (const IRStructType& structure : module_.struct_types) {
+            output_ << "typedef struct " << struct_type_name(structure.id)
+                    << " " << struct_type_name(structure.id) << ";\n";
+        }
+        output_ << '\\n';
+        for (const IRStructType& structure : module_.struct_types) {
+            output_ << "struct " << struct_type_name(structure.id) << " {\n";
+            for (const IRStructField& field : structure.fields) {
+                const std::string field_type = field.type == IRType::Struct
+                    ? struct_type_name(field.struct_type_id) : c_type(field.type);
+                output_ << "    " << field_type << ' ' << field.name << ";\n";
+            }
+            output_ << "};\n";
+        }
+        output_ << '\\n';
     }
 
     void emit_array_types() {
@@ -588,6 +616,9 @@ private:
         case IRType::Array:
             report("CG009", "array values must be constructed with array_make", instruction.span);
             return false;
+        case IRType::Struct:
+            report("CG010", "structure values must be constructed with struct_make", instruction.span);
+            return false;
         }
         return false;
     }
@@ -698,6 +729,37 @@ private:
                 output_ << operand(index);
             }
             output_ << ");\n";
+            return;
+        }
+        case IROp::StructMake: {
+            if (!instruction.result) return;
+            const std::uint32_t id = instruction.result->struct_type_id;
+            const IRStructType& structure = module_.struct_types[id - 1u];
+            for (std::size_t index = 0; index < structure.fields.size(); ++index) {
+                output_ << "    " << result << "." << structure.fields[index].name
+                        << " = " << operand(index) << ";\\n";
+            }
+            return;
+        }
+        case IROp::StructGet: {
+            const IRValue* object = value_type(function, instruction.operands[0])
+                ? &*value_type(function, instruction.operands[0]) : nullptr;
+            if (!object) return;
+            const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
+            const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
+            output_ << "    " << result << " = " << operand(0) << "."
+                    << structure.fields[index].name << ";\\n";
+            return;
+        }
+        case IROp::StructSet: {
+            const IRValue* object = value_type(function, instruction.operands[0])
+                ? &*value_type(function, instruction.operands[0]) : nullptr;
+            if (!object) return;
+            const IRStructType& structure = module_.struct_types[object->struct_type_id - 1u];
+            const std::size_t index = static_cast<std::size_t>(std::stoul(instruction.immediate));
+            output_ << "    " << result << " = " << operand(0) << ";\\n"
+                    << "    " << result << "." << structure.fields[index].name
+                    << " = " << operand(1) << ";\\n";
             return;
         }
         case IROp::ArrayMake: {
