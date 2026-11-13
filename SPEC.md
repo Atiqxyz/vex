@@ -95,6 +95,19 @@ for index in 1..=10 {
 
 A `repeat` count must have type `int`. A `while` condition must have type `bool`. `break` exits the innermost enclosing loop and `continue` advances to its next iteration; both are rejected outside loops. `for-in` iterates fixed-size arrays or integer ranges and infers the loop variable type. The half-open `start..end` form includes the start and excludes the end; `start..=end` includes both endpoints. Range endpoints must be `int`, are evaluated once before iteration, and advance upward by one. A range with a start greater than its end is empty. Ranges are currently supported directly in `for-in`, not as storable values.
 
+### Evaluation order and nested loops
+
+VEX uses deterministic left-to-right evaluation for the expression forms currently supported:
+
+- Ordinary binary expressions evaluate the left operand completely before the right operand.
+- Function-call arguments and array-literal elements evaluate in their written order, from first to last.
+- An indexed read evaluates its array expression before its index expression. An indexed assignment evaluates the index expression before the right-hand side.
+- `&&` evaluates its right operand only when the left operand is `true`. `||` evaluates its right operand only when the left operand is `false`.
+- A `repeat` count and a `for-in` iterable are evaluated once before the loop begins. A `while` condition is evaluated before each iteration. For an integer range, the start expression is evaluated once before the end expression; both are evaluated once before iteration.
+
+When loops are nested, `break` exits only the innermost enclosing `while`, `repeat`, or `for-in` loop. `continue` advances only the innermost enclosing loop. Leaving an inner loop resumes execution in its enclosing loop.
+
+
 ### Multiline expressions
 
 ~~~vex
