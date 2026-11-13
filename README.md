@@ -35,7 +35,7 @@ VEX is still an early language implementation. Dynamic arrays are now implemente
 - The wider memory model is still under design. Dynamic arrays currently use program-lifetime allocation tracking: aliases share one heap object, and generated entry-point completion releases all dynamic-array allocations. There is no per-scope deallocation or borrowing checker yet.
 - The C backend remains an optional bootstrap target; the IR and frontend are independent of it. LLVM is the default native compilation path.
 
-These are design goals, not claims that every feature already exists.
+These are design goals, not claims that every feature is already implemented.
 
 ## Install prebuilt releases
 
@@ -109,6 +109,7 @@ The current compiler supports a small set of primitive types, functions, control
 ## Project documents
 
 - [Working language specification](SPEC.md)
+- [Master roadmap and design map](docs/master-roadmap.md)
 - [Compiler architecture](docs/architecture.md)
 - [Standard library status](docs/standard-library.md)
 - [Compiler design review and references](docs/compiler-design-review.md)
