@@ -50,6 +50,9 @@ struct Symbol {
     SourceSpan declaration{};
     std::optional<SemanticArrayType> array_type;
     std::optional<SemanticArrayType> return_array_type;
+    std::uint32_t struct_type_id{0};
+    std::vector<std::uint32_t> parameter_struct_type_ids;
+    std::uint32_t return_struct_type_id{0};
 };
 
 using Scope = std::unordered_map<std::string, Symbol>;
@@ -63,9 +66,11 @@ public:
 
     SemanticResult run() {
         install_builtins();
+        collect_struct_types();
         collect_function_signatures();
         for (const StmtPtr& statement : program_.statements) {
-            if (statement) analyze_statement(*statement);
+            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data))
+                analyze_statement(*statement);
         }
         return SemanticResult{std::move(diagnostics_), std::move(model_)};
     }
@@ -83,7 +88,8 @@ private:
 
     [[nodiscard]] Type annotation_type(
         const SourceSpan span, const bool allow_void,
-        std::optional<SemanticArrayType>* array_shape = nullptr) {
+        std::optional<SemanticArrayType>* array_shape = nullptr,
+        std::uint32_t* struct_type_id = nullptr) {
         const std::string name = spelling(span);
         const std::size_t open = name.find('[');
         if (open != std::string::npos) {
@@ -134,6 +140,11 @@ private:
         if (name == "float") return Type::Float;
         if (name == "bool") return Type::Bool;
         if (name == "string") return Type::String;
+        const auto structure = struct_ids_.find(name);
+        if (structure != struct_ids_.end()) {
+            if (struct_type_id) *struct_type_id = structure->second;
+            return Type::Struct;
+        }
         if (allow_void && name == "void") return Type::Void;
         report("SEM003", "unknown or unsupported type name '" + name + "'", span);
         return Type::Error;
@@ -190,6 +201,90 @@ private:
         scopes_.front().emplace("pop", std::move(pop));
     }
 
+    void collect_struct_types() {
+        std::vector<const StructDeclStmt*> declarations;
+        for (const StmtPtr& statement : program_.statements) {
+            if (!statement) continue;
+            const auto* structure = std::get_if<StructDeclStmt>(&statement->data);
+            if (!structure) continue;
+            const std::string name = spelling(structure->name);
+            if (struct_ids_.find(name) != struct_ids_.end() ||
+                scopes_.front().find(name) != scopes_.front().end()) {
+                report("SEM002", "duplicate global declaration of '" + name + "'",
+                       structure->name);
+                continue;
+            }
+            const std::uint32_t id = static_cast<std::uint32_t>(model_.struct_types.size() + 1u);
+            struct_ids_.emplace(name, id);
+            model_.struct_types.push_back(SemanticStructType{id, name, {}, structure->name});
+            declarations.push_back(structure);
+        }
+        for (const StructDeclStmt* declaration : declarations) {
+            const std::string name = spelling(declaration->name);
+            const auto found = struct_ids_.find(name);
+            if (found == struct_ids_.end()) continue;
+            SemanticStructType& structure = model_.struct_types[found->second - 1u];
+            if (declaration->fields.empty())
+                report("SEM048", "structures must declare at least one field", declaration->name);
+            std::unordered_map<std::string, bool> field_names;
+            for (const StructFieldDecl& field : declaration->fields) {
+                const std::string field_name = spelling(field.name);
+                if (!field_names.emplace(field_name, true).second) {
+                    report("SEM049", "duplicate field '" + field_name +
+                           "' in structure '" + name + "'", field.name);
+                    continue;
+                }
+                std::uint32_t field_struct_id = 0;
+                std::optional<SemanticArrayType> field_array_type;
+                const Type field_type = field.type_annotation
+                    ? annotation_type(*field.type_annotation, false,
+                                      &field_array_type, &field_struct_id)
+                    : Type::Error;
+                if (!field.type_annotation || field_type == Type::Error ||
+                    field_type == Type::Array || field_type == Type::Void ||
+                    field_type == Type::Unknown || field_type == Type::Any) {
+                    report("SEM048", "structure fields require a primitive or previously declared structure type",
+                           field.type_annotation.value_or(field.name));
+                    continue;
+                }
+                if (field_type == Type::Struct && field_struct_id >= structure.id) {
+                    report("SEM050", "a structure field may only contain a structure declared earlier; recursive by-value fields are not supported",
+                           field.type_annotation.value_or(field.name));
+                    continue;
+                }
+                structure.fields.push_back(SemanticStructField{
+                    field_name, field_type, field_struct_id, field.name
+                });
+            }
+        }
+    }
+
+    [[nodiscard]] const SemanticStructField* find_struct_field(
+        const std::uint32_t structure_id, const std::string& field_name,
+        std::uint32_t* index = nullptr) const {
+        if (structure_id == 0 || structure_id > model_.struct_types.size())
+            return nullptr;
+        const auto& fields = model_.struct_types[structure_id - 1u].fields;
+        for (std::size_t position = 0; position < fields.size(); ++position) {
+            if (fields[position].name == field_name) {
+                if (index) *index = static_cast<std::uint32_t>(position);
+                return &fields[position];
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] const NameExpr* member_root_name(const Expr* expression) const {
+        while (expression) {
+            if (const auto* name = std::get_if<NameExpr>(&expression->data))
+                return name;
+            const auto* member = std::get_if<MemberExpr>(&expression->data);
+            if (!member) return nullptr;
+            expression = member->object.get();
+        }
+        return nullptr;
+    }
+
     void collect_function_signatures() {
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
@@ -203,15 +298,18 @@ private:
             signature.declaration = function->name;
             signature.type = function->return_type
                 ? annotation_type(*function->return_type, true,
-                                  &signature.return_array_type)
+                                  &signature.return_array_type,
+                                  &signature.return_struct_type_id)
                 : Type::Void;
 
             for (const Parameter& parameter : function->parameters) {
                 Type parameter_type = Type::Unknown;
                 std::optional<SemanticArrayType> parameter_array_type;
+                std::uint32_t parameter_struct_type_id = 0;
                 if (parameter.type_annotation) {
                     parameter_type = annotation_type(
-                        *parameter.type_annotation, false, &parameter_array_type);
+                        *parameter.type_annotation, false, &parameter_array_type,
+                        &parameter_struct_type_id);
                 } else {
                     report("SEM004",
                            "function parameters require an explicit type annotation",
@@ -219,6 +317,7 @@ private:
                 }
                 signature.parameters.push_back(parameter_type);
                 signature.parameter_array_types.push_back(parameter_array_type);
+                signature.parameter_struct_type_ids.push_back(parameter_struct_type_id);
             }
 
             const std::string name = spelling(function->name);
@@ -235,6 +334,8 @@ private:
             public_signature.parameter_array_types = signature.parameter_array_types;
             public_signature.return_type = signature.type;
             public_signature.return_array_type = signature.return_array_type;
+            public_signature.parameter_struct_type_ids = signature.parameter_struct_type_ids;
+            public_signature.return_struct_type_id = signature.return_struct_type_id;
             public_signature.declaration = function->name;
             model_.functions.emplace(function, std::move(public_signature));
             signatures_.emplace(function, std::move(signature));
@@ -270,7 +371,7 @@ private:
         if (assigned_id) *assigned_id = symbol.id;
         model_.bindings.emplace(symbol.id, SemanticBinding{
             symbol.id, name, symbol.type, !symbol.immutable && !symbol.is_function,
-            declaration, symbol.array_type
+            declaration, symbol.array_type, symbol.struct_type_id
         });
         current.emplace(name, std::move(symbol));
         return true;
@@ -311,6 +412,8 @@ private:
             if (symbol->id != 0) model_.resolved_names[name] = symbol->id;
             if (symbol->array_type)
                 model_.array_expression_types[&expression] = *symbol->array_type;
+            if (symbol->type == Type::Struct)
+                model_.struct_expression_types[&expression] = symbol->struct_type_id;
             return symbol->type;
         }
 
@@ -320,6 +423,9 @@ private:
             const auto shape = model_.array_expression_types.find(group->expression.get());
             if (shape != model_.array_expression_types.end())
                 model_.array_expression_types[&expression] = shape->second;
+            const auto structure = model_.struct_expression_types.find(group->expression.get());
+            if (structure != model_.struct_expression_types.end())
+                model_.struct_expression_types[&expression] = structure->second;
             return grouped_type;
         }
 
@@ -374,6 +480,93 @@ private:
                     element_type, static_cast<std::uint32_t>(array->elements.size())};
             }
             return Type::Array;
+        }
+
+        if (const auto* literal = std::get_if<StructLiteralExpr>(&expression.data)) {
+            const std::string type_name = spelling(literal->type_name);
+            const auto structure_id = struct_ids_.find(type_name);
+            if (structure_id == struct_ids_.end()) {
+                report("SEM001", "undefined structure type '" + type_name + "'",
+                       literal->type_name);
+                for (const StructLiteralField& field : literal->fields)
+                    if (field.value) static_cast<void>(analyze_expression(*field.value));
+                return Type::Error;
+            }
+            const SemanticStructType& structure = model_.struct_types[structure_id->second - 1u];
+            std::vector<bool> seen(structure.fields.size(), false);
+            std::vector<std::uint32_t> field_indices;
+            field_indices.reserve(literal->fields.size());
+            for (const StructLiteralField& field : literal->fields) {
+                std::uint32_t field_index = 0;
+                const auto* expected = find_struct_field(
+                    structure_id->second, spelling(field.name), &field_index);
+                if (!expected) {
+                    report("SEM051", "structure '" + type_name +
+                           "' has no field named '" + spelling(field.name) + "'",
+                           field.name);
+                    if (field.value) static_cast<void>(analyze_expression(*field.value));
+                    continue;
+                }
+                if (seen[field_index]) {
+                    report("SEM049", "field '" + spelling(field.name) +
+                           "' is initialized more than once", field.name);
+                    if (field.value) static_cast<void>(analyze_expression(*field.value));
+                    continue;
+                }
+                seen[field_index] = true;
+                field_indices.push_back(field_index);
+                const Type actual = field.value
+                    ? analyze_expression(*field.value) : Type::Error;
+                const std::uint32_t actual_struct = field.value &&
+                    model_.struct_expression_types.find(field.value.get()) !=
+                        model_.struct_expression_types.end()
+                    ? model_.struct_expression_types.at(field.value.get()) : 0u;
+                if (!is_assignable(expected->type, actual) ||
+                    (expected->type == Type::Struct && expected->struct_type_id != actual_struct)) {
+                    report("SEM052", "initializer for field '" + expected->name +
+                           "' has an incompatible type",
+                           field.value ? field.value->span : field.name);
+                }
+            }
+            for (std::size_t index = 0; index < seen.size(); ++index) {
+                if (!seen[index])
+                    report("SEM053", "missing initializer for field '" +
+                           structure.fields[index].name + "'", expression.span);
+            }
+            model_.struct_expression_types[&expression] = structure_id->second;
+            model_.struct_literal_field_indices[literal] = std::move(field_indices);
+            return Type::Struct;
+        }
+
+        if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
+            const Type object_type = member->object
+                ? analyze_expression(*member->object) : Type::Error;
+            if (object_type != Type::Struct) {
+                if (object_type != Type::Error && object_type != Type::Unknown)
+                    report("SEM054", "field access requires a structure value",
+                           expression.span);
+                return Type::Error;
+            }
+            const auto object_structure = member->object
+                ? model_.struct_expression_types.find(member->object.get())
+                : model_.struct_expression_types.end();
+            if (object_structure == model_.struct_expression_types.end()) {
+                report("SEM054", "structure type information is unavailable for this field access",
+                       expression.span);
+                return Type::Error;
+            }
+            std::uint32_t field_index = 0;
+            const auto* field = find_struct_field(object_structure->second,
+                                                  spelling(member->member), &field_index);
+            if (!field) {
+                report("SEM051", "structure has no field named '" +
+                       spelling(member->member) + "'", member->member);
+                return Type::Error;
+            }
+            model_.member_field_indices[member] = field_index;
+            if (field->type == Type::Struct)
+                model_.struct_expression_types[&expression] = field->struct_type_id;
+            return field->type;
         }
 
         if (const auto* range = std::get_if<RangeExpr>(&expression.data)) {
@@ -522,6 +715,43 @@ private:
 
         if (const auto* assignment =
                 std::get_if<AssignmentExpr>(&expression.data)) {
+            if (assignment->target &&
+                std::holds_alternative<MemberExpr>(assignment->target->data)) {
+                const Type target_type = analyze_expression(*assignment->target);
+                const NameExpr* root = member_root_name(assignment->target.get());
+                if (!root) {
+                    report("SEM055", "structure fields can only be assigned through a named structure binding",
+                           assignment->target->span);
+                    if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                Symbol* root_symbol = lookup(spelling(root->name));
+                if (!root_symbol || root_symbol->type != Type::Struct) {
+                    report("SEM055", "structure assignment requires a named structure binding",
+                           root->name);
+                    if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                model_.assignment_targets[assignment] = root_symbol->id;
+                if (root_symbol->immutable)
+                    report("SEM017", "cannot modify a field of immutable binding '" +
+                           spelling(root->name) + "'", root->name);
+                const Type actual = assignment->value
+                    ? analyze_expression(*assignment->value) : Type::Error;
+                const std::uint32_t target_struct =
+                    model_.struct_expression_types.find(assignment->target.get()) !=
+                        model_.struct_expression_types.end()
+                    ? model_.struct_expression_types.at(assignment->target.get()) : 0u;
+                const std::uint32_t actual_struct = assignment->value &&
+                    model_.struct_expression_types.find(assignment->value.get()) !=
+                        model_.struct_expression_types.end()
+                    ? model_.struct_expression_types.at(assignment->value.get()) : 0u;
+                if (!is_assignable(target_type, actual) ||
+                    (target_type == Type::Struct && target_struct != actual_struct))
+                    report("SEM018", "cannot assign an incompatible value to structure field",
+                           expression.span);
+                return target_type;
+            }
             if (const auto* indexed = assignment->target
                     ? std::get_if<IndexExpr>(&assignment->target->data) : nullptr) {
                 const auto* base_name = indexed->object
@@ -607,7 +837,12 @@ private:
                 report("SEM017", "cannot assign to immutable binding '" +
                        identifier + "'", target->name);
             }
-            if (!is_assignable(symbol->type, value)) {
+            const std::uint32_t assigned_struct = assignment->value &&
+                model_.struct_expression_types.find(assignment->value.get()) !=
+                    model_.struct_expression_types.end()
+                ? model_.struct_expression_types.at(assignment->value.get()) : 0u;
+            if (!is_assignable(symbol->type, value) ||
+                (symbol->type == Type::Struct && symbol->struct_type_id != assigned_struct)) {
                 report("SEM018", "cannot assign " + std::string(type_name(value)) +
                        " to " + type_name(symbol->type) + " binding '" + identifier + "'",
                        expression.span);
@@ -643,6 +878,7 @@ private:
             }
 
             std::vector<Type> argument_types;
+            std::vector<std::uint32_t> argument_struct_type_ids;
             argument_types.reserve(call->arguments.size());
             for (std::size_t index = 0; index < call->arguments.size(); ++index) {
                 const ExprPtr& argument = call->arguments[index];
@@ -656,6 +892,11 @@ private:
                 }
                 argument_types.push_back(argument
                     ? analyze_expression(*argument) : Type::Error);
+                const auto structure = argument
+                    ? model_.struct_expression_types.find(argument.get())
+                    : model_.struct_expression_types.end();
+                argument_struct_type_ids.push_back(
+                    structure == model_.struct_expression_types.end() ? 0u : structure->second);
             }
 
             if (!function) return Type::Error;
@@ -723,7 +964,10 @@ private:
             const std::size_t count =
                 std::min(argument_types.size(), function->parameters.size());
             for (std::size_t index = 0; index < count; ++index) {
-                if (!is_assignable(function->parameters[index], argument_types[index])) {
+                if (!is_assignable(function->parameters[index], argument_types[index]) ||
+                    (function->parameters[index] == Type::Struct &&
+                     index < function->parameter_struct_type_ids.size() &&
+                     function->parameter_struct_type_ids[index] != argument_struct_type_ids[index])) {
                     report("SEM021", "argument " + std::to_string(index + 1) +
                            " has type " + type_name(argument_types[index]) +
                            "; expected " + type_name(function->parameters[index]),
@@ -751,6 +995,8 @@ private:
             if (function->type == Type::Array && function->return_array_type)
                 model_.array_expression_types[&expression] =
                     *function->return_array_type;
+            if (function->type == Type::Struct && function->return_struct_type_id != 0)
+                model_.struct_expression_types[&expression] = function->return_struct_type_id;
             return function->type;
         }
 
@@ -769,9 +1015,10 @@ private:
     void analyze_variable(const VariableDeclStmt& variable) {
         Type declared = Type::Unknown;
         std::optional<SemanticArrayType> declared_array_type;
+        std::uint32_t declared_struct_type_id = 0;
         if (variable.type_annotation) {
             declared = annotation_type(*variable.type_annotation, false,
-                                       &declared_array_type);
+                                       &declared_array_type, &declared_struct_type_id);
         }
         const auto* array_initializer = variable.initializer
             ? std::get_if<ArrayLiteralExpr>(&variable.initializer->data) : nullptr;
@@ -783,9 +1030,19 @@ private:
         const Type inferred = variable.initializer
             ? analyze_expression(*variable.initializer) : Type::Error;
         if (!variable.type_annotation) declared = inferred;
-        else require_type(inferred, declared,
+        else {
+            require_type(inferred, declared,
                          variable.initializer ? variable.initializer->span : variable.name,
                          "SEM022", "initializer type does not match variable annotation");
+            const std::uint32_t inferred_struct = variable.initializer &&
+                model_.struct_expression_types.find(variable.initializer.get()) !=
+                    model_.struct_expression_types.end()
+                ? model_.struct_expression_types.at(variable.initializer.get()) : 0u;
+            if (declared == Type::Struct && inferred == Type::Struct &&
+                declared_struct_type_id != inferred_struct)
+                report("SEM022", "initializer structure type does not match variable annotation",
+                       variable.initializer ? variable.initializer->span : variable.name);
+        }
         if (declared == Type::Void) {
             report("SEM023", "variables cannot have type void", variable.name);
             declared = Type::Error;
@@ -793,6 +1050,14 @@ private:
         Symbol symbol;
         symbol.type = declared;
         if (declared == Type::Array) symbol.array_type = declared_array_type;
+        if (declared == Type::Struct) {
+            symbol.struct_type_id = declared_struct_type_id;
+            if (!variable.type_annotation && variable.initializer) {
+                const auto structure = model_.struct_expression_types.find(variable.initializer.get());
+                if (structure != model_.struct_expression_types.end())
+                    symbol.struct_type_id = structure->second;
+            }
+        }
         if (variable.initializer && inferred == Type::Array) {
             const auto shape = model_.array_expression_types.find(variable.initializer.get());
             if (shape != model_.array_expression_types.end()) {
@@ -838,6 +1103,8 @@ private:
             symbol.type = index < count ? signature.parameters[index] : Type::Unknown;
             if (index < signature.parameter_array_types.size())
                 symbol.array_type = signature.parameter_array_types[index];
+            if (index < signature.parameter_struct_type_ids.size())
+                symbol.struct_type_id = signature.parameter_struct_type_ids[index];
             symbol.declaration = parameter.name;
             SemanticBindingId binding_id = 0;
             if (define(spelling(parameter.name), std::move(symbol),
@@ -849,9 +1116,11 @@ private:
         const bool was_in_function = inside_function_;
         const Type previous_return = current_return_type_;
         const auto previous_return_array_type = current_return_array_type_;
+        const std::uint32_t previous_return_struct_type_id = current_return_struct_type_id_;
         inside_function_ = true;
         current_return_type_ = signature.type;
         current_return_array_type_ = signature.return_array_type;
+        current_return_struct_type_id_ = signature.return_struct_type_id;
 
         if (function.body) {
             analyze_block(*function.body, false);
@@ -865,6 +1134,7 @@ private:
 
         current_return_type_ = previous_return;
         current_return_array_type_ = previous_return_array_type;
+        current_return_struct_type_id_ = previous_return_struct_type_id;
         inside_function_ = was_in_function;
         scopes_.pop_back();
     }
@@ -1068,6 +1338,7 @@ private:
             analyze_variable(*variable);
             return;
         }
+        if (std::holds_alternative<StructDeclStmt>(statement.data)) return;
         if (std::holds_alternative<BlockStmt>(statement.data)) {
             analyze_block(statement, true);
             return;
@@ -1103,6 +1374,13 @@ private:
                     const Type actual = analyze_expression(*returned->value);
                     require_type(actual, current_return_type_, returned->value->span,
                                  "SEM028", "return type does not match function");
+                    const std::uint32_t returned_struct =
+                        model_.struct_expression_types.find(returned->value.get()) !=
+                            model_.struct_expression_types.end()
+                        ? model_.struct_expression_types.at(returned->value.get()) : 0u;
+                    if (actual == Type::Struct && returned_struct != current_return_struct_type_id_)
+                        report("SEM028", "returned structure type does not match function return type",
+                               returned->value->span);
                     if (actual == Type::Array && current_return_array_type_) {
                         const auto actual_shape =
                             model_.array_expression_types.find(returned->value.get());
@@ -1215,6 +1493,7 @@ private:
     std::vector<Diagnostic> diagnostics_;
     std::vector<Scope> scopes_;
     std::unordered_map<const FunctionDeclStmt*, Symbol> signatures_;
+    std::unordered_map<std::string, std::uint32_t> struct_ids_;
     SemanticModel model_;
     SemanticBindingId next_binding_id_{1};
     bool inside_function_{false};
@@ -1222,6 +1501,7 @@ private:
     bool allow_range_expression_{false};
     Type current_return_type_{Type::Void};
     std::optional<SemanticArrayType> current_return_array_type_;
+    std::uint32_t current_return_struct_type_id_{0};
 };
 
 } // namespace
@@ -1236,6 +1516,7 @@ const char* semantic_type_name(const SemanticType type) noexcept {
     case SemanticType::Float: return "float";
     case SemanticType::Bool: return "bool";
     case SemanticType::String: return "string";
+    case SemanticType::Struct: return "struct";
     case SemanticType::Array: return "array";
     case SemanticType::Range: return "range";
     }
