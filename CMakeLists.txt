@@ -45,6 +45,26 @@ include(GNUInstallDirs)
 install(TARGETS vex RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES README.md LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(FILES docs/installation.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+set(VEX_LLVM_TOOLCHAIN_DIR "" CACHE PATH
+    "Optional LLVM installation root to bundle beside the VEX executable")
+if(VEX_LLVM_TOOLCHAIN_DIR)
+    if(NOT IS_DIRECTORY "${VEX_LLVM_TOOLCHAIN_DIR}")
+        message(FATAL_ERROR "VEX_LLVM_TOOLCHAIN_DIR is not a directory: ${VEX_LLVM_TOOLCHAIN_DIR}")
+    endif()
+    if(WIN32)
+        set(VEX_BUNDLED_CLANG "${VEX_LLVM_TOOLCHAIN_DIR}/bin/clang.exe")
+    else()
+        set(VEX_BUNDLED_CLANG "${VEX_LLVM_TOOLCHAIN_DIR}/bin/clang")
+    endif()
+    if(NOT EXISTS "${VEX_BUNDLED_CLANG}")
+        message(FATAL_ERROR
+            "VEX_LLVM_TOOLCHAIN_DIR must contain bin/clang or bin/clang.exe")
+    endif()
+    install(DIRECTORY "${VEX_LLVM_TOOLCHAIN_DIR}/"
+        DESTINATION toolchain
+        USE_SOURCE_PERMISSIONS)
+endif()
 if(CMAKE_C_COMPILER)
     file(TO_CMAKE_PATH "${CMAKE_C_COMPILER}" VEX_DEFAULT_C_COMPILER_PATH)
     target_compile_definitions(vex_frontend PRIVATE
@@ -63,6 +83,7 @@ if(BUILD_TESTING)
         tests/backend_tests.cpp
         tests/c_backend_tests.cpp
         tests/llvm_backend_tests.cpp
+        tests/toolchain_discovery_tests.cpp
     )
     target_link_libraries(vex_tests PRIVATE vex_frontend vex_build_options)
     add_test(NAME vex_frontend_tests COMMAND vex_tests)
