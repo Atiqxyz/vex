@@ -32,6 +32,7 @@ private:
     [[nodiscard]] StmtPtr parse_variable(const Token& start, bool immutable);
     [[nodiscard]] StmtPtr parse_return(const Token& start);
     [[nodiscard]] StmtPtr parse_if(const Token& start);
+    [[nodiscard]] StmtPtr parse_while(const Token& start);
     [[nodiscard]] StmtPtr parse_repeat(const Token& start);
     [[nodiscard]] StmtPtr parse_for(const Token& start);
     [[nodiscard]] StmtPtr parse_block();
