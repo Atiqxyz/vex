@@ -1,53 +1,78 @@
-#include "vex/ir.hpp"
+#include "vex/semantic.hpp"
 
 #include <algorithm>
-#include <ostream>
+#include <charconv>
+#include <cstdint>
+#include <limits>
+#include <string_view>
+#include <optional>
 #include <string>
-#include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace vex {
 namespace {
 
-bool is_numeric(const IRType type) noexcept {
-    return type == IRType::Int || type == IRType::Float;
+using Type = SemanticType;
+
+const char* type_name(const Type type) noexcept {
+    return semantic_type_name(type);
 }
 
-bool is_value_type(const IRType type) noexcept {
-    return type != IRType::Void;
+bool is_numeric(const Type type) noexcept {
+    return type == Type::Int || type == Type::Float;
 }
 
-struct FunctionSignature {
-    std::vector<IRValue> parameters;
-    IRType return_type{IRType::Void};
-    IRType return_element_type{IRType::Void};
-    std::uint32_t return_array_length{0};
+bool is_assignable(const Type destination, const Type source) noexcept {
+    if (destination == Type::Error || source == Type::Error ||
+        destination == Type::Unknown || source == Type::Unknown) return true;
+    if (source == Type::Void) return false;
+    if (destination == Type::Any) return true;
+    return destination == source ||
+           (destination == Type::Float && source == Type::Int);
+}
+
+Type common_numeric_type(const Type left, const Type right) noexcept {
+    if (left == Type::Error || right == Type::Error) return Type::Error;
+    if (left == Type::Unknown || right == Type::Unknown) return Type::Unknown;
+    if (!is_numeric(left) || !is_numeric(right)) return Type::Error;
+    return left == Type::Float || right == Type::Float ? Type::Float : Type::Int;
+}
+
+struct Symbol {
+    SemanticBindingId id{0};
+    Type type{Type::Unknown};
+    bool immutable{false};
+    bool is_function{false};
+    std::vector<Type> parameters;
+    std::vector<std::optional<SemanticArrayType>> parameter_array_types;
+    SourceSpan declaration{};
+    std::optional<SemanticArrayType> array_type;
+    std::optional<SemanticArrayType> return_array_type;
+    std::uint32_t struct_type_id{0};
+    std::vector<std::uint32_t> parameter_struct_type_ids;
     std::uint32_t return_struct_type_id{0};
 };
 
-struct Definition {
-    IRValue value{};
-    IRBlockId block{0};
-    std::int64_t position{-1};
-};
+using Scope = std::unordered_map<std::string, Symbol>;
 
-class FunctionVerifier {
+class AnalyzerImpl {
 public:
-    FunctionVerifier(const IRFunction& function,
-                     const std::unordered_map<std::string, FunctionSignature>& functions,
-                     const std::vector<IRStructType>& struct_types,
-                     std::vector<Diagnostic>& diagnostics)
-        : function_(function), functions_(functions), struct_types_(struct_types),
-          diagnostics_(diagnostics) {}
+    AnalyzerImpl(const SourceFile& source, const Program& program)
+        : source_(source), program_(program) {
+        scopes_.emplace_back();
+    }
 
-    void run() {
-        index_blocks();
-        collect_definitions();
-        validate_blocks();
-        validate_reachability_and_dominance();
+    SemanticResult run() {
+        install_builtins();
+        collect_struct_types();
+        collect_function_signatures();
+        for (const StmtPtr& statement : program_.statements) {
+            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data))
+                analyze_statement(*statement);
+        }
+        return SemanticResult{std::move(diagnostics_), std::move(model_)};
     }
 
 private:
@@ -57,891 +82,1464 @@ private:
         });
     }
 
-    void index_blocks() {
-        for (const IRBlock& block : function_.blocks) {
-            if (!blocks_.emplace(block.id, &block).second) {
-                report("IR001", "duplicate basic-block identifier", {});
-            }
-        }
-        if (blocks_.find(function_.entry_block) == blocks_.end()) {
-            report("IR002", "function entry block does not exist", function_.span);
-        }
-        if (function_.blocks.empty()) {
-            report("IR003", "function must contain at least one basic block",
-                   function_.span);
-        }
-        if (function_.return_type == IRType::Array) {
-            if (function_.return_element_type == IRType::Void ||
-                function_.return_element_type == IRType::Array ||
-                function_.return_array_length > 65536u) {
-                report("IR053", "function has an invalid fixed-array return shape",
-                       function_.span);
-            }
-        } else if (function_.return_type == IRType::Struct) {
-            if (function_.return_struct_type_id == 0 ||
-                function_.return_struct_type_id > struct_types_.size())
-                report("IR060", "function has an invalid structure return type", function_.span);
-            if (function_.return_element_type != IRType::Void || function_.return_array_length != 0)
-                report("IR054", "structure function return cannot carry array shape metadata", function_.span);
-        } else if (function_.return_type == IRType::Void ||
-                   function_.return_type == IRType::Int ||
-                   function_.return_type == IRType::Float ||
-                   function_.return_type == IRType::Bool ||
-                   function_.return_type == IRType::String) {
-            if (function_.return_element_type != IRType::Void ||
-                function_.return_array_length != 0) {
-                report("IR054", "primitive function return cannot carry array shape metadata",
-                       function_.span);
-            }
-        } else {
-            report("IR004", "function has an unknown return type", function_.span);
-        }
-        for (const IRFunctionParameter& parameter : function_.parameters) {
-            if (!is_value_type(parameter.value.type)) {
-                report("IR005", "function parameters cannot have type void",
-                       parameter.value.span);
-            }
-        }
+    [[nodiscard]] std::string spelling(const SourceSpan span) const {
+        return std::string(source_.slice(span));
     }
 
-    void add_definition(const IRValue& value, const IRBlockId block,
-                        const std::int64_t position) {
-        if (!is_value_type(value.type)) {
-            report("IR006", "SSA values cannot have type void", value.span);
+    [[nodiscard]] Type annotation_type(
+        const SourceSpan span, const bool allow_void,
+        std::optional<SemanticArrayType>* array_shape = nullptr,
+        std::uint32_t* struct_type_id = nullptr) {
+        const std::string name = spelling(span);
+        const std::size_t open = name.find('[');
+        if (open != std::string::npos) {
+            const std::size_t close = name.find(']', open + 1);
+            if (close == std::string::npos || close + 1 != name.size()) {
+                report("SEM003", "malformed fixed-array type annotation", span);
+                return Type::Error;
+            }
+            std::string element_name = name.substr(0, open);
+            const auto trim = [](std::string& value) {
+                const auto whitespace = [](const char c) {
+                    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+                };
+                while (!value.empty() && whitespace(value.front())) value.erase(value.begin());
+                while (!value.empty() && whitespace(value.back())) value.pop_back();
+            };
+            trim(element_name);
+            Type element_type = Type::Error;
+            if (element_name == "int") element_type = Type::Int;
+            else if (element_name == "float") element_type = Type::Float;
+            else if (element_name == "bool") element_type = Type::Bool;
+            else if (element_name == "string") element_type = Type::String;
+            else {
+                report("SEM003", "fixed arrays require a primitive element type", span);
+                return Type::Error;
+            }
+            std::string length_text = name.substr(open + 1, close - open - 1);
+            trim(length_text);
+            std::uint32_t length = 0;
+            const auto parsed = std::from_chars(length_text.data(),
+                length_text.data() + length_text.size(), length);
+            if (length_text.empty()) {
+                if (array_shape)
+                    *array_shape = SemanticArrayType{element_type, 0};
+                return Type::Array;
+            }
+            if (parsed.ec != std::errc{} ||
+                parsed.ptr != length_text.data() + length_text.size() ||
+                length == 0 || length > 65536u) {
+                report("SEM041", "fixed-array lengths must be between 1 and 65,536; use [] for a dynamic array", span);
+                return Type::Error;
+            }
+            if (array_shape)
+                *array_shape = SemanticArrayType{element_type, length};
+            return Type::Array;
         }
-        if (value.type == IRType::Array &&
-            (value.element_type == IRType::Void || value.element_type == IRType::Array ||
-             value.array_length > 65536u)) {
-            report("IR050", "SSA array value has an invalid element type or fixed length",
-                   value.span);
-        } else if (value.type == IRType::Struct) {
-            if (value.struct_type_id == 0 || value.struct_type_id > struct_types_.size())
-                report("IR060", "SSA value has an invalid structure type", value.span);
-            if (value.element_type != IRType::Void || value.array_length != 0)
-                report("IR051", "structure SSA value cannot carry array shape metadata", value.span);
-        } else if (value.type != IRType::Array &&
-                   (value.element_type != IRType::Void || value.array_length != 0 ||
-                    value.struct_type_id != 0)) {
-            report("IR051", "primitive SSA value cannot carry aggregate shape metadata", value.span);
+        if (name == "int") return Type::Int;
+        if (name == "float") return Type::Float;
+        if (name == "bool") return Type::Bool;
+        if (name == "string") return Type::String;
+        const auto structure = struct_ids_.find(name);
+        if (structure != struct_ids_.end()) {
+            if (struct_type_id) *struct_type_id = structure->second;
+            return Type::Struct;
         }
-        const auto inserted = definitions_.emplace(
-            value.id, Definition{value, block, position});
-        if (!inserted.second) {
-            report("IR007", "SSA value identifier is defined more than once",
-                   value.span);
-        }
+        if (allow_void && name == "void") return Type::Void;
+        report("SEM003", "unknown or unsupported type name '" + name + "'", span);
+        return Type::Error;
     }
 
-    void collect_definitions() {
-        for (const IRFunctionParameter& parameter : function_.parameters) {
-            add_definition(parameter.value, function_.entry_block, -1);
-        }
-        for (const IRBlock& block : function_.blocks) {
-            for (const IRValue& parameter : block.parameters) {
-                add_definition(parameter, block.id, -1);
+    void install_builtins() {
+        Symbol say;
+        say.type = Type::Void;
+        say.is_function = true;
+        say.parameters.push_back(Type::Any);
+        say.parameter_array_types.emplace_back(std::nullopt);
+        say.declaration = {0, 0};
+        scopes_.front().emplace("say", std::move(say));
+
+        const auto add_math = [this](const char* name, const std::size_t arity) {
+            Symbol function;
+            function.type = Type::Float;
+            function.is_function = true;
+            function.parameters.assign(arity, Type::Float);
+            function.parameter_array_types.resize(arity);
+            function.declaration = {0, 0};
+            scopes_.front().emplace(name, std::move(function));
+        };
+        add_math("sqrt", 1);
+        add_math("sin", 1);
+        add_math("cos", 1);
+        add_math("pow", 2);
+        add_math("abs", 1);
+
+        Symbol length;
+        length.type = Type::Int;
+        length.is_function = true;
+        length.parameters = {Type::Array};
+        length.parameter_array_types = {SemanticArrayType{Type::Unknown, 0}};
+        length.declaration = {0, 0};
+        scopes_.front().emplace("length", std::move(length));
+
+        Symbol push;
+        push.type = Type::Void;
+        push.is_function = true;
+        push.parameters = {Type::Array, Type::Any};
+        push.parameter_array_types = {
+            SemanticArrayType{Type::Unknown, 0}, std::nullopt
+        };
+        push.declaration = {0, 0};
+        scopes_.front().emplace("push", std::move(push));
+
+        Symbol pop;
+        pop.type = Type::Array;
+        pop.is_function = true;
+        pop.parameters = {Type::Array};
+        pop.parameter_array_types = {SemanticArrayType{Type::Unknown, 0}};
+        pop.declaration = {0, 0};
+        scopes_.front().emplace("pop", std::move(pop));
+    }
+
+    void collect_struct_types() {
+        std::vector<const StructDeclStmt*> declarations;
+        for (const StmtPtr& statement : program_.statements) {
+            if (!statement) continue;
+            const auto* structure = std::get_if<StructDeclStmt>(&statement->data);
+            if (!structure) continue;
+            const std::string name = spelling(structure->name);
+            if (struct_ids_.find(name) != struct_ids_.end() ||
+                scopes_.front().find(name) != scopes_.front().end()) {
+                report("SEM002", "duplicate global declaration of '" + name + "'",
+                       structure->name);
+                continue;
             }
-            for (std::size_t index = 0; index < block.instructions.size(); ++index) {
-                const IRInstruction& instruction = block.instructions[index];
-                if (instruction.result) {
-                    add_definition(*instruction.result, block.id,
-                                   static_cast<std::int64_t>(index));
+            const std::uint32_t id = static_cast<std::uint32_t>(model_.struct_types.size() + 1u);
+            struct_ids_.emplace(name, id);
+            model_.struct_types.push_back(SemanticStructType{id, name, {}, structure->name});
+            declarations.push_back(structure);
+        }
+        for (const StructDeclStmt* declaration : declarations) {
+            const std::string name = spelling(declaration->name);
+            const auto found = struct_ids_.find(name);
+            if (found == struct_ids_.end()) continue;
+            SemanticStructType& structure = model_.struct_types[found->second - 1u];
+            if (declaration->fields.empty())
+                report("SEM048", "structures must declare at least one field", declaration->name);
+            std::unordered_map<std::string, bool> field_names;
+            for (const StructFieldDecl& field : declaration->fields) {
+                const std::string field_name = spelling(field.name);
+                if (!field_names.emplace(field_name, true).second) {
+                    report("SEM049", "duplicate field '" + field_name +
+                           "' in structure '" + name + "'", field.name);
+                    continue;
                 }
-            }
-        }
-    }
-
-    [[nodiscard]] std::optional<IRType> operand_type(
-        const IRInstruction& instruction, const std::size_t index) {
-        if (index >= instruction.operands.size()) return std::nullopt;
-        const auto found = definitions_.find(instruction.operands[index]);
-        if (found == definitions_.end()) return std::nullopt;
-        return found->second.value.type;
-    }
-
-    [[nodiscard]] const IRValue* operand_value(
-        const IRInstruction& instruction, const std::size_t index) const {
-        if (index >= instruction.operands.size()) return nullptr;
-        const auto found = definitions_.find(instruction.operands[index]);
-        return found == definitions_.end() ? nullptr : &found->second.value;
-    }
-
-    static bool same_array_shape(const IRValue& left, const IRValue& right) {
-        return left.type == IRType::Array && right.type == IRType::Array &&
-               left.element_type == right.element_type &&
-               left.array_length == right.array_length;
-    }
-
-    static bool same_value_shape(const IRValue& left, const IRValue& right) {
-        if (left.type != right.type) return false;
-        if (left.type == IRType::Array) return same_array_shape(left, right);
-        if (left.type == IRType::Struct) return left.struct_type_id == right.struct_type_id;
-        return true;
-    }
-
-    [[nodiscard]] const IRStructField* struct_field(
-        const std::uint32_t type_id, const std::uint32_t index) const {
-        if (type_id == 0 || type_id > struct_types_.size()) return nullptr;
-        const IRStructType& type = struct_types_[type_id - 1u];
-        return index < type.fields.size() ? &type.fields[index] : nullptr;
-    }
-
-    [[nodiscard]] static bool parse_field_index(
-        const std::string& text, std::uint32_t& index) {
-        if (text.empty()) return false;
-        std::uint64_t parsed = 0;
-        for (const char character : text) {
-            if (character < '0' || character > '9') return false;
-            parsed = parsed * 10u + static_cast<std::uint64_t>(character - '0');
-            if (parsed > 0xffffffffu) return false;
-        }
-        index = static_cast<std::uint32_t>(parsed);
-        return true;
-    }
-
-    void check_arity(const IRInstruction& instruction, const std::size_t expected) {
-        if (instruction.operands.size() != expected) {
-            report("IR008", std::string(ir_op_name(instruction.op)) +
-                   " expects " + std::to_string(expected) + " operand(s), got " +
-                   std::to_string(instruction.operands.size()), instruction.span);
-        }
-    }
-
-    void check_result(const IRInstruction& instruction, const IRType expected) {
-        if (!instruction.result) {
-            report("IR009", std::string(ir_op_name(instruction.op)) +
-                   " must define a result value", instruction.span);
-        } else if (instruction.result->type != expected) {
-            report("IR010", std::string(ir_op_name(instruction.op)) +
-                   " result must have type " + ir_type_name(expected), instruction.result->span);
-        }
-    }
-
-    void check_no_result(const IRInstruction& instruction) {
-        if (instruction.result) {
-            report("IR011", std::string(ir_op_name(instruction.op)) +
-                   " cannot define a result value", instruction.result->span);
-        }
-    }
-
-    void validate_instruction(const IRInstruction& instruction) {
-        const auto left = operand_type(instruction, 0);
-        const auto right = operand_type(instruction, 1);
-        switch (instruction.op) {
-        case IROp::Constant:
-            check_arity(instruction, 0);
-            if (!instruction.result) {
-                report("IR009", "constant must define a result value", instruction.span);
-            } else if (!is_value_type(instruction.result->type)) {
-                report("IR006", "constant cannot have type void", instruction.result->span);
-            }
-            if (instruction.immediate.empty()) {
-                report("IR012", "constant must retain its literal spelling", instruction.span);
-            }
-            break;
-        case IROp::Add:
-        case IROp::Subtract:
-        case IROp::Multiply:
-        case IROp::Divide:
-            check_arity(instruction, 2);
-            if (left && right && (*left != *right || !is_numeric(*left))) {
-                report("IR013", "arithmetic operands must have the same numeric type",
-                       instruction.span);
-            }
-            if (left) check_result(instruction, *left);
-            else if (!instruction.result)
-                report("IR009", "arithmetic instruction must define a result", instruction.span);
-            break;
-        case IROp::Remainder:
-            check_arity(instruction, 2);
-            if ((left && *left != IRType::Int) || (right && *right != IRType::Int)) {
-                report("IR014", "remainder operands must both have type int",
-                       instruction.span);
-            }
-            check_result(instruction, IRType::Int);
-            break;
-        case IROp::Negate:
-            check_arity(instruction, 1);
-            if (left && !is_numeric(*left)) {
-                report("IR015", "negation requires a numeric operand", instruction.span);
-            }
-            if (left) check_result(instruction, *left);
-            break;
-        case IROp::LogicalNot:
-            check_arity(instruction, 1);
-            if (left && *left != IRType::Bool) {
-                report("IR016", "logical not requires a bool operand", instruction.span);
-            }
-            check_result(instruction, IRType::Bool);
-            break;
-        case IROp::LogicalAnd:
-        case IROp::LogicalOr:
-            check_arity(instruction, 2);
-            if ((left && *left != IRType::Bool) ||
-                (right && *right != IRType::Bool)) {
-                report("IR017", "logical operators require bool operands", instruction.span);
-            }
-            check_result(instruction, IRType::Bool);
-            break;
-        case IROp::Equal:
-        case IROp::NotEqual:
-            check_arity(instruction, 2);
-            if (left && right && (*left != *right ||
-                !is_value_type(*left) || !is_value_type(*right))) {
-                report("IR018", "equality operands must have the same non-void type",
-                       instruction.span);
-            }
-            check_result(instruction, IRType::Bool);
-            break;
-        case IROp::Less:
-        case IROp::LessEqual:
-        case IROp::Greater:
-        case IROp::GreaterEqual:
-            check_arity(instruction, 2);
-            if (left && right && (*left != *right || !is_numeric(*left))) {
-                report("IR019", "relational operands must have the same numeric type",
-                       instruction.span);
-            }
-            check_result(instruction, IRType::Bool);
-            break;
-        case IROp::IntToFloat:
-            check_arity(instruction, 1);
-            if (left && *left != IRType::Int) {
-                report("IR020", "int-to-float conversion requires an int operand",
-                       instruction.span);
-            }
-            check_result(instruction, IRType::Float);
-            break;
-        case IROp::Math: {
-            const bool unary_math = instruction.callee == "sqrt" ||
-                instruction.callee == "sin" || instruction.callee == "cos" ||
-                instruction.callee == "abs";
-            const bool binary_math = instruction.callee == "pow";
-            if (!unary_math && !binary_math) {
-                report("IR039", "unknown mathematical intrinsic '" +
-                       instruction.callee + "'", instruction.span);
-                break;
-            }
-            check_arity(instruction, binary_math ? 2u : 1u);
-            for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
-                const auto actual = operand_type(instruction, index);
-                if (actual && *actual != IRType::Float) {
-                    report("IR040", "mathematical intrinsic arguments must be float",
-                           instruction.span);
+                std::uint32_t field_struct_id = 0;
+                std::optional<SemanticArrayType> field_array_type;
+                const Type field_type = field.type_annotation
+                    ? annotation_type(*field.type_annotation, false,
+                                      &field_array_type, &field_struct_id)
+                    : Type::Error;
+                if (!field.type_annotation || field_type == Type::Error ||
+                    field_type == Type::Array || field_type == Type::Void ||
+                    field_type == Type::Unknown || field_type == Type::Any) {
+                    report("SEM048", "structure fields require a primitive or previously declared structure type",
+                           field.type_annotation.value_or(field.name));
+                    continue;
                 }
-            }
-            check_result(instruction, IRType::Float);
-            break;
-        }
-        case IROp::Call: {
-            const auto found = functions_.find(instruction.callee);
-            if (found == functions_.end()) {
-                report("IR021", "call references unknown function '" +
-                       instruction.callee + "'", instruction.span);
-                break;
-            }
-            if (instruction.operands.size() != found->second.parameters.size()) {
-                report("IR022", "call to '" + instruction.callee + "' has the wrong argument count",
-                       instruction.span);
-            }
-            const std::size_t count = std::min(
-                instruction.operands.size(), found->second.parameters.size());
-            for (std::size_t index = 0; index < count; ++index) {
-                const IRValue* actual = operand_value(instruction, index);
-                const IRValue& expected = found->second.parameters[index];
-                if (actual && (actual->type != expected.type ||
-                    !same_value_shape(*actual, expected))) {
-                    report("IR023", "call argument " + std::to_string(index + 1) +
-                           " has the wrong type or fixed-array shape", instruction.span);
+                if (field_type == Type::Struct && field_struct_id >= structure.id) {
+                    report("SEM050", "a structure field may only contain a structure declared earlier; recursive by-value fields are not supported",
+                           field.type_annotation.value_or(field.name));
+                    continue;
                 }
+                structure.fields.push_back(SemanticStructField{
+                    field_name, field_type, field_struct_id, field.name
+                });
             }
-            if (found->second.return_type == IRType::Void) {
-                check_no_result(instruction);
+        }
+    }
+
+    [[nodiscard]] const SemanticStructField* find_struct_field(
+        const std::uint32_t structure_id, const std::string& field_name,
+        std::uint32_t* index = nullptr) const {
+        if (structure_id == 0 || structure_id > model_.struct_types.size())
+            return nullptr;
+        const auto& fields = model_.struct_types[structure_id - 1u].fields;
+        for (std::size_t position = 0; position < fields.size(); ++position) {
+            if (fields[position].name == field_name) {
+                if (index) *index = static_cast<std::uint32_t>(position);
+                return &fields[position];
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] const NameExpr* member_root_name(const Expr* expression) const {
+        while (expression) {
+            if (const auto* name = std::get_if<NameExpr>(&expression->data))
+                return name;
+            const auto* member = std::get_if<MemberExpr>(&expression->data);
+            if (!member) return nullptr;
+            expression = member->object.get();
+        }
+        return nullptr;
+    }
+
+    void collect_function_signatures() {
+        for (const StmtPtr& statement : program_.statements) {
+            if (!statement) continue;
+            const auto* function =
+                std::get_if<FunctionDeclStmt>(&statement->data);
+            if (!function) continue;
+
+            Symbol signature;
+            signature.id = next_binding_id_++;
+            signature.is_function = true;
+            signature.declaration = function->name;
+            signature.type = function->return_type
+                ? annotation_type(*function->return_type, true,
+                                  &signature.return_array_type,
+                                  &signature.return_struct_type_id)
+                : Type::Void;
+
+            for (const Parameter& parameter : function->parameters) {
+                Type parameter_type = Type::Unknown;
+                std::optional<SemanticArrayType> parameter_array_type;
+                std::uint32_t parameter_struct_type_id = 0;
+                if (parameter.type_annotation) {
+                    parameter_type = annotation_type(
+                        *parameter.type_annotation, false, &parameter_array_type,
+                        &parameter_struct_type_id);
+                } else {
+                    report("SEM004",
+                           "function parameters require an explicit type annotation",
+                           parameter.name);
+                }
+                signature.parameters.push_back(parameter_type);
+                signature.parameter_array_types.push_back(parameter_array_type);
+                signature.parameter_struct_type_ids.push_back(parameter_struct_type_id);
+            }
+
+            const std::string name = spelling(function->name);
+            const auto existing = scopes_.front().find(name);
+            if (existing != scopes_.front().end()) {
+                report("SEM002", "duplicate global declaration of '" + name + "'",
+                       function->name);
             } else {
-                check_result(instruction, found->second.return_type);
-                if (found->second.return_type == IRType::Array &&
-                    instruction.result &&
-                    (instruction.result->element_type != found->second.return_element_type ||
-                     instruction.result->array_length != found->second.return_array_length)) {
-                    report("IR055", "call result does not match the callee's fixed-array return shape",
-                           instruction.span);
+                scopes_.front().emplace(name, signature);
+            }
+            SemanticFunctionSignature public_signature;
+            public_signature.name = name;
+            public_signature.parameter_types = signature.parameters;
+            public_signature.parameter_array_types = signature.parameter_array_types;
+            public_signature.return_type = signature.type;
+            public_signature.return_array_type = signature.return_array_type;
+            public_signature.parameter_struct_type_ids = signature.parameter_struct_type_ids;
+            public_signature.return_struct_type_id = signature.return_struct_type_id;
+            public_signature.declaration = function->name;
+            model_.functions.emplace(function, std::move(public_signature));
+            signatures_.emplace(function, std::move(signature));
+        }
+    }
+
+    [[nodiscard]] Symbol* lookup(const std::string& name) {
+        for (std::size_t index = scopes_.size(); index > 0; --index) {
+            Scope& scope = scopes_[index - 1];
+            const auto found = scope.find(name);
+            if (found == scope.end()) continue;
+
+            // File-scope values belong to implicit top-level execution. They
+            // are not globals that separately declared functions can capture.
+            if (inside_function_ && index == 1 && !found->second.is_function) {
+                return nullptr;
+            }
+            return &found->second;
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] bool define(const std::string& name, Symbol symbol,
+                              const SourceSpan declaration,
+                              SemanticBindingId* assigned_id = nullptr) {
+        Scope& current = scopes_.back();
+        if (current.find(name) != current.end()) {
+            report("SEM002", "duplicate declaration of '" + name +
+                   "' in the same scope", declaration);
+            return false;
+        }
+        if (symbol.id == 0) symbol.id = next_binding_id_++;
+        if (assigned_id) *assigned_id = symbol.id;
+        model_.bindings.emplace(symbol.id, SemanticBinding{
+            symbol.id, name, symbol.type, !symbol.immutable && !symbol.is_function,
+            declaration, symbol.array_type, symbol.struct_type_id
+        });
+        current.emplace(name, std::move(symbol));
+        return true;
+    }
+
+    [[nodiscard]] Type analyze_expression(const Expr& expression) {
+        const Type result = analyze_expression_impl(expression);
+        model_.expression_types[&expression] = result;
+        return result;
+    }
+
+    [[nodiscard]] Type analyze_expression_impl(const Expr& expression) {
+        if (const auto* literal = std::get_if<LiteralExpr>(&expression.data)) {
+            switch (literal->token_kind) {
+            case TokenKind::Integer: return Type::Int;
+            case TokenKind::Float: return Type::Float;
+            case TokenKind::String: return Type::String;
+            case TokenKind::KwTrue:
+            case TokenKind::KwFalse: return Type::Bool;
+            default: return Type::Error;
+            }
+        }
+
+        if (const auto* name = std::get_if<NameExpr>(&expression.data)) {
+            const std::string identifier = spelling(name->name);
+            Symbol* symbol = lookup(identifier);
+            if (!symbol) {
+                report("SEM001", "undefined identifier '" + identifier + "'",
+                       name->name);
+                return Type::Error;
+            }
+            if (symbol->is_function) {
+                report("SEM010",
+                       "function names can only be used as function call targets",
+                       name->name);
+                return Type::Error;
+            }
+            if (symbol->id != 0) model_.resolved_names[name] = symbol->id;
+            if (symbol->array_type)
+                model_.array_expression_types[&expression] = *symbol->array_type;
+            if (symbol->type == Type::Struct)
+                model_.struct_expression_types[&expression] = symbol->struct_type_id;
+            return symbol->type;
+        }
+
+        if (const auto* group = std::get_if<GroupExpr>(&expression.data)) {
+            if (!group->expression) return Type::Error;
+            const Type grouped_type = analyze_expression(*group->expression);
+            const auto shape = model_.array_expression_types.find(group->expression.get());
+            if (shape != model_.array_expression_types.end())
+                model_.array_expression_types[&expression] = shape->second;
+            const auto structure = model_.struct_expression_types.find(group->expression.get());
+            if (structure != model_.struct_expression_types.end())
+                model_.struct_expression_types[&expression] = structure->second;
+            return grouped_type;
+        }
+
+        if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression.data)) {
+            const auto contextual_shape = model_.array_expression_types.find(&expression);
+            const bool dynamic_context =
+                contextual_shape != model_.array_expression_types.end() &&
+                contextual_shape->second.length == 0 &&
+                contextual_shape->second.element_type != Type::Unknown;
+            if (array->elements.empty()) {
+                if (dynamic_context) return Type::Array;
+                report("SEM041", "empty array literals require an explicit dynamic-array type such as int[]",
+                       expression.span);
+                return Type::Error;
+            }
+            Type element_type = Type::Unknown;
+            for (const ExprPtr& element : array->elements) {
+                const Type actual = element ? analyze_expression(*element) : Type::Error;
+                if (actual == Type::Error || actual == Type::Void ||
+                    actual == Type::Array || actual == Type::Any) {
+                    report("SEM041", "array elements must use one supported primitive type",
+                           element ? element->span : expression.span);
+                    return Type::Error;
+                }
+                if (element_type == Type::Unknown) {
+                    element_type = actual;
+                } else if (is_numeric(element_type) && is_numeric(actual)) {
+                    if (element_type == Type::Float || actual == Type::Float)
+                        element_type = Type::Float;
+                } else if (element_type != actual) {
+                    report("SEM041", "all array elements must have compatible types",
+                           element ? element->span : expression.span);
+                    return Type::Error;
                 }
             }
-            break;
+            if (array->elements.size() > 65536u) {
+                report("SEM041", "fixed arrays are limited to 65,536 elements",
+                       expression.span);
+                return Type::Error;
+            }
+            if (dynamic_context) {
+                const Type expected = contextual_shape->second.element_type;
+                if (!(expected == element_type ||
+                      (expected == Type::Float && element_type == Type::Int))) {
+                    report("SEM041", "dynamic array literal elements do not match the annotated element type",
+                           expression.span);
+                    return Type::Error;
+                }
+                model_.array_expression_types[&expression] = contextual_shape->second;
+            } else {
+                model_.array_expression_types[&expression] = SemanticArrayType{
+                    element_type, static_cast<std::uint32_t>(array->elements.size())};
+            }
+            return Type::Array;
         }
-        case IROp::Say:
-            check_arity(instruction, 1);
-            if (left && (!is_value_type(*left) || *left == IRType::Array)) {
-                report("IR024", "say requires a printable primitive value", instruction.span);
+
+        if (const auto* literal = std::get_if<StructLiteralExpr>(&expression.data)) {
+            const std::string type_name = spelling(literal->type_name);
+            const auto structure_id = struct_ids_.find(type_name);
+            if (structure_id == struct_ids_.end()) {
+                report("SEM001", "undefined structure type '" + type_name + "'",
+                       literal->type_name);
+                for (const StructLiteralField& field : literal->fields)
+                    if (field.value) static_cast<void>(analyze_expression(*field.value));
+                return Type::Error;
             }
-            check_no_result(instruction);
-            break;
-        case IROp::ArrayMake: {
-            if (!instruction.result || instruction.result->type != IRType::Array) {
-                report("IR041", "array construction must define an array result", instruction.span);
-                break;
+            const SemanticStructType& structure = model_.struct_types[structure_id->second - 1u];
+            std::vector<bool> seen(structure.fields.size(), false);
+            std::vector<std::uint32_t> field_indices;
+            field_indices.reserve(literal->fields.size());
+            for (const StructLiteralField& field : literal->fields) {
+                std::uint32_t field_index = 0;
+                const auto* expected = find_struct_field(
+                    structure_id->second, spelling(field.name), &field_index);
+                if (!expected) {
+                    report("SEM051", "structure '" + type_name +
+                           "' has no field named '" + spelling(field.name) + "'",
+                           field.name);
+                    if (field.value) static_cast<void>(analyze_expression(*field.value));
+                    continue;
+                }
+                if (seen[field_index]) {
+                    report("SEM049", "field '" + spelling(field.name) +
+                           "' is initialized more than once", field.name);
+                    if (field.value) static_cast<void>(analyze_expression(*field.value));
+                    continue;
+                }
+                seen[field_index] = true;
+                field_indices.push_back(field_index);
+                const Type actual = field.value
+                    ? analyze_expression(*field.value) : Type::Error;
+                const std::uint32_t actual_struct = field.value &&
+                    model_.struct_expression_types.find(field.value.get()) !=
+                        model_.struct_expression_types.end()
+                    ? model_.struct_expression_types.at(field.value.get()) : 0u;
+                if (!is_assignable(expected->type, actual) ||
+                    (expected->type == Type::Struct && expected->struct_type_id != actual_struct)) {
+                    report("SEM052", "initializer for field '" + expected->name +
+                           "' has an incompatible type",
+                           field.value ? field.value->span : field.name);
+                }
             }
-            const IRValue& result = *instruction.result;
-            if (result.element_type == IRType::Void || result.element_type == IRType::Array ||
-                result.array_length > 65536u)
-                report("IR042", "array result has an invalid element type or length", result.span);
-            if (result.array_length != 0 &&
-                instruction.operands.size() != result.array_length)
-                report("IR043", "array construction operand count does not match its fixed length", instruction.span);
-            for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
-                const auto actual = operand_type(instruction, index);
-                if (actual && *actual != result.element_type)
-                    report("IR044", "array element operand has the wrong type", instruction.span);
+            for (std::size_t index = 0; index < seen.size(); ++index) {
+                if (!seen[index])
+                    report("SEM053", "missing initializer for field '" +
+                           structure.fields[index].name + "'", expression.span);
             }
-            break;
+            model_.struct_expression_types[&expression] = structure_id->second;
+            model_.struct_literal_field_indices[literal] = std::move(field_indices);
+            return Type::Struct;
         }
-        case IROp::StructMake: {
-            if (!instruction.result || instruction.result->type != IRType::Struct) {
-                report("IR061", "structure construction must define a structure result", instruction.span);
-                break;
+
+        if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
+            const Type object_type = member->object
+                ? analyze_expression(*member->object) : Type::Error;
+            if (object_type != Type::Struct) {
+                if (object_type != Type::Error && object_type != Type::Unknown)
+                    report("SEM054", "field access requires a structure value",
+                           expression.span);
+                return Type::Error;
             }
-            const IRValue& result = *instruction.result;
-            if (result.struct_type_id == 0 || result.struct_type_id > struct_types_.size()) {
-                report("IR060", "structure construction has an invalid structure type", instruction.span);
-                break;
-            }
-            const auto& fields = struct_types_[result.struct_type_id - 1u].fields;
-            if (instruction.operands.size() != fields.size())
-                report("IR062", "structure construction operand count does not match its field count", instruction.span);
-            const std::size_t count = std::min(instruction.operands.size(), fields.size());
-            for (std::size_t index = 0; index < count; ++index) {
-                const IRValue* actual = operand_value(instruction, index);
-                if (actual && (actual->type != fields[index].type ||
-                    (actual->type == IRType::Struct && actual->struct_type_id != fields[index].struct_type_id)))
-                    report("IR063", "structure construction field has the wrong type", instruction.span);
-            }
-            break;
-        }
-        case IROp::StructGet:
-        case IROp::StructSet: {
-            const bool is_set = instruction.op == IROp::StructSet;
-            check_arity(instruction, is_set ? 2u : 1u);
-            const IRValue* object = operand_value(instruction, 0);
-            if (!object || object->type != IRType::Struct) {
-                report("IR064", "structure field operation requires a structure operand", instruction.span);
-                break;
+            const auto object_structure = member->object
+                ? model_.struct_expression_types.find(member->object.get())
+                : model_.struct_expression_types.end();
+            if (object_structure == model_.struct_expression_types.end()) {
+                report("SEM054", "structure type information is unavailable for this field access",
+                       expression.span);
+                return Type::Error;
             }
             std::uint32_t field_index = 0;
-            if (!parse_field_index(instruction.immediate, field_index)) {
-                report("IR065", "structure field operation has an invalid field index", instruction.span);
-                break;
-            }
-            const IRStructField* field = struct_field(object->struct_type_id, field_index);
+            const auto* field = find_struct_field(object_structure->second,
+                                                  spelling(member->member), &field_index);
             if (!field) {
-                report("IR065", "structure field index is out of range", instruction.span);
-                break;
+                report("SEM051", "structure has no field named '" +
+                       spelling(member->member) + "'", member->member);
+                return Type::Error;
             }
-            if (is_set) {
-                const IRValue* value = operand_value(instruction, 1);
-                if (value && (value->type != field->type ||
-                    (value->type == IRType::Struct && value->struct_type_id != field->struct_type_id)))
-                    report("IR063", "structure field update value has the wrong type", instruction.span);
-                if (!instruction.result || instruction.result->type != IRType::Struct ||
-                    instruction.result->struct_type_id != object->struct_type_id)
-                    report("IR066", "structure field update must preserve the source structure type", instruction.span);
-            } else {
-                if (!instruction.result || instruction.result->type != field->type ||
-                    (field->type == IRType::Struct && instruction.result->struct_type_id != field->struct_type_id))
-                    report("IR067", "structure field read result has the wrong type", instruction.span);
-            }
-            break;
+            model_.member_field_indices[member] = field_index;
+            if (field->type == Type::Struct)
+                model_.struct_expression_types[&expression] = field->struct_type_id;
+            return field->type;
         }
-        case IROp::ArrayGet: {
-            check_arity(instruction, 2);
-            const IRValue* array = operand_value(instruction, 0);
-            if (array && array->type != IRType::Array)
-                report("IR045", "array indexing requires an array operand", instruction.span);
-            if (right && *right != IRType::Int)
-                report("IR046", "array index operand must have type int", instruction.span);
-            if (array) check_result(instruction, array->element_type);
-            else if (!instruction.result)
-                report("IR009", "array indexing must define a result", instruction.span);
-            break;
-        }
-        case IROp::ArraySet: {
-            check_arity(instruction, 3);
-            const IRValue* array = operand_value(instruction, 0);
-            const auto index_type = operand_type(instruction, 1);
-            const auto value_type = operand_type(instruction, 2);
-            if (array && array->type != IRType::Array)
-                report("IR047", "array update requires an array operand", instruction.span);
-            if (index_type && *index_type != IRType::Int)
-                report("IR046", "array index operand must have type int", instruction.span);
-            if (array && value_type && *value_type != array->element_type)
-                report("IR048", "array update value has the wrong element type", instruction.span);
-            if (array && instruction.result && !same_array_shape(*array, *instruction.result))
-                report("IR049", "array update result must preserve the source array shape", instruction.span);
-            else if (array && !instruction.result)
-                report("IR009", "array update must define a result", instruction.span);
-            break;
-        }
-        case IROp::ArrayLength: {
-            check_arity(instruction, 1);
-            const IRValue* array = operand_value(instruction, 0);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
-                report("IR056", "dynamic array length requires a dynamic-array operand", instruction.span);
-            check_result(instruction, IRType::Int);
-            break;
-        }
-        case IROp::ArrayPush: {
-            check_arity(instruction, 2);
-            const IRValue* array = operand_value(instruction, 0);
-            const auto value_type = operand_type(instruction, 1);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
-                report("IR057", "array push requires a dynamic array operand", instruction.span);
-            if (array && value_type && *value_type != array->element_type)
-                report("IR058", "array push value has the wrong element type", instruction.span);
-            check_no_result(instruction);
-            break;
-        }
-        case IROp::ArrayPop: {
-            check_arity(instruction, 1);
-            const IRValue* array = operand_value(instruction, 0);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
-                report("IR059", "array pop requires a dynamic array operand", instruction.span);
-            if (array) check_result(instruction, array->element_type);
-            else if (!instruction.result)
-                report("IR009", "array pop must define a result", instruction.span);
-            break;
-        }
-        }
-    }
 
-    void validate_branch(const IRBlock& source, const IRBranch& branch,
-                         const SourceSpan span) {
-        const auto target = blocks_.find(branch.target);
-        if (target == blocks_.end()) {
-            report("IR025", "branch target block does not exist", span);
-            return;
+        if (const auto* range = std::get_if<RangeExpr>(&expression.data)) {
+            if (!allow_range_expression_) {
+                report("SEM046", "integer ranges can only be used directly in a for-in loop",
+                       expression.span);
+            }
+            const bool previous_permission = allow_range_expression_;
+            allow_range_expression_ = false;
+            const Type start_type = range->start
+                ? analyze_expression(*range->start) : Type::Error;
+            const Type end_type = range->end
+                ? analyze_expression(*range->end) : Type::Error;
+            allow_range_expression_ = previous_permission;
+            if (start_type != Type::Error && start_type != Type::Unknown &&
+                start_type != Type::Int) {
+                report("SEM047", "range start must have type int",
+                       range->start ? range->start->span : expression.span);
+            }
+            if (end_type != Type::Error && end_type != Type::Unknown &&
+                end_type != Type::Int) {
+                report("SEM047", "range end must have type int",
+                       range->end ? range->end->span : expression.span);
+            }
+            return Type::Range;
         }
-        successors_[source.id].push_back(branch.target);
-        const auto& parameters = target->second->parameters;
-        if (branch.arguments.size() != parameters.size()) {
-            report("IR026", "branch argument count does not match target block parameters",
-                   span);
+
+        if (const auto* index = std::get_if<IndexExpr>(&expression.data)) {
+            const Type object_type = index->object
+                ? analyze_expression(*index->object) : Type::Error;
+            const Type index_type = index->index
+                ? analyze_expression(*index->index) : Type::Error;
+            if (index_type != Type::Error && index_type != Type::Unknown &&
+                index_type != Type::Int) {
+                report("SEM042", "array index must have type int",
+                       index->index ? index->index->span : expression.span);
+            }
+            if (object_type != Type::Array) {
+                if (object_type != Type::Error && object_type != Type::Unknown)
+                    report("SEM043", "indexing requires an array value",
+                           expression.span);
+                return Type::Error;
+            }
+            const auto shape = index->object
+                ? model_.array_expression_types.find(index->object.get())
+                : model_.array_expression_types.end();
+            if (shape == model_.array_expression_types.end()) {
+                report("SEM043", "array type information is unavailable for this expression",
+                       expression.span);
+                return Type::Error;
+            }
+            return shape->second.element_type;
         }
-        const std::size_t count = std::min(branch.arguments.size(), parameters.size());
-        for (std::size_t index = 0; index < count; ++index) {
-            const auto value = definitions_.find(branch.arguments[index]);
-            if (value != definitions_.end() &&
-                (value->second.value.type != parameters[index].type ||
-                 (parameters[index].type == IRType::Array &&
-                  !same_array_shape(value->second.value, parameters[index])))) {
-                report("IR027", "branch argument type does not match target block parameter",
-                       span);
+
+        if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
+            if (!unary->operand) return Type::Error;
+            const Type operand = analyze_expression(*unary->operand);
+            if (operand == Type::Error || operand == Type::Unknown) return operand;
+            if (unary->op == TokenKind::Bang) {
+                if (operand != Type::Bool) {
+                    report("SEM011", "operator '!' requires a bool operand; got " +
+                           std::string(type_name(operand)), unary->operand->span);
+                    return Type::Error;
+                }
+                return Type::Bool;
+            }
+            if (unary->op == TokenKind::Plus || unary->op == TokenKind::Minus) {
+                if (!is_numeric(operand)) {
+                    report("SEM011", "unary numeric operators require int or float; got " +
+                           std::string(type_name(operand)), unary->operand->span);
+                    return Type::Error;
+                }
+                return operand;
+            }
+            return Type::Error;
+        }
+
+        if (const auto* binary = std::get_if<BinaryExpr>(&expression.data)) {
+            if (!binary->left || !binary->right) return Type::Error;
+            const Type left = analyze_expression(*binary->left);
+            const Type right = analyze_expression(*binary->right);
+            if (left == Type::Error || right == Type::Error) return Type::Error;
+            if (left == Type::Unknown || right == Type::Unknown) return Type::Unknown;
+
+            switch (binary->op) {
+            case TokenKind::Plus:
+            case TokenKind::Minus:
+            case TokenKind::Star:
+            case TokenKind::Slash: {
+                const Type result = common_numeric_type(left, right);
+                if (result == Type::Error) {
+                    report("SEM012", "operator '" +
+                           std::string(token_kind_name(binary->op)) +
+                           "' requires numeric operands; got " +
+                           type_name(left) + " and " + type_name(right),
+                           expression.span);
+                }
+                return result;
+            }
+            case TokenKind::Percent:
+                if (left != Type::Int || right != Type::Int) {
+                    report("SEM012", "operator '%' requires two int operands",
+                           expression.span);
+                    return Type::Error;
+                }
+                return Type::Int;
+            case TokenKind::Less:
+            case TokenKind::LessEqual:
+            case TokenKind::Greater:
+            case TokenKind::GreaterEqual:
+                if (!is_numeric(left) || !is_numeric(right)) {
+                    report("SEM013", "comparison operators require numeric operands",
+                           expression.span);
+                    return Type::Error;
+                }
+                return Type::Bool;
+            case TokenKind::EqualEqual:
+            case TokenKind::BangEqual:
+                if (left == Type::Array || right == Type::Array) {
+                    report("SEM014", "fixed arrays cannot be compared as whole values", expression.span);
+                    return Type::Error;
+                }
+                if (left == Type::Struct || right == Type::Struct) {
+                    report("SEM014", "structure values cannot be compared until an explicit equality model is defined", expression.span);
+                    return Type::Error;
+                }
+                if ((!is_numeric(left) || !is_numeric(right)) && left != right) {
+                    report("SEM014", "equality operands must have compatible types; got " +
+                           std::string(type_name(left)) + " and " + type_name(right),
+                           expression.span);
+                    return Type::Error;
+                }
+                if (left == Type::Void || right == Type::Void) {
+                    report("SEM014", "void values cannot be compared", expression.span);
+                    return Type::Error;
+                }
+                return Type::Bool;
+            case TokenKind::AndAnd:
+            case TokenKind::OrOr:
+                if (left != Type::Bool || right != Type::Bool) {
+                    report("SEM015", "logical operators require two bool operands",
+                           expression.span);
+                    return Type::Error;
+                }
+                return Type::Bool;
+            default:
+                return Type::Error;
             }
         }
-    }
 
-    void validate_terminator(const IRBlock& block) {
-        if (!block.terminator) {
-            report("IR028", "basic block has no terminator", {});
-            return;
+        if (const auto* assignment =
+                std::get_if<AssignmentExpr>(&expression.data)) {
+            if (assignment->target &&
+                std::holds_alternative<MemberExpr>(assignment->target->data)) {
+                const Type target_type = analyze_expression(*assignment->target);
+                const NameExpr* root = member_root_name(assignment->target.get());
+                if (!root) {
+                    report("SEM055", "structure fields can only be assigned through a named structure binding",
+                           assignment->target->span);
+                    if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                Symbol* root_symbol = lookup(spelling(root->name));
+                if (!root_symbol || root_symbol->type != Type::Struct) {
+                    report("SEM055", "structure assignment requires a named structure binding",
+                           root->name);
+                    if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                model_.assignment_targets[assignment] = root_symbol->id;
+                if (root_symbol->immutable)
+                    report("SEM017", "cannot modify a field of immutable binding '" +
+                           spelling(root->name) + "'", root->name);
+                const Type actual = assignment->value
+                    ? analyze_expression(*assignment->value) : Type::Error;
+                const std::uint32_t target_struct =
+                    model_.struct_expression_types.find(assignment->target.get()) !=
+                        model_.struct_expression_types.end()
+                    ? model_.struct_expression_types.at(assignment->target.get()) : 0u;
+                const std::uint32_t actual_struct = assignment->value &&
+                    model_.struct_expression_types.find(assignment->value.get()) !=
+                        model_.struct_expression_types.end()
+                    ? model_.struct_expression_types.at(assignment->value.get()) : 0u;
+                if (!is_assignable(target_type, actual) ||
+                    (target_type == Type::Struct && target_struct != actual_struct))
+                    report("SEM018", "cannot assign an incompatible value to structure field",
+                           expression.span);
+                return target_type;
+            }
+            if (const auto* indexed = assignment->target
+                    ? std::get_if<IndexExpr>(&assignment->target->data) : nullptr) {
+                const auto* base_name = indexed->object
+                    ? std::get_if<NameExpr>(&indexed->object->data) : nullptr;
+                if (!base_name) {
+                    report("SEM044", "array elements can only be assigned through a named array binding",
+                           indexed->object ? indexed->object->span : expression.span);
+                    if (assignment->value)
+                        static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                const std::string identifier = spelling(base_name->name);
+                Symbol* symbol = lookup(identifier);
+                if (!symbol || symbol->type != Type::Array || !symbol->array_type) {
+                    report("SEM001", "undefined or non-array identifier '" + identifier + "'",
+                           base_name->name);
+                    if (assignment->value)
+                        static_cast<void>(analyze_expression(*assignment->value));
+                    return Type::Error;
+                }
+                if (indexed->index) {
+                    const Type index_type = analyze_expression(*indexed->index);
+                    if (index_type != Type::Error && index_type != Type::Unknown &&
+                        index_type != Type::Int)
+                        report("SEM042", "array index must have type int",
+                               indexed->index->span);
+                }
+                model_.resolved_names[base_name] = symbol->id;
+                model_.array_expression_types[indexed->object.get()] = *symbol->array_type;
+                model_.assignment_targets[assignment] = symbol->id;
+                const Type value = assignment->value
+                    ? analyze_expression(*assignment->value) : Type::Error;
+                if (symbol->immutable)
+                    report("SEM017", "cannot modify an element of immutable array binding '" +
+                           identifier + "'", base_name->name);
+                if (!is_assignable(symbol->array_type->element_type, value))
+                    report("SEM018", "cannot assign " + std::string(type_name(value)) +
+                           " to array element of type " +
+                           type_name(symbol->array_type->element_type), expression.span);
+                return symbol->array_type->element_type;
+            }
+
+            const auto* target = assignment->target
+                ? std::get_if<NameExpr>(&assignment->target->data) : nullptr;
+            if (!target) return Type::Error;
+
+            const std::string identifier = spelling(target->name);
+            Symbol* symbol = lookup(identifier);
+            if (!symbol) {
+                report("SEM001", "undefined identifier '" + identifier + "'",
+                       target->name);
+                if (assignment->value) {
+                    static_cast<void>(analyze_expression(*assignment->value));
+                }
+                return Type::Error;
+            }
+            if (symbol->is_function) {
+                report("SEM016", "cannot assign to function '" + identifier + "'",
+                       target->name);
+                if (assignment->value) {
+                    static_cast<void>(analyze_expression(*assignment->value));
+                }
+                return Type::Error;
+            }
+            model_.assignment_targets[assignment] = symbol->id;
+            if (assignment->value && symbol->type == Type::Array &&
+                symbol->array_type && symbol->array_type->length == 0 &&
+                std::holds_alternative<ArrayLiteralExpr>(assignment->value->data)) {
+                model_.array_expression_types[assignment->value.get()] =
+                    *symbol->array_type;
+            }
+            const Type value = assignment->value
+                ? analyze_expression(*assignment->value) : Type::Error;
+            if (symbol->type == Type::Array && assignment->value) {
+                const auto shape = model_.array_expression_types.find(assignment->value.get());
+                if (symbol->array_type && shape != model_.array_expression_types.end() &&
+                    (symbol->array_type->element_type != shape->second.element_type ||
+                     symbol->array_type->length != shape->second.length))
+                    report("SEM045", "array assignment requires the same element type and length",
+                           assignment->value->span);
+            }
+            if (symbol->immutable) {
+                report("SEM017", "cannot assign to immutable binding '" +
+                       identifier + "'", target->name);
+            }
+            const std::uint32_t assigned_struct = assignment->value &&
+                model_.struct_expression_types.find(assignment->value.get()) !=
+                    model_.struct_expression_types.end()
+                ? model_.struct_expression_types.at(assignment->value.get()) : 0u;
+            if (!is_assignable(symbol->type, value) ||
+                (symbol->type == Type::Struct && symbol->struct_type_id != assigned_struct)) {
+                report("SEM018", "cannot assign " + std::string(type_name(value)) +
+                       " to " + type_name(symbol->type) + " binding '" + identifier + "'",
+                       expression.span);
+            }
+            return symbol->type;
         }
-        std::visit([&](const auto& terminator) {
-            using T = std::decay_t<decltype(terminator)>;
-            if constexpr (std::is_same_v<T, IRReturn>) {
-                if (function_.return_type == IRType::Void) {
-                    if (terminator.value) {
-                        report("IR029", "void function cannot return a value",
-                               block.terminator->span);
+
+        if (const auto* call = std::get_if<CallExpr>(&expression.data)) {
+            const Expr* callee = call->callee.get();
+            while (callee) {
+                const auto* group = std::get_if<GroupExpr>(&callee->data);
+                if (!group) break;
+                callee = group->expression.get();
+            }
+
+            const auto* name = callee ? std::get_if<NameExpr>(&callee->data) : nullptr;
+            Symbol* function = nullptr;
+            if (name) {
+                const std::string identifier = spelling(name->name);
+                function = lookup(identifier);
+                if (!function) {
+                    report("SEM001", "undefined identifier '" + identifier + "'",
+                           name->name);
+                } else if (!function->is_function) {
+                    report("SEM019", "value '" + identifier + "' is not callable",
+                           name->name);
+                    function = nullptr;
+                }
+            } else if (call->callee) {
+                static_cast<void>(analyze_expression(*call->callee));
+                report("SEM019", "only named functions can be called in this VEX version",
+                       call->callee->span);
+            }
+
+            std::vector<Type> argument_types;
+            std::vector<std::uint32_t> argument_struct_type_ids;
+            argument_types.reserve(call->arguments.size());
+            for (std::size_t index = 0; index < call->arguments.size(); ++index) {
+                const ExprPtr& argument = call->arguments[index];
+                if (function && argument &&
+                    index < function->parameter_array_types.size() &&
+                    function->parameter_array_types[index] &&
+                    function->parameter_array_types[index]->length == 0 &&
+                    std::holds_alternative<ArrayLiteralExpr>(argument->data)) {
+                    model_.array_expression_types[argument.get()] =
+                        *function->parameter_array_types[index];
+                }
+                argument_types.push_back(argument
+                    ? analyze_expression(*argument) : Type::Error);
+                const auto structure = argument
+                    ? model_.struct_expression_types.find(argument.get())
+                    : model_.struct_expression_types.end();
+                argument_struct_type_ids.push_back(
+                    structure == model_.struct_expression_types.end() ? 0u : structure->second);
+            }
+
+            if (!function) return Type::Error;
+            if (name) model_.resolved_calls[call] = spelling(name->name);
+
+            const std::string builtin_name = name ? spelling(name->name) : std::string{};
+            if (builtin_name == "length" || builtin_name == "push" ||
+                builtin_name == "pop") {
+                const std::size_t expected_count = builtin_name == "push" ? 2u : 1u;
+                if (argument_types.size() != expected_count) {
+                    report("SEM020", builtin_name + " expects " +
+                           std::to_string(expected_count) + " argument(s)", expression.span);
+                    return Type::Error;
+                }
+                if (argument_types[0] != Type::Array || !call->arguments[0]) {
+                    report("SEM021", builtin_name +
+                           " requires an array as its first argument", call->arguments[0]
+                               ? call->arguments[0]->span : expression.span);
+                    return Type::Error;
+                }
+                const auto shape = model_.array_expression_types.find(call->arguments[0].get());
+                if (shape == model_.array_expression_types.end()) {
+                    report("SEM021", builtin_name + " could not determine the array element type",
+                           call->arguments[0]->span);
+                    return Type::Error;
+                }
+                if (builtin_name == "length") return Type::Int;
+                if (shape->second.length != 0) {
+                    report("SEM021", builtin_name +
+                           " requires a dynamic array declared with type []", call->arguments[0]->span);
+                    return Type::Error;
+                }
+                if (const auto* array_name =
+                        std::get_if<NameExpr>(&call->arguments[0]->data)) {
+                    Symbol* array_symbol = lookup(spelling(array_name->name));
+                    if (array_symbol && array_symbol->immutable) {
+                        report("SEM017", builtin_name +
+                               " cannot modify an immutable array binding", array_name->name);
                     }
-                } else if (!terminator.value) {
-                    report("IR030", "non-void function must return a value",
-                           block.terminator->span);
+                }
+                if (builtin_name == "push") {
+                    if (!is_assignable(shape->second.element_type, argument_types[1])) {
+                        report("SEM021", "push value has type " +
+                               std::string(type_name(argument_types[1])) +
+                               "; expected " + type_name(shape->second.element_type),
+                               call->arguments[1]->span);
+                        return Type::Error;
+                    }
+                    return Type::Void;
+                }
+                return shape->second.element_type;
+            }
+
+            if (builtin_name == "say" &&
+                std::find(argument_types.begin(), argument_types.end(), Type::Array) != argument_types.end()) {
+                report("SEM046", "say does not accept array values; index an element first",
+                       expression.span);
+            }
+            if (argument_types.size() != function->parameters.size()) {
+                report("SEM020", "function expects " +
+                       std::to_string(function->parameters.size()) +
+                       " argument(s), but got " +
+                       std::to_string(argument_types.size()), expression.span);
+            }
+            const std::size_t count =
+                std::min(argument_types.size(), function->parameters.size());
+            for (std::size_t index = 0; index < count; ++index) {
+                if (!is_assignable(function->parameters[index], argument_types[index]) ||
+                    (function->parameters[index] == Type::Struct &&
+                     index < function->parameter_struct_type_ids.size() &&
+                     function->parameter_struct_type_ids[index] != argument_struct_type_ids[index])) {
+                    report("SEM021", "argument " + std::to_string(index + 1) +
+                           " has type " + type_name(argument_types[index]) +
+                           "; expected " + type_name(function->parameters[index]),
+                           call->arguments[index]->span);
+                    continue;
+                }
+                if (function->parameters[index] == Type::Array &&
+                    index < function->parameter_array_types.size() &&
+                    function->parameter_array_types[index]) {
+                    const auto actual_shape = call->arguments[index]
+                        ? model_.array_expression_types.find(call->arguments[index].get())
+                        : model_.array_expression_types.end();
+                    const SemanticArrayType& expected =
+                        *function->parameter_array_types[index];
+                    if (actual_shape == model_.array_expression_types.end() ||
+                        actual_shape->second.element_type != expected.element_type ||
+                        actual_shape->second.length != expected.length) {
+                        report("SEM021", "array argument " +
+                               std::to_string(index + 1) +
+                               " does not match the required element type and fixed length",
+                               call->arguments[index]->span);
+                    }
+                }
+            }
+            if (function->type == Type::Array && function->return_array_type)
+                model_.array_expression_types[&expression] =
+                    *function->return_array_type;
+            if (function->type == Type::Struct && function->return_struct_type_id != 0)
+                model_.struct_expression_types[&expression] = function->return_struct_type_id;
+            return function->type;
+        }
+
+        return Type::Error;
+    }
+
+    void require_type(const Type actual, const Type expected,
+                      const SourceSpan span, const char* code,
+                      const char* description) {
+        if (actual == Type::Error || actual == Type::Unknown ||
+            is_assignable(expected, actual)) return;
+        report(code, std::string(description) + "; expected " +
+               type_name(expected) + ", got " + type_name(actual), span);
+    }
+
+    void analyze_variable(const VariableDeclStmt& variable) {
+        Type declared = Type::Unknown;
+        std::optional<SemanticArrayType> declared_array_type;
+        std::uint32_t declared_struct_type_id = 0;
+        if (variable.type_annotation) {
+            declared = annotation_type(*variable.type_annotation, false,
+                                       &declared_array_type, &declared_struct_type_id);
+        }
+        const auto* array_initializer = variable.initializer
+            ? std::get_if<ArrayLiteralExpr>(&variable.initializer->data) : nullptr;
+        if (array_initializer && declared == Type::Array &&
+            declared_array_type && declared_array_type->length == 0) {
+            model_.array_expression_types[variable.initializer.get()] =
+                *declared_array_type;
+        }
+        const Type inferred = variable.initializer
+            ? analyze_expression(*variable.initializer) : Type::Error;
+        if (!variable.type_annotation) declared = inferred;
+        else {
+            require_type(inferred, declared,
+                         variable.initializer ? variable.initializer->span : variable.name,
+                         "SEM022", "initializer type does not match variable annotation");
+            const std::uint32_t inferred_struct = variable.initializer &&
+                model_.struct_expression_types.find(variable.initializer.get()) !=
+                    model_.struct_expression_types.end()
+                ? model_.struct_expression_types.at(variable.initializer.get()) : 0u;
+            if (declared == Type::Struct && inferred == Type::Struct &&
+                declared_struct_type_id != inferred_struct)
+                report("SEM022", "initializer structure type does not match variable annotation",
+                       variable.initializer ? variable.initializer->span : variable.name);
+        }
+        if (declared == Type::Void) {
+            report("SEM023", "variables cannot have type void", variable.name);
+            declared = Type::Error;
+        }
+        Symbol symbol;
+        symbol.type = declared;
+        if (declared == Type::Array) symbol.array_type = declared_array_type;
+        if (declared == Type::Struct) {
+            symbol.struct_type_id = declared_struct_type_id;
+            if (!variable.type_annotation && variable.initializer) {
+                const auto structure = model_.struct_expression_types.find(variable.initializer.get());
+                if (structure != model_.struct_expression_types.end())
+                    symbol.struct_type_id = structure->second;
+            }
+        }
+        if (variable.initializer && inferred == Type::Array) {
+            const auto shape = model_.array_expression_types.find(variable.initializer.get());
+            if (shape != model_.array_expression_types.end()) {
+                if (declared_array_type &&
+                    (declared_array_type->element_type != shape->second.element_type ||
+                     declared_array_type->length != shape->second.length)) {
+                    report("SEM045",
+                           "array initializer does not match the annotated element type and fixed length",
+                           variable.initializer->span);
+                }
+                if (declared_array_type && declared_array_type->length == 0 &&
+                    shape->second.element_type != Type::Unknown) {
+                    model_.array_expression_types[variable.initializer.get()] =
+                        *declared_array_type;
+                    symbol.array_type = *declared_array_type;
+                } else if (!symbol.array_type) {
+                    symbol.array_type = shape->second;
+                }
+            }
+        }
+        symbol.immutable = variable.immutable;
+        symbol.declaration = variable.name;
+        SemanticBindingId binding_id = 0;
+        if (define(spelling(variable.name), std::move(symbol),
+                   variable.name, &binding_id)) {
+            model_.variable_bindings[&variable] = binding_id;
+        }
+    }
+
+    void analyze_function(const FunctionDeclStmt& function,
+                          const Statement& statement) {
+        const auto found = signatures_.find(&function);
+        Symbol signature;
+        if (found != signatures_.end()) signature = found->second;
+        else signature.type = Type::Void;
+
+        scopes_.emplace_back();
+        const std::size_t count = std::min(function.parameters.size(),
+                                           signature.parameters.size());
+        for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+            const Parameter& parameter = function.parameters[index];
+            Symbol symbol;
+            symbol.type = index < count ? signature.parameters[index] : Type::Unknown;
+            if (index < signature.parameter_array_types.size())
+                symbol.array_type = signature.parameter_array_types[index];
+            if (index < signature.parameter_struct_type_ids.size())
+                symbol.struct_type_id = signature.parameter_struct_type_ids[index];
+            symbol.declaration = parameter.name;
+            SemanticBindingId binding_id = 0;
+            if (define(spelling(parameter.name), std::move(symbol),
+                       parameter.name, &binding_id)) {
+                model_.parameter_bindings[&parameter] = binding_id;
+            }
+        }
+
+        const bool was_in_function = inside_function_;
+        const Type previous_return = current_return_type_;
+        const auto previous_return_array_type = current_return_array_type_;
+        const std::uint32_t previous_return_struct_type_id = current_return_struct_type_id_;
+        inside_function_ = true;
+        current_return_type_ = signature.type;
+        current_return_array_type_ = signature.return_array_type;
+        current_return_struct_type_id_ = signature.return_struct_type_id;
+
+        if (function.body) {
+            analyze_block(*function.body, false);
+            if (signature.type != Type::Void && signature.type != Type::Error &&
+                control_flow(*function.body).falls_through) {
+                report("SEM024",
+                       "a non-void function can reach its end without returning a value",
+                       statement.span);
+            }
+        }
+
+        current_return_type_ = previous_return;
+        current_return_array_type_ = previous_return_array_type;
+        current_return_struct_type_id_ = previous_return_struct_type_id;
+        inside_function_ = was_in_function;
+        scopes_.pop_back();
+    }
+
+    struct FlowSummary {
+        bool falls_through{true};
+        bool returns{false};
+        bool breaks{false};
+        bool continues{false};
+    };
+
+    [[nodiscard]] std::optional<bool> constant_boolean(const Expr* expression) const {
+        if (!expression) return std::nullopt;
+        if (const auto* literal = std::get_if<LiteralExpr>(&expression->data)) {
+            if (literal->token_kind == TokenKind::KwTrue) return true;
+            if (literal->token_kind == TokenKind::KwFalse) return false;
+            return std::nullopt;
+        }
+        if (const auto* group = std::get_if<GroupExpr>(&expression->data))
+            return constant_boolean(group->expression.get());
+        if (const auto* unary = std::get_if<UnaryExpr>(&expression->data)) {
+            if (unary->op != TokenKind::Bang) return std::nullopt;
+            const auto operand = constant_boolean(unary->operand.get());
+            if (operand) return !*operand;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::int64_t> constant_integer(
+        const Expr* expression) const {
+        if (!expression) return std::nullopt;
+        if (const auto* group = std::get_if<GroupExpr>(&expression->data))
+            return constant_integer(group->expression.get());
+
+        if (const auto* literal = std::get_if<LiteralExpr>(&expression->data)) {
+            if (literal->token_kind != TokenKind::Integer) return std::nullopt;
+            const std::string_view text = source_.slice(expression->span);
+            std::int64_t value = 0;
+            const auto parsed = std::from_chars(
+                text.data(), text.data() + text.size(), value);
+            if (parsed.ec != std::errc{} ||
+                parsed.ptr != text.data() + text.size()) return std::nullopt;
+            return value;
+        }
+
+        if (const auto* unary = std::get_if<UnaryExpr>(&expression->data)) {
+            const auto operand = constant_integer(unary->operand.get());
+            if (!operand) return std::nullopt;
+            if (unary->op == TokenKind::Plus) return operand;
+            if (unary->op == TokenKind::Minus) {
+                if (*operand == std::numeric_limits<std::int64_t>::min())
+                    return std::nullopt;
+                return -*operand;
+            }
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<bool> for_iterable_is_nonempty(
+        const ForStmt& loop) const {
+        if (!loop.iterable) return std::nullopt;
+
+        const auto array_shape =
+            model_.array_expression_types.find(loop.iterable.get());
+        if (array_shape != model_.array_expression_types.end()) {
+            if (array_shape->second.length == 0) return std::nullopt;
+            return true;
+        }
+
+        const Expr* iterable = loop.iterable.get();
+        while (iterable) {
+            const auto* group = std::get_if<GroupExpr>(&iterable->data);
+            if (!group || !group->expression) break;
+            iterable = group->expression.get();
+        }
+        const auto* range = iterable
+            ? std::get_if<RangeExpr>(&iterable->data) : nullptr;
+        if (!range) return std::nullopt;
+
+        const auto start = constant_integer(range->start.get());
+        const auto end = constant_integer(range->end.get());
+        if (!start || !end) return std::nullopt;
+        return range->inclusive ? *start <= *end : *start < *end;
+    }
+
+    [[nodiscard]] static FlowSummary join_paths(
+        const FlowSummary& left, const FlowSummary& right) {
+        return FlowSummary{
+            left.falls_through || right.falls_through,
+            left.returns || right.returns,
+            left.breaks || right.breaks,
+            left.continues || right.continues
+        };
+    }
+
+    [[nodiscard]] FlowSummary control_flow(const Statement& statement) const {
+        if (std::holds_alternative<ReturnStmt>(statement.data))
+            return FlowSummary{false, true, false, false};
+        if (std::holds_alternative<BreakStmt>(statement.data))
+            return FlowSummary{false, false, true, false};
+        if (std::holds_alternative<ContinueStmt>(statement.data))
+            return FlowSummary{false, false, false, true};
+
+        if (const auto* block = std::get_if<BlockStmt>(&statement.data)) {
+            FlowSummary result;
+            for (const StmtPtr& child : block->statements) {
+                if (!child || !result.falls_through) continue;
+                const FlowSummary next = control_flow(*child);
+                result.returns = result.returns || next.returns;
+                result.breaks = result.breaks || next.breaks;
+                result.continues = result.continues || next.continues;
+                result.falls_through = next.falls_through;
+            }
+            return result;
+        }
+
+        if (const auto* conditional = std::get_if<IfStmt>(&statement.data)) {
+            const auto condition = constant_boolean(conditional->condition.get());
+            if (condition) {
+                const StmtPtr& selected = *condition
+                    ? conditional->then_branch : conditional->else_branch;
+                return selected ? control_flow(*selected) : FlowSummary{};
+            }
+            const FlowSummary then_flow = conditional->then_branch
+                ? control_flow(*conditional->then_branch) : FlowSummary{};
+            const FlowSummary else_flow = conditional->else_branch
+                ? control_flow(*conditional->else_branch) : FlowSummary{};
+            return join_paths(then_flow, else_flow);
+        }
+
+        if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
+            const auto condition = constant_boolean(loop->condition.get());
+            if (condition && !*condition) return FlowSummary{};
+
+            const FlowSummary body = loop->body
+                ? control_flow(*loop->body) : FlowSummary{};
+            if (condition && *condition) {
+                // A literal-true loop can leave only through a reachable break.
+                // Falling through or continuing merely starts another iteration.
+                return FlowSummary{body.breaks, body.returns, false, false};
+            }
+            // Unknown conditions may be false before the first iteration.
+            return FlowSummary{true, body.returns, false, false};
+        }
+
+        if (const auto* repeat = std::get_if<RepeatStmt>(&statement.data)) {
+            const auto count = constant_integer(repeat->count.get());
+            if (count && *count <= 0) return FlowSummary{};
+
+            const FlowSummary body = repeat->body
+                ? control_flow(*repeat->body) : FlowSummary{};
+            if (count && *count > 0) {
+                // A known positive count runs the body at least once.
+                return FlowSummary{
+                    body.falls_through || body.breaks || body.continues,
+                    body.returns, false, false
+                };
+            }
+            // An unknown count may be zero, so the loop cannot prove a return.
+            return FlowSummary{true, body.returns, false, false};
+        }
+
+        if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
+            const FlowSummary body = loop->body
+                ? control_flow(*loop->body) : FlowSummary{};
+            const auto nonempty = for_iterable_is_nonempty(*loop);
+            if (nonempty && *nonempty) {
+                return FlowSummary{
+                    body.falls_through || body.breaks || body.continues,
+                    body.returns, false, false
+                };
+            }
+            // If non-emptiness is not proven, the loop may execute zero times.
+            return FlowSummary{true, body.returns, false, false};
+        }
+
+        // Declarations, expressions and nested function declarations do not
+        // terminate the current function's control flow.
+        return FlowSummary{};
+    }
+
+    void analyze_block(const Statement& statement, const bool create_scope) {
+        if (create_scope) scopes_.emplace_back();
+        const auto* block = std::get_if<BlockStmt>(&statement.data);
+        if (block) {
+            for (const StmtPtr& child : block->statements) {
+                if (child) analyze_statement(*child);
+            }
+        }
+        if (create_scope) scopes_.pop_back();
+    }
+
+    void analyze_statement(const Statement& statement) {
+        if (const auto* function =
+                std::get_if<FunctionDeclStmt>(&statement.data)) {
+            analyze_function(*function, statement);
+            return;
+        }
+        if (const auto* variable =
+                std::get_if<VariableDeclStmt>(&statement.data)) {
+            analyze_variable(*variable);
+            return;
+        }
+        if (std::holds_alternative<StructDeclStmt>(statement.data)) return;
+        if (std::holds_alternative<BlockStmt>(statement.data)) {
+            analyze_block(statement, true);
+            return;
+        }
+        if (const auto* returned = std::get_if<ReturnStmt>(&statement.data)) {
+            if (!inside_function_) {
+                report("SEM025", "return is only valid inside a function",
+                       statement.span);
+                if (returned->value) {
+                    static_cast<void>(analyze_expression(*returned->value));
+                }
+                return;
+            }
+            if (current_return_type_ == Type::Void) {
+                if (returned->value) {
+                    static_cast<void>(analyze_expression(*returned->value));
+                    report("SEM026",
+                           "a void function cannot return a value; add a return type annotation",
+                           returned->value->span);
+                }
+            } else if (current_return_type_ != Type::Error) {
+                if (!returned->value) {
+                    report("SEM027", "a non-void function must return a value",
+                           statement.span);
                 } else {
-                    const auto value = definitions_.find(*terminator.value);
-                    if (value != definitions_.end()) {
-                        const IRValue& returned = value->second.value;
-                        if (returned.type != function_.return_type ||
-                            (function_.return_type == IRType::Array &&
-                             (returned.element_type != function_.return_element_type ||
-                              returned.array_length != function_.return_array_length)) ||
-                            (function_.return_type == IRType::Struct &&
-                             returned.struct_type_id != function_.return_struct_type_id)) {
-                            report("IR031", "returned value has the wrong type or fixed-array shape",
-                                   block.terminator->span);
+                    const auto* array_return = std::get_if<ArrayLiteralExpr>(
+                        &returned->value->data);
+                    if (array_return && current_return_array_type_ &&
+                        current_return_array_type_->length == 0) {
+                        model_.array_expression_types[returned->value.get()] =
+                            *current_return_array_type_;
+                    }
+                    const Type actual = analyze_expression(*returned->value);
+                    require_type(actual, current_return_type_, returned->value->span,
+                                 "SEM028", "return type does not match function");
+                    const std::uint32_t returned_struct =
+                        model_.struct_expression_types.find(returned->value.get()) !=
+                            model_.struct_expression_types.end()
+                        ? model_.struct_expression_types.at(returned->value.get()) : 0u;
+                    if (actual == Type::Struct && returned_struct != current_return_struct_type_id_)
+                        report("SEM028", "returned structure type does not match function return type",
+                               returned->value->span);
+                    if (actual == Type::Array && current_return_array_type_) {
+                        const auto actual_shape =
+                            model_.array_expression_types.find(returned->value.get());
+                        if (actual_shape == model_.array_expression_types.end() ||
+                            actual_shape->second.element_type != current_return_array_type_->element_type ||
+                            actual_shape->second.length != current_return_array_type_->length) {
+                            report("SEM028",
+                                   "returned array does not match the function's annotated element type and fixed length",
+                                   returned->value->span);
                         }
                     }
                 }
-            } else if constexpr (std::is_same_v<T, IRBranch>) {
-                validate_branch(block, terminator, block.terminator->span);
-            } else if constexpr (std::is_same_v<T, IRConditionalBranch>) {
-                const auto condition = definitions_.find(terminator.condition);
-                if (condition != definitions_.end() &&
-                    condition->second.value.type != IRType::Bool) {
-                    report("IR032", "conditional branch requires a bool condition",
-                           block.terminator->span);
-                }
-                validate_branch(block,
-                    IRBranch{terminator.true_target, terminator.true_arguments},
-                    block.terminator->span);
-                validate_branch(block,
-                    IRBranch{terminator.false_target, terminator.false_arguments},
-                    block.terminator->span);
-            } else if constexpr (std::is_same_v<T, IRUnreachable>) {
-                // No operands.
-            }
-        }, block.terminator->data);
-    }
-
-    void validate_blocks() {
-        for (const IRBlock& block : function_.blocks) {
-            for (const IRInstruction& instruction : block.instructions) {
-                validate_instruction(instruction);
-            }
-            validate_terminator(block);
-        }
-    }
-
-    void validate_use(const IRValueId id, const IRBlockId use_block,
-                      const std::int64_t use_position,
-                      const SourceSpan span) {
-        const auto found = definitions_.find(id);
-        if (found == definitions_.end()) {
-            report("IR033", "use of undefined SSA value %" + std::to_string(id), span);
-            return;
-        }
-        const Definition& definition = found->second;
-        if (definition.block == use_block) {
-            if (definition.position >= use_position) {
-                report("IR034", "SSA value is used before its definition", span);
             }
             return;
         }
-        const auto dominators = dominators_.find(use_block);
-        if (dominators == dominators_.end() ||
-            dominators->second.find(definition.block) == dominators->second.end()) {
-            report("IR035", "SSA definition does not dominate its use", span);
+        if (std::holds_alternative<BreakStmt>(statement.data)) {
+            if (loop_depth_ == 0)
+                report("SEM032", "break is only valid inside a loop", statement.span);
+            return;
+        }
+        if (std::holds_alternative<ContinueStmt>(statement.data)) {
+            if (loop_depth_ == 0)
+                report("SEM033", "continue is only valid inside a loop", statement.span);
+            return;
+        }
+        if (const auto* conditional = std::get_if<IfStmt>(&statement.data)) {
+            if (conditional->condition) {
+                const Type condition = analyze_expression(*conditional->condition);
+                require_type(condition, Type::Bool, conditional->condition->span,
+                             "SEM029", "if condition must be boolean");
+            }
+            if (conditional->then_branch) analyze_statement(*conditional->then_branch);
+            if (conditional->else_branch) analyze_statement(*conditional->else_branch);
+            return;
+        }
+        if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
+            if (loop->condition) {
+                const Type condition = analyze_expression(*loop->condition);
+                require_type(condition, Type::Bool, loop->condition->span,
+                             "SEM034", "while condition must be boolean");
+            }
+            ++loop_depth_;
+            if (loop->body) analyze_statement(*loop->body);
+            --loop_depth_;
+            return;
+        }
+        if (const auto* repeat = std::get_if<RepeatStmt>(&statement.data)) {
+            if (repeat->count) {
+                const Type count = analyze_expression(*repeat->count);
+                require_type(count, Type::Int, repeat->count->span,
+                             "SEM030", "repeat count must be an integer");
+            }
+            ++loop_depth_;
+            if (repeat->body) analyze_statement(*repeat->body);
+            --loop_depth_;
+            return;
+        }
+        if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
+            const Expr* iterable_expression = loop->iterable.get();
+            while (iterable_expression) {
+                const auto* group = std::get_if<GroupExpr>(&iterable_expression->data);
+                if (!group || !group->expression) break;
+                iterable_expression = group->expression.get();
+            }
+            const bool is_range = iterable_expression &&
+                std::holds_alternative<RangeExpr>(iterable_expression->data);
+            const bool previous_permission = allow_range_expression_;
+            allow_range_expression_ = is_range;
+            const Type iterable = loop->iterable
+                ? analyze_expression(*loop->iterable) : Type::Error;
+            allow_range_expression_ = previous_permission;
+            std::optional<SemanticArrayType> array_type;
+            Type iteration_type = Type::Unknown;
+            if (iterable == Type::Array && loop->iterable) {
+                const auto shape = model_.array_expression_types.find(loop->iterable.get());
+                if (shape != model_.array_expression_types.end()) {
+                    array_type = shape->second;
+                    iteration_type = array_type->element_type;
+                }
+            } else if (iterable == Type::Range) {
+                iteration_type = Type::Int;
+            } else if (iterable != Type::Error && iterable != Type::Unknown) {
+                report("SEM031", "for-in requires an array or integer range",
+                       loop->iterable ? loop->iterable->span : loop->variable);
+            }
+            scopes_.emplace_back();
+            Symbol iteration_variable;
+            iteration_variable.type = iteration_type;
+            iteration_variable.declaration = loop->variable;
+            SemanticBindingId iteration_binding = 0;
+            if (define(spelling(loop->variable), std::move(iteration_variable),
+                       loop->variable, &iteration_binding))
+                model_.for_bindings[loop] = iteration_binding;
+            ++loop_depth_;
+            if (loop->body) analyze_statement(*loop->body);
+            --loop_depth_;
+            scopes_.pop_back();
+            return;
+        }
+        if (const auto* expression =
+                std::get_if<ExpressionStmt>(&statement.data)) {
+            if (expression->expression) {
+                static_cast<void>(analyze_expression(*expression->expression));
+            }
         }
     }
 
-    void validate_reachability_and_dominance() {
-        if (blocks_.find(function_.entry_block) == blocks_.end()) return;
-
-        std::unordered_set<IRBlockId> reachable;
-        std::vector<IRBlockId> pending{function_.entry_block};
-        while (!pending.empty()) {
-            const IRBlockId current = pending.back();
-            pending.pop_back();
-            if (!reachable.insert(current).second) continue;
-            const auto next = successors_.find(current);
-            if (next != successors_.end()) {
-                for (const IRBlockId target : next->second) pending.push_back(target);
-            }
-        }
-        for (const auto& entry : blocks_) {
-            if (reachable.find(entry.first) == reachable.end()) {
-                report("IR036", "basic block is unreachable from the function entry",
-                       entry.second->terminator ? entry.second->terminator->span : SourceSpan{});
-            }
-        }
-
-        std::unordered_map<IRBlockId, std::unordered_set<IRBlockId>> predecessors;
-        for (const auto& edge : successors_) {
-            for (const IRBlockId target : edge.second) {
-                predecessors[target].insert(edge.first);
-            }
-        }
-
-        for (const IRBlockId block : reachable) {
-            if (block == function_.entry_block) {
-                dominators_[block].insert(block);
-            } else {
-                dominators_[block] = reachable;
-            }
-        }
-
-        bool changed = true;
-        while (changed) {
-            changed = false;
-            for (const IRBlockId block : reachable) {
-                if (block == function_.entry_block) continue;
-                std::unordered_set<IRBlockId> next = reachable;
-                const auto pred = predecessors.find(block);
-                if (pred == predecessors.end() || pred->second.empty()) {
-                    next.clear();
-                } else {
-                    for (const IRBlockId predecessor : pred->second) {
-                        const auto dom = dominators_.find(predecessor);
-                        if (dom == dominators_.end()) {
-                            next.clear();
-                            break;
-                        }
-                        for (auto item = next.begin(); item != next.end();) {
-                            if (dom->second.find(*item) == dom->second.end()) {
-                                item = next.erase(item);
-                            } else {
-                                ++item;
-                            }
-                        }
-                    }
-                }
-                next.insert(block);
-                if (next != dominators_[block]) {
-                    dominators_[block] = std::move(next);
-                    changed = true;
-                }
-            }
-        }
-
-        for (const IRBlock& block : function_.blocks) {
-            for (std::size_t index = 0; index < block.instructions.size(); ++index) {
-                const IRInstruction& instruction = block.instructions[index];
-                for (const IRValueId operand : instruction.operands) {
-                    validate_use(operand, block.id, static_cast<std::int64_t>(index),
-                                 instruction.span);
-                }
-            }
-            if (!block.terminator) continue;
-            const std::int64_t terminator_position =
-                static_cast<std::int64_t>(block.instructions.size());
-            std::visit([&](const auto& terminator) {
-                using T = std::decay_t<decltype(terminator)>;
-                if constexpr (std::is_same_v<T, IRReturn>) {
-                    if (terminator.value)
-                        validate_use(*terminator.value, block.id, terminator_position,
-                                     block.terminator->span);
-                } else if constexpr (std::is_same_v<T, IRBranch>) {
-                    for (const IRValueId argument : terminator.arguments)
-                        validate_use(argument, block.id, terminator_position,
-                                     block.terminator->span);
-                } else if constexpr (std::is_same_v<T, IRConditionalBranch>) {
-                    validate_use(terminator.condition, block.id, terminator_position,
-                                 block.terminator->span);
-                    for (const IRValueId argument : terminator.true_arguments)
-                        validate_use(argument, block.id, terminator_position,
-                                     block.terminator->span);
-                    for (const IRValueId argument : terminator.false_arguments)
-                        validate_use(argument, block.id, terminator_position,
-                                     block.terminator->span);
-                }
-            }, block.terminator->data);
-        }
-    }
-
-    const IRFunction& function_;
-    const std::unordered_map<std::string, FunctionSignature>& functions_;
-    const std::vector<IRStructType>& struct_types_;
-    std::vector<Diagnostic>& diagnostics_;
-    std::unordered_map<IRBlockId, const IRBlock*> blocks_;
-    std::unordered_map<IRValueId, Definition> definitions_;
-    std::unordered_map<IRBlockId, std::vector<IRBlockId>> successors_;
-    std::unordered_map<IRBlockId, std::unordered_set<IRBlockId>> dominators_;
+    const SourceFile& source_;
+    const Program& program_;
+    std::vector<Diagnostic> diagnostics_;
+    std::vector<Scope> scopes_;
+    std::unordered_map<const FunctionDeclStmt*, Symbol> signatures_;
+    std::unordered_map<std::string, std::uint32_t> struct_ids_;
+    SemanticModel model_;
+    SemanticBindingId next_binding_id_{1};
+    bool inside_function_{false};
+    std::size_t loop_depth_{0};
+    bool allow_range_expression_{false};
+    Type current_return_type_{Type::Void};
+    std::optional<SemanticArrayType> current_return_array_type_;
+    std::uint32_t current_return_struct_type_id_{0};
 };
-
-void print_value(std::ostream& output, const IRValueId value) {
-    output << '%' << value;
-}
-
-void print_arguments(std::ostream& output, const std::vector<IRValueId>& arguments) {
-    output << '(';
-    for (std::size_t index = 0; index < arguments.size(); ++index) {
-        if (index != 0) output << ", ";
-        print_value(output, arguments[index]);
-    }
-    output << ')';
-}
 
 } // namespace
 
-const char* ir_type_name(const IRType type) noexcept {
+const char* semantic_type_name(const SemanticType type) noexcept {
     switch (type) {
-    case IRType::Void: return "void";
-    case IRType::Int: return "int";
-    case IRType::Float: return "float";
-    case IRType::Bool: return "bool";
-    case IRType::String: return "string";
-    case IRType::Array: return "array";
-    case IRType::Struct: return "struct";
+    case SemanticType::Error: return "<error>";
+    case SemanticType::Unknown: return "<unknown>";
+    case SemanticType::Any: return "any";
+    case SemanticType::Void: return "void";
+    case SemanticType::Int: return "int";
+    case SemanticType::Float: return "float";
+    case SemanticType::Bool: return "bool";
+    case SemanticType::String: return "string";
+    case SemanticType::Struct: return "struct";
+    case SemanticType::Array: return "array";
+    case SemanticType::Range: return "range";
     }
-    return "unknown";
+    return "<unknown>";
 }
 
-const char* ir_op_name(const IROp op) noexcept {
-    switch (op) {
-    case IROp::Constant: return "const";
-    case IROp::Add: return "add";
-    case IROp::Subtract: return "sub";
-    case IROp::Multiply: return "mul";
-    case IROp::Divide: return "div";
-    case IROp::Remainder: return "rem";
-    case IROp::Negate: return "neg";
-    case IROp::LogicalNot: return "not";
-    case IROp::LogicalAnd: return "and";
-    case IROp::LogicalOr: return "or";
-    case IROp::Equal: return "eq";
-    case IROp::NotEqual: return "ne";
-    case IROp::Less: return "lt";
-    case IROp::LessEqual: return "le";
-    case IROp::Greater: return "gt";
-    case IROp::GreaterEqual: return "ge";
-    case IROp::IntToFloat: return "int_to_float";
-    case IROp::Call: return "call";
-    case IROp::Math: return "math";
-    case IROp::Say: return "say";
-    case IROp::ArrayMake: return "array_make";
-    case IROp::ArrayGet: return "array_get";
-    case IROp::ArraySet: return "array_set";
-    case IROp::ArrayLength: return "array_length";
-    case IROp::ArrayPush: return "array_push";
-    case IROp::ArrayPop: return "array_pop";
-    case IROp::StructMake: return "struct_make";
-    case IROp::StructGet: return "struct_get";
-    case IROp::StructSet: return "struct_set";
-    }
-    return "unknown";
-}
-
-bool IRVerificationResult::has_errors() const noexcept {
+bool SemanticResult::has_errors() const noexcept {
     return std::any_of(diagnostics.begin(), diagnostics.end(),
         [](const Diagnostic& diagnostic) {
             return diagnostic.severity == DiagnosticSeverity::Error;
         });
 }
 
-IRVerificationResult IRVerifier::verify(const IRModule& module) const {
-    IRVerificationResult result;
-    std::unordered_map<std::string, FunctionSignature> functions;
-    std::unordered_map<std::uint32_t, bool> structure_ids;
-    std::unordered_map<std::string, bool> structure_names;
-    for (std::size_t structure_index = 0;
-         structure_index < module.struct_types.size(); ++structure_index) {
-        const IRStructType& structure = module.struct_types[structure_index];
-        if (structure.id != structure_index + 1u ||
-            !structure_ids.emplace(structure.id, true).second ||
-            structure.name.empty() || !structure_names.emplace(structure.name, true).second) {
-            result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR069",
-                "structure type declarations must have unique nonzero IDs and names", {}});
-            continue;
-        }
-        std::unordered_map<std::string, bool> fields;
-        if (structure.fields.empty())
-            result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR069",
-                "structure types must contain at least one field", {}});
-        for (const IRStructField& field : structure.fields) {
-            if (field.name.empty() || !fields.emplace(field.name, true).second ||
-                field.type == IRType::Void || field.type == IRType::Array ||
-                (field.type == IRType::Struct &&
-                 (field.struct_type_id == 0 || field.struct_type_id >= structure.id)) ||
-                (field.type != IRType::Struct && field.struct_type_id != 0)) {
-                result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR070",
-                    "structure field has an invalid name or unsupported type", {}});
-            }
-        }
-    }
-    for (const IRFunction& function : module.functions) {
-        if (function.name.empty()) {
-            result.diagnostics.push_back(Diagnostic{
-                DiagnosticSeverity::Error, "IR037", "function name cannot be empty",
-                function.span
-            });
-            continue;
-        }
-        FunctionSignature signature;
-        signature.return_type = function.return_type;
-        signature.return_element_type = function.return_element_type;
-        signature.return_array_length = function.return_array_length;
-        signature.return_struct_type_id = function.return_struct_type_id;
-        for (const IRFunctionParameter& parameter : function.parameters) {
-            signature.parameters.push_back(parameter.value);
-        }
-        if (!functions.emplace(function.name, std::move(signature)).second) {
-            result.diagnostics.push_back(Diagnostic{
-                DiagnosticSeverity::Error, "IR038",
-                "duplicate function name '" + function.name + "'", function.span
-            });
-        }
-    }
+SemanticAnalyzer::SemanticAnalyzer(const SourceFile& source,
+                                   const Program& program)
+    : source_(source), program_(program) {}
 
-    for (const IRFunction& function : module.functions) {
-        FunctionVerifier(function, functions, module.struct_types, result.diagnostics).run();
-    }
-    return result;
-}
-
-void print_ir(std::ostream& output, const IRModule& module) {
-    for (const IRStructType& structure : module.struct_types) {
-        output << "struct " << structure.name << " {\n";
-        for (const IRStructField& field : structure.fields)
-            output << "  " << field.name << ": " << ir_type_name(field.type) << '\n';
-        output << "}\n";
-    }
-    for (const IRFunction& function : module.functions) {
-        output << "func " << function.name << '(';
-        for (std::size_t index = 0; index < function.parameters.size(); ++index) {
-            if (index != 0) output << ", ";
-            print_value(output, function.parameters[index].value.id);
-            output << ": " << ir_type_name(function.parameters[index].value.type);
-        }
-        output << ") -> " << ir_type_name(function.return_type) << " {\n";
-        for (const IRBlock& block : function.blocks) {
-            output << "  bb" << block.id;
-            if (!block.name.empty()) output << " [" << block.name << ']';
-            output << '(';
-            for (std::size_t index = 0; index < block.parameters.size(); ++index) {
-                if (index != 0) output << ", ";
-                print_value(output, block.parameters[index].id);
-                output << ": " << ir_type_name(block.parameters[index].type);
-            }
-            output << "):\n";
-            for (const IRInstruction& instruction : block.instructions) {
-                output << "    ";
-                if (instruction.result) {
-                    print_value(output, instruction.result->id);
-                    output << " = ";
-                }
-                output << ir_op_name(instruction.op);
-                if (instruction.op == IROp::Constant) {
-                    output << ' ' << ir_type_name(instruction.result
-                        ? instruction.result->type : IRType::Void)
-                           << ' ' << instruction.immediate;
-                } else if (instruction.op == IROp::Call) {
-                    output << ' ' << instruction.callee;
-                } else if (instruction.op == IROp::StructGet || instruction.op == IROp::StructSet) {
-                    output << ' ' << instruction.immediate;
-                }
-                for (const IRValueId operand : instruction.operands) {
-                    output << ' ';
-                    print_value(output, operand);
-                }
-                output << '\n';
-            }
-            if (!block.terminator) {
-                output << "    <missing terminator>\n";
-                continue;
-            }
-            output << "    ";
-            std::visit([&](const auto& terminator) {
-                using T = std::decay_t<decltype(terminator)>;
-                if constexpr (std::is_same_v<T, IRReturn>) {
-                    output << "return";
-                    if (terminator.value) {
-                        output << ' ';
-                        print_value(output, *terminator.value);
-                    }
-                } else if constexpr (std::is_same_v<T, IRBranch>) {
-                    output << "br bb" << terminator.target;
-                    print_arguments(output, terminator.arguments);
-                } else if constexpr (std::is_same_v<T, IRConditionalBranch>) {
-                    output << "condbr ";
-                    print_value(output, terminator.condition);
-                    output << ", bb" << terminator.true_target;
-                    print_arguments(output, terminator.true_arguments);
-                    output << ", bb" << terminator.false_target;
-                    print_arguments(output, terminator.false_arguments);
-                } else if constexpr (std::is_same_v<T, IRUnreachable>) {
-                    output << "unreachable";
-                }
-            }, block.terminator->data);
-            output << '\n';
-        }
-        output << "}\n";
-    }
+SemanticResult SemanticAnalyzer::analyze() {
+    return AnalyzerImpl(source_, program_).run();
 }
 
 } // namespace vex
