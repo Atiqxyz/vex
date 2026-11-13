@@ -26,12 +26,16 @@ IR lowering ------------> typed SSA values, CFG, source spans
 IR verifier ------------> verified module or IR diagnostics
     |
     v
-C backend --------------> portable C11 source (implemented)
+Backend interface ------> backend-neutral output + diagnostics
     |
-    +--------------------> native machine-code backend (future option)
+    +-------------------> C backend -> portable C11 source (implemented)
+    |
+    +-------------------> native machine-code backend (planned)
 ~~~
 
 The frontend should not depend on a particular output backend. In particular, the parser should not emit C text directly. A typed, backend-independent representation gives VEX room to change its native code-generation strategy without rewriting the language frontend.
+
+The backend boundary is represented by `Backend`, `BackendResult`, and `create_backend()`. A backend consumes verified IR and returns its generated output together with structured diagnostics. The factory currently registers only the C backend. The CLI's `emit-c` path and the build pipeline both select it through this boundary; adding another backend will not require the parser, semantic analyzer, or IR lowerer to know about that backend.
 
 ## Implemented layers
 
@@ -75,7 +79,9 @@ The AST-to-IR lowerer consumes the semantic model. It currently handles function
 
 The independent verifier checks instruction and call types, SSA definitions and uses, branch targets and block arguments, terminators, reachability, and dominance. The `vex ir` CLI command runs frontend validation, lowering, verification, and IR printing. It does not execute programs.
 
-### C source backend
+### Backend interface and C source backend
+
+The backend interface consumes verified IR and keeps code generation behind a replaceable boundary. `BackendResult` carries generated output and diagnostics; backend-specific details remain inside the implementation. The C backend is the first registered implementation and continues to expose its existing `CBackend::generate()` API for C-specific callers.
 
 The initial C backend consumes only verified IR. It emits C11 source without mixing backend logic into parsing or semantic analysis.
 
@@ -120,6 +126,7 @@ The architecture borrows broad design lessons from established compilers, not th
 - [x] Cross-platform CMake build and CI configuration
 - [ ] Collections and iterable type checking
 - [x] Typed SSA intermediate representation, semantic metadata, verifier, and AST-to-IR lowering
+- [x] Backend interface and factory with the C backend registered
 - [x] Initial C11 code-generation backend
 - [ ] C compiler integration and executable generation
 - [ ] Runtime and standard library expansion

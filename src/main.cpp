@@ -1,5 +1,5 @@
 #include "vex/ast.hpp"
-#include "vex/c_backend.hpp"
+#include "vex/backend.hpp"
 #include "vex/diagnostic.hpp"
 #include "vex/lexer.hpp"
 #include "vex/ir.hpp"
@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <utility>
 #ifndef VEX_VERSION
@@ -157,11 +158,18 @@ int run_emit_c(const std::string& path) {
     vex::print_diagnostics(std::cerr, source, lowered.diagnostics);
     if (lowered.has_errors()) return 1;
 
-    const vex::CBackendResult generated = vex::CBackend{}.generate(lowered.module);
+    const std::unique_ptr<vex::Backend> backend =
+        vex::create_backend(vex::BackendKind::C);
+    if (!backend) {
+        std::cerr << "error: the requested VEX backend is not available\\n";
+        return 1;
+    }
+
+    const vex::BackendResult generated = backend->emit(lowered.module);
     vex::print_diagnostics(std::cerr, source, generated.diagnostics);
     if (generated.has_errors()) return 1;
 
-    std::cout << generated.source;
+    std::cout << generated.output;
     return 0;
 }
 } // namespace
