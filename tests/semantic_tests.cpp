@@ -117,6 +117,28 @@ void test_function_signatures_and_returns(TestContext& tests) {
 }
 
 
+
+void test_recursive_function_signatures(TestContext& tests) {
+    const vex::SourceFile source{"recursive_functions.vex",
+        "make factorial(n: int) -> int {\\n"
+        "    if n <= 1 { return 1 }\\n"
+        "    return n * factorial(n - 1)\\n"
+        "}\\n"
+        "make is_even(n: int) -> bool {\\n"
+        "    if n == 0 { return true }\\n"
+        "    return is_odd(n - 1)\\n"
+        "}\\n"
+        "make is_odd(n: int) -> bool {\\n"
+        "    if n == 0 { return false }\\n"
+        "    return is_even(n - 1)\\n"
+        "}\\n"
+        "make main() { say(factorial(5)) say(is_even(8)) }\\n"};
+    const vex::SemanticResult result = analyze(source);
+    tests.check(!result.has_errors(),
+                "direct and mutual recursion resolve against pre-collected function signatures");
+}
+
+
 void test_semantic_model_exposes_typed_resolutions(TestContext& tests) {
     const vex::SourceFile source{"semantic_model.vex",
         "make add(left: int, right: int) -> int {\n"
@@ -334,6 +356,7 @@ void run_semantic_tests(TestContext& tests) {
     test_name_resolution_and_mutability(tests);
     test_operator_and_condition_types(tests);
     test_function_signatures_and_returns(tests);
+    test_recursive_function_signatures(tests);
     test_semantic_model_exposes_typed_resolutions(tests);
     test_math_standard_library_signatures(tests);
     test_loop_control_scope_and_while_condition(tests);
