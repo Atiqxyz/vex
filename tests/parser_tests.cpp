@@ -231,12 +231,12 @@ void test_if_without_else_preserves_next_statement(TestContext& tests) {
 
 void test_structure_declarations_literals_and_members(TestContext& tests) {
     const vex::SourceFile source{"structures.vex",
-        "struct Point { x: int, y: int, }\\n"
-        "make main() {\\n"
-        "    let point = Point { x: 2, y: 3 }\\n"
-        "    point.x = 5\\n"
-        "    say(point.y)\\n"
-        "}\\n"};
+        "struct Point { x: int, y: int, }\n"
+        "make main() {\n"
+        "    let point = Point { x: 2, y: 3 }\n"
+        "    point.x = 5\n"
+        "    say(point.y)\n"
+        "}\n"};
     const vex::ParseResult parsed = parse(source);
     tests.check(!parsed.has_errors(),
                 "structure declarations, named literals, member reads, and writes parse");

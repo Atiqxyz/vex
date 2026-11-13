@@ -1,0 +1,32 @@
+struct Point {
+    x: int,
+    y: int,
+}
+
+struct Rectangle {
+    origin: Point,
+    width: int,
+}
+
+make shift(point: Point, amount: int) -> Point {
+    let copy = point
+    copy.x = copy.x + amount
+    return copy
+}
+
+make main() {
+    let point = Point { x: 1, y: 2 }
+    let rectangle = Rectangle { origin: point, width: 9 }
+
+    rectangle.origin.x = 7
+
+    let shifted = shift(point, 5)
+    let assigned = point
+    assigned.x = 3
+
+    say(rectangle.origin.x)
+    say(point.x)
+    say(shifted.x)
+    say(point.x)
+    say(assigned.x)
+}

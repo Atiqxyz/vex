@@ -384,18 +384,18 @@ void test_dominance_and_call_signatures(TestContext& tests) {
 
 void test_struct_lowering_and_backend_aggregates(TestContext& tests) {
     const vex::SourceFile source{"struct_ir.vex",
-        "struct Point { x: int, y: int }\\n"
-        "make change(point: Point) -> Point {\\n"
-        "    let copy = point\\n"
-        "    copy.x = copy.x + 4\\n"
-        "    return copy\\n"
-        "}\\n"
-        "make main() {\\n"
-        "    let point = Point { x: 1, y: 2 }\\n"
-        "    let changed = change(point)\\n"
-        "    say(point.x)\\n"
-        "    say(changed.x)\\n"
-        "}\\n"};
+        "struct Point { x: int, y: int }\n"
+        "make change(point: Point) -> Point {\n"
+        "    let copy = point\n"
+        "    copy.x = copy.x + 4\n"
+        "    return copy\n"
+        "}\n"
+        "make main() {\n"
+        "    let point = Point { x: 1, y: 2 }\n"
+        "    let changed = change(point)\n"
+        "    say(point.x)\n"
+        "    say(changed.x)\n"
+        "}\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
     const vex::SemanticResult semantic =

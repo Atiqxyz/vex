@@ -3,7 +3,8 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED ARRAY_BOUNDS_SOURCE_FILE OR
    NOT DEFINED REMAINDER_ZERO_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
-   NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
+   NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -127,6 +128,24 @@ endif()
 string(REPLACE "\r\n" "\n" run_output "${run_output}")
 if(NOT "${run_output}" STREQUAL "${expected_output}")
     message(FATAL_ERROR "vex run produced unexpected output.\nExpected:\n${expected_output}\nActual:\n${run_output}")
+endif()
+
+
+# Exercise nested structure values, field updates, parameter/return copies,
+# and independent assignment copies in the C backend.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${STRUCT_SOURCE_FILE}"
+    RESULT_VARIABLE struct_result
+    OUTPUT_VARIABLE struct_output
+    ERROR_VARIABLE struct_error
+)
+if(NOT struct_result EQUAL 0)
+    message(FATAL_ERROR "C backend structure program failed: ${struct_output}${struct_error}")
+endif()
+string(REPLACE "\r\n" "\n" struct_output "${struct_output}")
+set(struct_expected "7\n1\n6\n1\n3\n")
+if(NOT "${struct_output}" STREQUAL "${struct_expected}")
+    message(FATAL_ERROR "C backend structure value semantics mismatch. Expected:${struct_expected}Actual:${struct_output}")
 endif()
 
 execute_process(

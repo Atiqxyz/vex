@@ -532,37 +532,37 @@ void test_integer_range_semantics(TestContext& tests) {
 
 void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
     const vex::SourceFile valid{"structure_semantics.vex",
-        "struct Point { x: int, y: int }\\n"
-        "struct Box { point: Point, width: int }\\n"
-        "make move(point: Point) -> Point {\\n"
-        "    let copied = point\\n"
-        "    copied.x = copied.x + 1\\n"
-        "    return copied\\n"
-        "}\\n"
-        "make main() {\\n"
-        "    let point = Point { x: 1, y: 2 }\\n"
-        "    let box = Box { point: point, width: 8 }\\n"
-        "    box.point.x = 9\\n"
-        "    let moved = move(point)\\n"
-        "    say(point.x)\\n"
-        "    say(moved.x)\\n"
-        "}\\n"};
+        "struct Point { x: int, y: int }\n"
+        "struct Box { point: Point, width: int }\n"
+        "make move(point: Point) -> Point {\n"
+        "    let copied = point\n"
+        "    copied.x = copied.x + 1\n"
+        "    return copied\n"
+        "}\n"
+        "make main() {\n"
+        "    let point = Point { x: 1, y: 2 }\n"
+        "    let box = Box { point: point, width: 8 }\n"
+        "    box.point.x = 9\n"
+        "    let moved = move(point)\n"
+        "    say(point.x)\n"
+        "    say(moved.x)\n"
+        "}\n"};
     const vex::SemanticResult valid_result = analyze(valid);
     tests.check(!valid_result.has_errors(),
                 "nested structures, field mutation, and structure parameters/returns type-check");
 
     const vex::SourceFile invalid{"invalid_structures.vex",
-        "struct Point { x: int, y: int }\\n"
-        "struct Other { x: int, y: int }\\n"
-        "make main() {\\n"
-        "    const fixed = Point { x: 1, y: 2 }\\n"
-        "    fixed.x = 3\\n"
-        "    let missing = Point { x: 1 }\\n"
-        "    let wrong = Point { x: true, y: 2 }\\n"
-        "    let incompatible: Point = Other { x: 1, y: 2 }\\n"
-        "    let unknown = Point { x: 1, y: 2, z: 3 }\\n"
-        "    let comparison = fixed == fixed\\n"
-        "}\\n"};
+        "struct Point { x: int, y: int }\n"
+        "struct Other { x: int, y: int }\n"
+        "make main() {\n"
+        "    const fixed = Point { x: 1, y: 2 }\n"
+        "    fixed.x = 3\n"
+        "    let missing = Point { x: 1 }\n"
+        "    let wrong = Point { x: true, y: 2 }\n"
+        "    let incompatible: Point = Other { x: 1, y: 2 }\n"
+        "    let unknown = Point { x: 1, y: 2, z: 3 }\n"
+        "    let comparison = fixed == fixed\n"
+        "}\n"};
     const vex::SemanticResult invalid_result = analyze(invalid);
     tests.check(has_code(invalid_result, "SEM017"),
                 "immutable structure fields cannot be changed");
