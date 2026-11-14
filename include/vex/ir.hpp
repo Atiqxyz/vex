@@ -29,6 +29,7 @@ enum class IRType {
 enum class IROp {
     Constant,
     Add,
+    StringConcat,
     Subtract,
     Multiply,
     Divide,

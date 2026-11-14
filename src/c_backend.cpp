@@ -256,7 +256,12 @@ private:
             << "    size_t element_size;\n"
             << "    struct vex_array *next;\n"
             << "} vex_array;\n"
-            << "static vex_array *vex_array_head = NULL;\n\n";
+            << "typedef struct vex_string_allocation {\n"
+            << "    unsigned char *data;\n"
+            << "    struct vex_string_allocation *next;\n"
+            << "} vex_string_allocation;\n"
+            << "static vex_array *vex_array_head = NULL;\n"
+            << "static vex_string_allocation *vex_string_head = NULL;\n\n";
     }
 
     void emit_array_typedef(const IRType element_type,
@@ -458,6 +463,31 @@ private:
             << "    if (value == INT64_MIN)\n"
             << "        vex_runtime_trap(\"signed integer overflow in negation\");\n"
             << "    return -value;\n"
+            << "}\n\n"
+            << "static vex_string vex_string_concat(vex_string left, vex_string right) {\n"
+            << "    if (left.length > SIZE_MAX - right.length)\n"
+            << "        vex_runtime_trap(\"string length overflow during concatenation\");\n"
+            << "    const size_t length = left.length + right.length;\n"
+            << "    if (length == SIZE_MAX) vex_runtime_trap(\"string allocation size overflow\");\n"
+            << "    unsigned char *data = (unsigned char *)malloc(length + 1u);\n"
+            << "    if (data == NULL) vex_runtime_trap(\"string allocation failed\");\n"
+            << "    vex_string_allocation *allocation = (vex_string_allocation *)malloc(sizeof(*allocation));\n"
+            << "    if (allocation == NULL) { free(data); vex_runtime_trap(\"string allocation tracking failed\"); }\n"
+            << "    if (left.length != 0u) (void)memcpy(data, left.data, left.length);\n"
+            << "    if (right.length != 0u) (void)memcpy(data + left.length, right.data, right.length);\n"
+            << "    data[length] = 0u;\n"
+            << "    allocation->data = data;\n"
+            << "    allocation->next = vex_string_head;\n"
+            << "    vex_string_head = allocation;\n"
+            << "    return (vex_string){data, length};\n"
+            << "}\n\n"
+            << "static void vex_string_cleanup(void) {\n"
+            << "    while (vex_string_head != NULL) {\n"
+            << "        vex_string_allocation *allocation = vex_string_head;\n"
+            << "        vex_string_head = allocation->next;\n"
+            << "        free(allocation->data);\n"
+            << "        free(allocation);\n"
+            << "    }\n"
             << "}\n\n"
             << "static bool vex_string_equal(vex_string left, vex_string right) {\n"
             << "    return left.length == right.length &&\n"
@@ -689,6 +719,10 @@ private:
             ? value_name(instruction.result->id) : std::string{};
 
         switch (instruction.op) {
+        case IROp::StringConcat:
+            output_ << "    " << result << " = vex_string_concat("
+                    << operand(0) << ", " << operand(1) << ");\n";
+            return;
         case IROp::Add:
         case IROp::Subtract:
         case IROp::Multiply:
@@ -934,11 +968,13 @@ private:
         if (entry_->return_type == IRType::Void) {
             output_ << "    " << function_name(entry_->name) << "();\n"
                     << "    vex_array_cleanup();\n"
+                    << "    vex_string_cleanup();\n"
                     << "    return 0;\n";
         } else {
             output_ << "    const int64_t vex_status = "
                     << function_name(entry_->name) << "();\n"
                     << "    vex_array_cleanup();\n"
+                    << "    vex_string_cleanup();\n"
                     << "    if (vex_status < 0 || vex_status > 255)\n"
                     << "        vex_runtime_trap(\"main returned an exit code outside 0..255\");\n"
                     << "    return (int)vex_status;\n";

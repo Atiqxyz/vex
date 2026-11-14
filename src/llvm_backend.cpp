@@ -205,6 +205,7 @@ public:
         emit_header();
         emit_string_globals();
         emit_runtime_declarations();
+        emit_string_runtime_helpers();
         emit_checked_integer_helpers();
         emit_checked_array_index_helper();
         emit_array_runtime_helpers();
@@ -289,7 +290,8 @@ private:
                    "c\"true\\00\", align 1\n"
                 << "@.vex_false = private unnamed_addr constant [6 x i8] "
                    "c\"false\\00\", align 1\n"
-                << "%vex.array = type { ptr, i64, i64, i64, ptr }\n";
+                << "%vex.array = type { ptr, i64, i64, i64, ptr }\n"
+                << "%vex.string.node = type { ptr, ptr }\n";
         for (const IRStructType& structure : module_.struct_types) {
             output_ << llvm_struct_type_name(structure.id) << " = type { ";
             for (std::size_t index = 0; index < structure.fields.size(); ++index) {
@@ -299,7 +301,8 @@ private:
             }
             output_ << " }\n";
         }
-        output_ << "@vex_array_head = internal global ptr null\n\n";
+        output_ << "@vex_array_head = internal global ptr null\n"
+                << "@vex_string_head = internal global ptr null\n\n";
     }
 
     void emit_string_globals() {
@@ -330,6 +333,72 @@ private:
                 << "declare double @cos(double)\n"
                 << "declare double @pow(double, double)\n"
                 << "declare double @fabs(double)\n\n";
+    }
+
+    void emit_string_runtime_helpers() {
+        output_ << R"IR(
+define internal { ptr, i64 } @vex_string_concat({ ptr, i64 } %left, { ptr, i64 } %right) {
+entry:
+  %left_data = extractvalue { ptr, i64 } %left, 0
+  %left_length = extractvalue { ptr, i64 } %left, 1
+  %right_data = extractvalue { ptr, i64 } %right, 0
+  %right_length = extractvalue { ptr, i64 } %right, 1
+  %total_length = add i64 %left_length, %right_length
+  %length_overflow = icmp ult i64 %total_length, %left_length
+  %sentinel_overflow = icmp eq i64 %total_length, -1
+  %invalid_size = or i1 %length_overflow, %sentinel_overflow
+  br i1 %invalid_size, label %trap, label %allocate_data
+trap:
+  call void @llvm.trap()
+  unreachable
+allocate_data:
+  %allocation_size = add i64 %total_length, 1
+  %data = call ptr @malloc(i64 %allocation_size)
+  %data_failed = icmp eq ptr %data, null
+  br i1 %data_failed, label %trap, label %allocate_node
+allocate_node:
+  %node_size_pointer = getelementptr %vex.string.node, ptr null, i32 1
+  %node_size = ptrtoint ptr %node_size_pointer to i64
+  %node = call ptr @malloc(i64 %node_size)
+  %node_failed = icmp eq ptr %node, null
+  br i1 %node_failed, label %trap, label %register_allocation
+register_allocation:
+  %next_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 0
+  %old_head = load ptr, ptr @vex_string_head
+  store ptr %old_head, ptr %next_pointer
+  %data_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 1
+  store ptr %data, ptr %data_pointer
+  store ptr %node, ptr @vex_string_head
+  call void @llvm.memcpy.p0.p0.i64(ptr %data, ptr %left_data, i64 %left_length, i1 false)
+  %right_destination = getelementptr i8, ptr %data, i64 %left_length
+  call void @llvm.memcpy.p0.p0.i64(ptr %right_destination, ptr %right_data, i64 %right_length, i1 false)
+  %terminator = getelementptr i8, ptr %data, i64 %total_length
+  store i8 0, ptr %terminator
+  %result_with_data = insertvalue { ptr, i64 } poison, ptr %data, 0
+  %result = insertvalue { ptr, i64 } %result_with_data, i64 %total_length, 1
+  ret { ptr, i64 } %result
+}
+
+define internal void @vex_string_cleanup() {
+entry:
+  br label %loop
+loop:
+  %node = load ptr, ptr @vex_string_head
+  %finished = icmp eq ptr %node, null
+  br i1 %finished, label %done, label %release
+release:
+  %next_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 0
+  %next = load ptr, ptr %next_pointer
+  %data_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 1
+  %data = load ptr, ptr %data_pointer
+  store ptr %next, ptr @vex_string_head
+  call void @free(ptr %data)
+  call void @free(ptr %node)
+  br label %loop
+done:
+  ret void
+}
+)IR";
     }
 
     void emit_checked_integer_helpers() {
@@ -866,6 +935,14 @@ done:
         switch (instruction.op) {
         case IROp::Constant:
             return;
+        case IROp::StringConcat: {
+            const std::string result = next_temp();
+            output_ << "  " << result
+                    << " = call { ptr, i64 } @vex_string_concat({ ptr, i64 } "
+                    << operands[0] << ", { ptr, i64 } " << operands[1] << ")\n";
+            store_result(instruction, result);
+            return;
+        }
         case IROp::Add:
         case IROp::Subtract:
         case IROp::Multiply:
@@ -1209,6 +1286,7 @@ done:
         if (entry_->return_type == IRType::Void) {
             output_ << "  call void " << function_symbol(entry_->name) << "()\n"
                     << "  call void @vex_array_cleanup()\n"
+                    << "  call void @vex_string_cleanup()\n"
                     << "  ret i32 0\n";
         } else {
             output_ << "  %vex_status = call i64 "
@@ -1222,6 +1300,7 @@ done:
                     << "  unreachable\n"
                     << "vex_valid_exit:\n"
                     << "  call void @vex_array_cleanup()\n"
+                    << "  call void @vex_string_cleanup()\n"
                     << "  %vex_exit_code = trunc i64 %vex_status to i32\n"
                     << "  ret i32 %vex_exit_code\n";
         }

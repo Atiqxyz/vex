@@ -70,7 +70,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Signed 64-bit integer | Implemented | Current \`int\`. |
 | 64-bit floating point | Implemented | Current \`float\`. |
 | Boolean | Implemented | Current \`bool\`. |
-| UTF-8 string | Partial | String values and output exist; full text API, ownership and Unicode behavior need audit. |
+| UTF-8 string | Partial | Length-aware byte strings support literals, equality, output, and byte-preserving concatenation; broader text APIs, UTF-8 validation policy, and Unicode behavior remain unfinished. |
 | Void | Implemented | Function no-value result. |
 | Fixed-size one-dimensional arrays | Implemented | Primitive and structure arrays support inference, explicit `type[length]` annotations, structure fields, parameters/returns, and value aggregates. |
 | Array indexing and mutation | Implemented | Runtime bounds checks; nested field/index writes rooted at named aggregates, in both backends. |
@@ -202,7 +202,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | String literals | Implemented | Double-quoted literals and documented escapes. |
 | Embedded NUL preservation | Implemented | Length-aware backend string representation. |
 | String output | Implemented | Via \`say\`. |
-| String concatenation | Not implemented | Binary `+` is restricted to numeric operands in semantic analysis; typed IR arithmetic and both backends also define arithmetic only for numeric values. No string-concatenation allocation/runtime operation exists. |
+| String concatenation | Implemented | Binary string `+` and string `+=` lower through a dedicated typed-IR operation; C and LLVM allocate length-aware byte buffers, preserve embedded NUL bytes, handle empty inputs, and release tracked buffers at normal generated-entry return. |
 | String equality | Implemented | Primitive equality is supported; test byte/Unicode semantics. |
 | UTF-8 validation policy | Design undecided | Decide whether strings guarantee valid UTF-8 or are arbitrary bytes. |
 | Unicode scalar iteration | Not implemented | Must not confuse bytes with code points or grapheme clusters. |

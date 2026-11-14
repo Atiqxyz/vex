@@ -717,7 +717,10 @@ private:
         const TokenKind op,IRValue left,IRValue right,const SourceSpan span) {
         IROp operation=IROp::Add;
         switch(op) {
-        case TokenKind::PlusEqual:operation=IROp::Add;break;
+        case TokenKind::PlusEqual:
+            if(left.type==IRType::String&&right.type==IRType::String)
+                return emit_operation(IROp::StringConcat,IRType::String,{left.id,right.id},span);
+            operation=IROp::Add;break;
         case TokenKind::MinusEqual:operation=IROp::Subtract;break;
         case TokenKind::StarEqual:operation=IROp::Multiply;break;
         case TokenKind::SlashEqual:operation=IROp::Divide;break;
@@ -771,6 +774,8 @@ private:
 
         const auto result_type = expression_type(expression);
         if (!result_type) return std::nullopt;
+        if(binary.op==TokenKind::Plus&&left->type==IRType::String&&right->type==IRType::String)
+            return emit_operation(IROp::StringConcat,IRType::String,{left->id,right->id},expression.span);
 
         IROp op = IROp::Add;
         switch (binary.op) {

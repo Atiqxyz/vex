@@ -297,6 +297,11 @@ void test_invalid_ir_is_rejected(TestContext& tests) {
     invalid_add.result = value(3, vex::IRType::Bool);
     invalid_add.operands = {1, 2};
     entry.instructions.push_back(invalid_add);
+    vex::IRInstruction invalid_string_concat;
+    invalid_string_concat.op = vex::IROp::StringConcat;
+    invalid_string_concat.result = value(4, vex::IRType::String);
+    invalid_string_concat.operands = {1, 2};
+    entry.instructions.push_back(invalid_string_concat);
     entry.terminator = vex::IRTerminator{vex::IRReturn{3}, {}};
 
     vex::IRFunction invalid_types;
@@ -311,6 +316,8 @@ void test_invalid_ir_is_rejected(TestContext& tests) {
         vex::IRVerifier{}.verify(module);
     tests.check(has_code(bad_types, "IR013"),
                 "verifier rejects arithmetic on non-numeric values");
+    tests.check(has_code(bad_types, "IR072"),
+                "verifier rejects StringConcat with non-string operands");
 }
 
 void test_dominance_and_call_signatures(TestContext& tests) {

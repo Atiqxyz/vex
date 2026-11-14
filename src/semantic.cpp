@@ -42,8 +42,10 @@ Type common_numeric_type(const Type left, const Type right) noexcept {
 
 Type compound_assignment_result(const TokenKind assignment,const Type left,const Type right) noexcept {
     switch(assignment) {
-    case TokenKind::PlusEqual: case TokenKind::MinusEqual:
-    case TokenKind::StarEqual: case TokenKind::SlashEqual:
+    case TokenKind::PlusEqual:
+        if(left==Type::String&&right==Type::String)return Type::String;
+        return common_numeric_type(left,right);
+    case TokenKind::MinusEqual: case TokenKind::StarEqual: case TokenKind::SlashEqual:
         return common_numeric_type(left,right);
     case TokenKind::PercentEqual:
         if(left==Type::Error||right==Type::Error)return Type::Error;
@@ -753,6 +755,8 @@ private:
             const Type right = analyze_expression(*binary->right);
             if (left == Type::Error || right == Type::Error) return Type::Error;
             if (left == Type::Unknown || right == Type::Unknown) return Type::Unknown;
+            if(binary->op==TokenKind::Plus&&left==Type::String&&right==Type::String)
+                return Type::String;
 
             switch (binary->op) {
             case TokenKind::Plus:

@@ -5,7 +5,7 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
    NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR
-   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED STRING_CONCAT_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -179,6 +179,19 @@ if(NOT "${compound_output}" STREQUAL "${compound_expected}")
     message(FATAL_ERROR "Compound assignment behavior mismatch. Expected:${compound_expected}Actual:${compound_output}")
 endif()
 
+# Exercise empty strings, embedded NUL bytes, and string +=.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${STRING_CONCAT_SOURCE_FILE}"
+    RESULT_VARIABLE string_concat_result OUTPUT_VARIABLE string_concat_output ERROR_VARIABLE string_concat_error
+)
+if(NOT string_concat_result EQUAL 0)
+    message(FATAL_ERROR "C backend string concatenation test failed: ${string_concat_output}${string_concat_error}")
+endif()
+string(REPLACE "\r\n" "\n" string_concat_output "${string_concat_output}")
+set(string_concat_expected "VEX Lang\nAB\ntrue\nVEX\nVEX\ntrue\ntrue\n")
+if(NOT "${string_concat_output}" STREQUAL "${string_concat_expected}")
+    message(FATAL_ERROR "String concatenation behavior mismatch. Expected:${string_concat_expected}Actual:${string_concat_output}")
+endif()
 execute_process(
     COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"
     COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"

@@ -1,0 +1,26 @@
+struct Strings {
+    title: string,
+    labels: string[2],
+}
+
+make main() {
+    let strings = Strings {
+        title: "VEX",
+        labels: ["A", "B"]
+    }
+    strings.title += " Lang"
+    strings.labels[0] += "\0C"
+    let joined = "A" + "B" + ""
+    let bytes = "A\0B" + "C\0D"
+    let bytes_expected = "A\0BC\0D"
+    let empty_left = "" + "VEX"
+    let empty_right = "VEX" + ""
+    let both_empty = "" + ""
+    say(strings.title)
+    say(joined)
+    say(bytes == bytes_expected)
+    say(empty_left)
+    say(empty_right)
+    say(both_empty == "")
+    say(strings.labels[0] == "A\0C")
+}

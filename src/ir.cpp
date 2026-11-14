@@ -264,6 +264,12 @@ private:
                 report("IR012", "constant must retain its literal spelling", instruction.span);
             }
             break;
+        case IROp::StringConcat:
+            check_arity(instruction, 2);
+            if ((left && *left != IRType::String) || (right && *right != IRType::String))
+                report("IR072", "string concatenation requires two string operands", instruction.span);
+            check_result(instruction, IRType::String);
+            break;
         case IROp::Add:
         case IROp::Subtract:
         case IROp::Multiply:
@@ -827,6 +833,7 @@ const char* ir_op_name(const IROp op) noexcept {
     switch (op) {
     case IROp::Constant: return "const";
     case IROp::Add: return "add";
+    case IROp::StringConcat: return "string_concat";
     case IROp::Subtract: return "sub";
     case IROp::Multiply: return "mul";
     case IROp::Divide: return "div";
