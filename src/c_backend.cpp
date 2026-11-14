@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -41,11 +42,21 @@ std::string struct_field_name(const std::uint32_t index) {
     return "vex_field_" + std::to_string(index);
 }
 
-std::string array_type_name(const IRType element_type, const std::uint32_t length) {
-    const char* element = element_type == IRType::Int ? "int" :
+std::string array_type_name(const IRType element_type, const std::uint32_t length,
+                            const std::uint32_t element_struct_type_id = 0) {
+    const std::string element = element_type == IRType::Int ? "int" :
         element_type == IRType::Float ? "float" :
-        element_type == IRType::Bool ? "bool" : "string";
-    return "vex_array_" + std::string(element) + "_" + std::to_string(length);
+        element_type == IRType::Bool ? "bool" :
+        element_type == IRType::String ? "string" :
+        "struct_" + std::to_string(element_struct_type_id);
+    return "vex_array_" + element + "_" + std::to_string(length);
+}
+
+IRValue array_element_value(const IRValue& array) {
+    IRValue value;
+    value.type = array.element_type;
+    value.struct_type_id = array.element_struct_type_id;
+    return value;
 }
 
 std::string c_type(const IRValue& value) {
@@ -53,7 +64,8 @@ std::string c_type(const IRValue& value) {
     if (value.type != IRType::Array) return c_type(value.type);
     return value.array_length == 0
         ? "vex_array *"
-        : array_type_name(value.element_type, value.array_length);
+        : array_type_name(value.element_type, value.array_length,
+                          value.element_struct_type_id);
 }
 
 std::string c_return_type(const IRFunction& function) {
@@ -62,7 +74,8 @@ std::string c_return_type(const IRFunction& function) {
     if (function.return_type != IRType::Array) return c_type(function.return_type);
     return function.return_array_length == 0
         ? "vex_array *"
-        : array_type_name(function.return_element_type, function.return_array_length);
+        : array_type_name(function.return_element_type, function.return_array_length,
+                          function.return_element_struct_type_id);
 }
 
 std::string value_name(const IRValueId id) {
@@ -246,6 +259,22 @@ private:
             << "static vex_array *vex_array_head = NULL;\n\n";
     }
 
+    void emit_array_typedef(const IRType element_type,
+                            const std::uint32_t element_struct_type_id,
+                            const std::uint32_t length) {
+        if (length == 0) return;
+        const auto key = std::make_tuple(element_type, element_struct_type_id, length);
+        if (!emitted_array_shapes_.insert(key).second) return;
+        IRValue element;
+        element.type = element_type;
+        element.struct_type_id = element_struct_type_id;
+        const std::string name = array_type_name(
+            element_type, length, element_struct_type_id);
+        output_ << "typedef struct " << name << " {\n"
+                << "    " << c_type(element) << " data[" << length << "];\n"
+                << "} " << name << ";\n";
+    }
+
     void emit_struct_types() {
         if (module_.struct_types.empty()) return;
         for (const IRStructType& structure : module_.struct_types) {
@@ -253,13 +282,26 @@ private:
                     << " " << struct_type_name(structure.id) << ";\n";
         }
         output_ << '\n';
+        // Structure fields can contain only earlier declared structures by value.
+        // Emit an array wrapper after its element structure is complete and before
+        // the containing structure uses that wrapper.
         for (const IRStructType& structure : module_.struct_types) {
+            for (const IRStructField& field : structure.fields) {
+                if (field.type == IRType::Array)
+                    emit_array_typedef(field.element_type,
+                                       field.element_struct_type_id,
+                                       field.array_length);
+            }
             output_ << "struct " << struct_type_name(structure.id) << " {\n";
             for (std::size_t index = 0; index < structure.fields.size(); ++index) {
                 const IRStructField& field = structure.fields[index];
-                const std::string field_type = field.type == IRType::Struct
-                    ? struct_type_name(field.struct_type_id) : c_type(field.type);
-                output_ << "    " << field_type << ' '
+                IRValue value;
+                value.type = field.type;
+                value.struct_type_id = field.struct_type_id;
+                value.element_type = field.element_type;
+                value.array_length = field.array_length;
+                value.element_struct_type_id = field.element_struct_type_id;
+                output_ << "    " << c_type(value) << ' '
                         << struct_field_name(static_cast<std::uint32_t>(index)) << ";\n";
             }
             output_ << "};\n";
@@ -268,28 +310,32 @@ private:
     }
 
     void emit_array_types() {
-        std::set<std::pair<IRType, std::uint32_t>> shapes;
+        std::set<std::tuple<IRType, std::uint32_t, std::uint32_t>> shapes;
         for (const IRFunction& function : module_.functions) {
             if (function.return_type == IRType::Array)
-                shapes.emplace(function.return_element_type, function.return_array_length);
+                shapes.emplace(function.return_element_type,
+                               function.return_element_struct_type_id,
+                               function.return_array_length);
             for (const IRFunctionParameter& parameter : function.parameters)
                 if (parameter.value.type == IRType::Array)
-                    shapes.emplace(parameter.value.element_type, parameter.value.array_length);
+                    shapes.emplace(parameter.value.element_type,
+                                   parameter.value.element_struct_type_id,
+                                   parameter.value.array_length);
             for (const IRBlock& block : function.blocks) {
                 for (const IRValue& parameter : block.parameters)
                     if (parameter.type == IRType::Array)
-                        shapes.emplace(parameter.element_type, parameter.array_length);
+                        shapes.emplace(parameter.element_type,
+                                       parameter.element_struct_type_id,
+                                       parameter.array_length);
                 for (const IRInstruction& instruction : block.instructions)
                     if (instruction.result && instruction.result->type == IRType::Array)
-                        shapes.emplace(instruction.result->element_type, instruction.result->array_length);
+                        shapes.emplace(instruction.result->element_type,
+                                       instruction.result->element_struct_type_id,
+                                       instruction.result->array_length);
             }
         }
-        for (const auto& [element, length] : shapes) {
-            if (length == 0) continue;
-            output_ << "typedef struct " << array_type_name(element, length) << " {\n"
-                    << "    " << c_type(element) << " data[" << length << "];\n"
-                    << "} " << array_type_name(element, length) << ";\n";
-        }
+        for (const auto& [element, struct_id, length] : shapes)
+            emit_array_typedef(element, struct_id, length);
         if (!shapes.empty()) output_ << '\n';
     }
 
@@ -768,13 +814,14 @@ private:
         }
         case IROp::ArrayMake: {
             const IRValue& array = *instruction.result;
+            const IRValue element = array_element_value(array);
             if (array.array_length == 0) {
                 output_ << "    " << result << " = vex_array_new(sizeof("
-                        << c_type(array.element_type) << "));\n";
+                        << c_type(element) << "));\n";
                 for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
                     const std::string temporary = "vex_array_init_" +
                         std::to_string(array.id) + "_" + std::to_string(index);
-                    output_ << "    " << c_type(array.element_type) << " " << temporary
+                    output_ << "    " << c_type(element) << " " << temporary
                             << " = " << operand(index) << ";\n"
                             << "    vex_array_push(" << result << ", &" << temporary
                             << ", sizeof(" << temporary << "));\n";
@@ -788,10 +835,11 @@ private:
         case IROp::ArrayGet: {
             const auto array = value_type(function, instruction.operands[0]);
             if (!array) return;
+            const IRValue element = array_element_value(*array);
             if (array->array_length == 0) {
-                output_ << "    " << result << " = *(" << c_type(array->element_type)
+                output_ << "    " << result << " = *(" << c_type(element)
                         << " *)vex_array_get(" << operand(0) << ", " << operand(1)
-                        << ", sizeof(" << c_type(array->element_type) << "));\n";
+                        << ", sizeof(" << c_type(element) << "));\n";
             } else {
                 output_ << "    " << result << " = " << operand(0)
                         << ".data[vex_checked_array_index(" << operand(1) << ", "
@@ -802,11 +850,12 @@ private:
         case IROp::ArraySet: {
             const auto array = value_type(function, instruction.operands[0]);
             if (!array) return;
+            const IRValue element = array_element_value(*array);
             if (array->array_length == 0) {
                 const std::string temporary = "vex_array_set_" +
                     std::to_string(instruction.result->id);
                 output_ << "    " << result << " = " << operand(0) << ";\n"
-                        << "    " << c_type(array->element_type) << " " << temporary
+                        << "    " << c_type(element) << " " << temporary
                         << " = " << operand(2) << ";\n"
                         << "    vex_array_set(" << operand(0) << ", " << operand(1)
                         << ", &" << temporary << ", sizeof(" << temporary << "));\n";
@@ -824,9 +873,10 @@ private:
         case IROp::ArrayPush: {
             const auto array = value_type(function, instruction.operands[0]);
             if (!array) return;
+            const IRValue element = array_element_value(*array);
             const std::string temporary = "vex_array_push_" +
                 std::to_string(instruction.span.begin);
-            output_ << "    " << c_type(array->element_type) << " " << temporary
+            output_ << "    " << c_type(element) << " " << temporary
                     << " = " << operand(1) << ";\n"
                     << "    vex_array_push(" << operand(0) << ", &" << temporary
                     << ", sizeof(" << temporary << "));\n";
@@ -897,6 +947,7 @@ private:
     }
 
     const IRModule& module_;
+    std::set<std::tuple<IRType, std::uint32_t, std::uint32_t>> emitted_array_shapes_;
     std::ostringstream output_;
     std::vector<Diagnostic> diagnostics_;
     const IRFunction* entry_{nullptr};

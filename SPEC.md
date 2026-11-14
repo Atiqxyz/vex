@@ -79,13 +79,16 @@ make main() {
 ~~~
 
 - A `struct` declaration is file-scope only. Field names must be unique, and a structure must have at least one field.
-- A field type is a primitive VEX type or a structure declared earlier in the same source file. Arrays, forward structure references, and recursive by-value fields are not supported in this version.
+- A field type may be a primitive, an earlier-declared structure, or a one-dimensional fixed/dynamic array of either. Array annotations use forms such as `Point[3]` and `Point[]`.
+- A fixed array stores its elements by value. Fixed arrays of structures can be fields, local values, function parameters, and return values.
+- A dynamic array stores a shared runtime-managed reference to contiguous elements. Dynamic arrays of structures are supported; copying a structure that contains a dynamic array copies that reference, so the nested dynamic collection remains shared.
+- Direct recursive by-value fields and fixed arrays that would create a by-value cycle are rejected. A dynamic array field may refer to its own containing structure because it is pointer-backed (for example, `Node { children: Node[] }`). Forward structure references remain unsupported.
 - Every structure literal must initialize every declared field exactly once using named fields. Field initializer expressions are evaluated in written order; the resulting value is laid out in declaration order.
-- Use `TypeName { field: value, ... }` to construct a value and `value.field` to read a field.
+- Use `TypeName { field: value, ... }` to construct a value and `value.field` to read a field. Arrays of structures support normal indexing and field access, including paths such as `scene.points[index].x`.
 - `let` structure bindings permit field updates. A `const` structure binding is immutable, including all of its fields.
-- Structures have value semantics. Assignment, parameter passing, and return copy the structure value. Nested structure fields are copied as part of the containing value; updating a copy does not change the source binding.
+- Structures have value semantics. Assignment, parameter passing, and return copy the structure value. Nested structure fields and fixed-array fields are copied as part of the containing value. Dynamic-array fields copy their shared reference, so the referenced collection remains aliased across structure copies.
 - Struct values are not currently comparable with `==` or `!=`; define equality explicitly in a future language design before enabling it.
-- The C backend uses the target C compiler's natural structure layout and alignment. The LLVM backend uses native aggregate values. Explicit packed layout, ABI annotations, pointers, and arrays of structures are not implemented.
+- The C backend uses the target C compiler's natural structure layout and alignment. The LLVM backend uses native aggregate values and derives dynamic element sizes from the target data layout. Explicit packed layout, ABI annotations, and user-visible raw pointers are not implemented.
 
 ### Conditions
 
@@ -197,11 +200,11 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 10 | function call `(...)` | postfix |
 | 11 | array indexing `[...]` | postfix |
 
-The parser accepts assignment to a local name or a simple named-array index such as `values[index] = value`. Nested member/index assignment and compound assignment to an array element are not implemented.
+The parser and semantic analyzer accept assignment to a named binding and nested aggregate paths rooted at a named structure or array, such as `values[index] = value`, `points[index].x = value`, or `scene.points[index].x = value`. The compiler evaluates the target path from the named root outward: each field or indexed container is read in sequence, each index expression is evaluated before moving to the next path component, and the replacement expression is evaluated only after the full target has been resolved. It then rebuilds the updated value back to the root binding. Compound assignment to an indexed or nested aggregate target is not implemented.
 
 ## 4. Initial static semantics implemented
 
-The semantic checker implements primitive types, one-dimensional fixed arrays, one-dimensional dynamic arrays, and a temporary integer-range type used only for direct `for-in` iteration. Fixed-array annotations use a positive length, such as `int[3]` or `float[8]`; dynamic-array annotations omit the length, such as `int[]` or `string[]`. Fixed arrays are value aggregates and are passed to/returned from functions by value with exact element-type and length checks. Dynamic arrays contain primitive elements and are heap-backed shared references: assigning, passing, or returning a dynamic array copies its reference, not its elements, so mutations through any alias are visible to every alias. Dynamic-array elements are checked for type and indexed access is bounds-checked. Empty literals require an explicit dynamic-array annotation, such as `let values: int[] = []`. Nested arrays and dynamic arrays of dynamic arrays are not implemented.
+The semantic checker implements primitive types, one-dimensional fixed arrays, one-dimensional dynamic arrays, structures, and a temporary integer-range type used only for direct `for-in` iteration. Array annotations use a positive length for fixed arrays (for example, `Point[3]`) and omit the length for dynamic arrays (for example, `Point[]`). Array elements may be primitive values or one nominal structure type; arrays of arrays are not implemented. Fixed arrays are value aggregates and are passed to/returned from functions by value with exact element-type, structure-identity, and length checks. Dynamic arrays are heap-backed shared references: assignment, argument passing, and return copy the reference, not the elements. This applies to arrays of structures and dynamic-array fields inside structures. Dynamic-array element reads and writes are type-checked and bounds-checked. Empty literals require an explicit dynamic-array annotation, such as `let values: Point[] = []`.
 
 Dynamic-array allocations are registered in a program-lifetime runtime list and all registered buffers are freed when the generated entry function returns normally. There is currently no per-scope release, reference counting, borrowing checker, or manual deallocation API. A runtime trap terminates the process; the operating system reclaims its memory. Range expressions are not first-class values and cannot be assigned, stored, or passed to functions. A comma is required for an array literal with one element (for example, `[value,]`); `[value]` remains a grouped expression.
 
@@ -212,10 +215,10 @@ Dynamic-array allocations are registered in a program-lifetime runtime list and 
 | `bool` | Boolean value |
 | `string` | UTF-8 string value |
 | `void` | Function return with no value |
-| fixed array | One-dimensional, fixed-length sequence of primitive values; may be inferred or annotated as `int[3]` |
+| fixed array | One-dimensional, fixed-length sequence of primitive or structure values; may be inferred or annotated as `Point[3]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
-The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer.
+The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer. Dynamic-array elements are copied as typed values, including whole structures; any dynamic-array fields inside those structures retain their shared references.
 
 - Local `let` and `const` types are inferred from their initializers when no annotation is present.
 - Explicit local annotations are checked against initializer types.
@@ -224,16 +227,16 @@ The implemented numeric representation is signed 64-bit integers and 64-bit floa
 - Relational comparisons require numeric operands. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
 - `repeat` counts require `int`.
-- `for-in` accepts fixed arrays, dynamic arrays, and integer ranges. Fixed-array lengths are known at compile time; dynamic-array lengths are re-read at each loop header, so appending or removing elements during iteration can change the number of iterations. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
+- `for-in` accepts fixed arrays and dynamic arrays of primitives or structures, plus integer ranges. Fixed-array lengths are known at compile time; dynamic-array lengths are re-read at each loop header, so appending or removing elements during iteration can change the number of iterations. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
 - `break` and `continue` are only valid inside loops and target the innermost enclosing loop.
 - Compound assignments are shorthand for their corresponding arithmetic operation followed by assignment; they use the same operand, mutability, and conversion checks as ordinary assignment.
 - Variables are visible after declaration in their lexical scope. Nested blocks may shadow outer bindings; duplicate declarations in the same scope are errors.
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
-- Function parameters require explicit types. Primitive annotations and fixed-array annotations such as `values: int[3]` are supported. Function signatures are registered before body checking, enabling forward calls. Argument count, element types, and fixed-array lengths are checked.
-- Fixed arrays may be passed to and returned from functions by value. A function returning `int[3]` must return exactly three `int` elements; an array argument must match the parameter's full fixed shape. Dynamic arrays may also be passed to and returned from functions, but they are shared references rather than copied collections; their element type must match the declared `T[]` shape.
+- Function parameters require explicit types. Primitive, structure, and array annotations such as `point: Point`, `values: int[3]`, and `points: Point[]` are supported. Function signatures are registered before body checking, enabling forward calls. Argument count, element types, and fixed-array lengths are checked.
+- Fixed arrays of primitives or structures may be passed to and returned from functions by value. A function returning `Point[3]` must return exactly three values of that nominal structure type; an array argument must match the parameter's element type, structure identity, and full fixed shape. Dynamic arrays may also be passed to and returned from functions, but they are shared references rather than copied collections; their element type and nominal structure identity must match the declared `T[]` shape.
 - A function without a return annotation is treated as `void`. A non-void function is rejected when a reachable path can reach the end of its body without returning a compatible value. Return-path analysis follows sequential statements, nested blocks, conditional branches, and loop exits. It recognizes literal boolean conditions, positive or non-positive integer literal repeat counts, and fixed-array or integer-range iteration when non-emptiness can be proven from the source. A loop that may execute zero times cannot by itself satisfy a return requirement. A path proven unable to reach the function end (for example, a literal `while true` loop without a reachable `break`) does not need a return value.
 - The built-in `say(value)` accepts one supported primitive value and returns `void`; arrays must be indexed before printing.
-- `length(array)` returns the element count for fixed or dynamic arrays (fixed-array length is lowered as a constant). `push(array, value)` appends a matching primitive value to a dynamic array and returns `void`. `pop(array)` removes and returns the last element; popping an empty dynamic array traps. `push` and `pop` reject fixed arrays and immutable bindings.
+- `length(array)` returns the element count for fixed or dynamic arrays (fixed-array length is lowered as a constant). `push(array, value)` appends a matching primitive or structure value to a dynamic array and returns `void`. `pop(array)` removes and returns the last element, including a structure value; popping an empty dynamic array traps. `push` and `pop` reject fixed arrays and mutation through immutable aggregate bindings.
 
 ## 5. Lexical rules implemented in the current frontend
 
@@ -283,10 +286,10 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 - Values have explicit primitive IR types and unique SSA identifiers.
 - Functions contain ordered basic blocks; each block has one explicit terminator.
 - Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
-- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, direct calls, the `say` intrinsic, and fixed-array construction, indexing, and updates.
+- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, direct calls, the `say` intrinsic, typed fixed/dynamic array construction, indexing and updates, and structure construction/field access/updates including array-valued fields.
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
 - `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, fixed-array iteration, integer-range iteration, and loop-control edges lower into explicit control-flow graphs.
-- The verifier checks instruction and call types, array element types and shapes, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
+- The verifier checks instruction and call types, array element types, lengths and nominal structure identities, structure field aggregate shapes, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
 - Source spans are retained on IR values and instructions.
 
 ### Initial C backend implemented

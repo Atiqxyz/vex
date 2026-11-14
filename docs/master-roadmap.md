@@ -2,7 +2,7 @@
 
 **Purpose:** A durable map of the capabilities VEX should evaluate, the reasons they matter, the dependencies between them, and the design questions future implementation work must preserve.
 
-**Project direction:** VEX is an experimental, general-purpose systems language with a strong computational and scientific-computing use case. It should combine readable source code, predictable semantics, native performance, and meaningful low-level control. This is a design map, not a commitment to implement every item.
+**Project direction:** VEX is an independently developed general-purpose programming language with systems, computational, and scientific-computing ambitions. It should combine readable source code, predictable semantics, native performance, and meaningful low-level control. This is a design map, not a commitment to implement every item.
 
 **Status authority:** The [language completeness matrix](language-completeness-matrix.md) tracks what is actually implemented and tested. The [language specification](../SPEC.md) records current syntax and semantic decisions. This roadmap records what to consider next and why. If these documents disagree, do not guess: reconcile them before implementation.
 
@@ -44,11 +44,11 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** Real programs need to represent more than primitive numbers and primitive arrays. This is the foundation for scientific models, application state, algorithms, and APIs.
 
-- [ ] User-defined structures / records with named fields
-- [ ] Struct construction, field reads, and field mutation
-- [ ] Struct assignment, parameter passing, and return semantics
+- [x] User-defined structures / records with named fields
+- [x] Struct construction, field reads, and field mutation
+- [x] Struct assignment, parameter passing, and return semantics
 - [ ] Defined field layout, padding, and alignment rules
-- [ ] Nested structures and arrays of structures
+- [x] Nested structures, arrays of structures, and array-valued structure fields
 - [ ] Enums for finite named alternatives
 - [ ] Tagged unions / algebraic data types
 - [ ] Exhaustive matching over enums and tagged unions
@@ -71,8 +71,8 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** Collections are central to algorithms, simulations, numerical work, and general programming. Their memory and aliasing behavior directly affect performance and correctness.
 
-- [x] Fixed-size one-dimensional primitive arrays
-- [x] Dynamic one-dimensional primitive arrays
+- [x] Fixed-size one-dimensional primitive and structure arrays
+- [x] Dynamic one-dimensional primitive and structure arrays
 - [ ] Nested arrays and collections of collections
 - [ ] Multidimensional arrays with documented storage order
 - [ ] Slices / non-owning views over arrays and buffers
@@ -94,8 +94,8 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 - [ ] Bitwise AND, OR, XOR, NOT
 - [ ] Bit shifts and rotations with defined edge behavior
-- [ ] Struct field access and nested field/index expressions
-- [ ] Generalized assignment targets, including nested fields and indexes
+- [x] Struct field access and nested field/index expressions
+- [x] Nested assignment targets across fields and indexes when rooted at a named aggregate binding
 - [ ] Range values, if they become useful beyond direct loops
 - [ ] Slicing syntax
 - [ ] Conditional expressions or expression-valued if, choose one coherent model
@@ -300,8 +300,8 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 ### Milestone 1 — Data modelling foundation
 1. Structures / records: declaration, construction, field access, mutation.
 2. Struct semantics: value behavior, copy behavior, parameters, returns, nested fields.
-3. Struct layout and alignment decisions that are consistent across C and LLVM.
-4. Arrays of structs and structs containing arrays.
+3. [x] Arrays of structs and structs containing fixed/dynamic arrays, including nested field/index updates.
+4. Struct layout and alignment decisions that are consistent across C and LLVM.
 5. Enums and tagged unions, followed by exhaustive match/pattern support.
 6. Tuples and destructuring if they simplify multiple returns and data flow.
 

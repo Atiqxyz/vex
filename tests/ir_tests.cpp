@@ -440,6 +440,77 @@ void test_struct_lowering_and_backend_aggregates(TestContext& tests) {
                 "LLVM backend emits named aggregate types and field operations");
 }
 
+void test_composed_structure_arrays_and_recursive_dynamic_fields(TestContext& tests) {
+    const vex::SourceFile source{"composed_struct_arrays_ir.vex",
+        "struct Point { x: int, y: int }\n"
+        "struct Group { fixed: Point[2], items: Point[] }\n"
+        "struct Node { value: int, children: Node[] }\n"
+        "make identity(points: Point[]) -> Point[] { return points }\n"
+        "make fixed_identity(points: Point[2]) -> Point[2] { return points }\n"
+        "make main() {\n"
+        "    let points: Point[2] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]\n"
+        "    let items: Point[] = []\n"
+        "    push(items, points[0])\n"
+        "    let group = Group { fixed: fixed_identity(points), items: identity(items) }\n"
+        "    group.fixed[1].x = 8\n"
+        "    group.items[0].y = 9\n"
+        "    for item in group.items { say(item.x) }\n"
+        "    let node = Node { value: 1, children: [] }\n"
+        "    push(node.children, node)\n"
+        "}\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() &&
+                !semantic.has_errors(),
+                "structure arrays, array fields, and recursive dynamic fields pass semantic analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(),
+                "composed structure arrays lower through calls, nested writes, and iteration");
+    if (lowered.has_errors()) return;
+
+    const vex::IRVerificationResult verified = vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(),
+                "nominal array element identity and recursive pointer-backed fields verify in IR");
+    if (verified.has_errors()) return;
+
+    vex::IRModule invalid_nominal_identity = lowered.module;
+    bool changed_structure_array = false;
+    for (vex::IRFunction& function : invalid_nominal_identity.functions) {
+        for (vex::IRBlock& block : function.blocks) {
+            for (vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::ArrayMake && instruction.result &&
+                    instruction.result->element_type == vex::IRType::Struct) {
+                    instruction.result->element_struct_type_id = 2;
+                    changed_structure_array = true;
+                    break;
+                }
+            }
+            if (changed_structure_array) break;
+        }
+        if (changed_structure_array) break;
+    }
+    const vex::IRVerificationResult invalid_nominal_result =
+        vex::IRVerifier{}.verify(invalid_nominal_identity);
+    tests.check(changed_structure_array && invalid_nominal_result.has_errors(),
+                "IR verifier rejects an array construction with a mismatched nominal structure identity");
+
+    const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() &&
+                c.source.find("vex_array_struct_1_2") != std::string::npos &&
+                c.source.find("vex_array_push") != std::string::npos,
+                "C backend emits fixed structure-array wrappers and dynamic structure storage");
+    const vex::BackendResult llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("[2 x %vex.struct.1]") != std::string::npos &&
+                llvm.output.find("getelementptr %vex.struct.1, ptr null, i64 1") != std::string::npos,
+                "LLVM backend emits nominal structure arrays and derives their target allocation size");
+}
+
 void test_fixed_array_lowering_and_backends(TestContext& tests) {
     const vex::SourceFile source{"arrays_ir.vex",
         "make main() {\n"
@@ -502,6 +573,7 @@ void run_ir_tests(TestContext& tests) {
     test_source_to_verified_ir_lowering(tests);
     test_fixed_array_lowering_and_backends(tests);
     test_struct_lowering_and_backend_aggregates(tests);
+    test_composed_structure_arrays_and_recursive_dynamic_fields(tests);
     test_implicit_and_explicit_entry_points(tests);
     test_valid_typed_function(tests);
     test_block_arguments_and_control_flow(tests);

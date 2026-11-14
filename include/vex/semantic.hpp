@@ -28,6 +28,8 @@ enum class SemanticType {
 struct SemanticArrayType {
     SemanticType element_type{SemanticType::Error};
     std::uint32_t length{0};
+    // Nonzero only when element_type is Struct. Structure identity is nominal.
+    std::uint32_t element_struct_type_id{0};
 };
 
 [[nodiscard]] const char* semantic_type_name(SemanticType type) noexcept;
@@ -59,6 +61,7 @@ struct SemanticStructField {
     std::string name;
     SemanticType type{SemanticType::Error};
     std::uint32_t struct_type_id{0};
+    std::optional<SemanticArrayType> array_type;
     SourceSpan declaration{};
 };
 

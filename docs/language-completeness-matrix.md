@@ -72,25 +72,25 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Boolean | Implemented | Current \`bool\`. |
 | UTF-8 string | Partial | String values and output exist; full text API, ownership and Unicode behavior need audit. |
 | Void | Implemented | Function no-value result. |
-| Fixed-size one-dimensional arrays | Implemented | Primitive arrays support inference, explicit `type[length]` annotations, and value aggregates. |
-| Array indexing and mutation | Implemented | Runtime bounds checks; simple named-array index assignment. |
-| Array iteration | Implemented | for-in over fixed and dynamic arrays. Dynamic length is checked at each loop header. |
-| Array function parameters | Implemented | Fixed arrays are passed by value; dynamic arrays are passed as shared references. Shapes and element types are checked. |
-| Array function returns | Implemented | Fixed arrays are returned by value; dynamic arrays return a shared reference. IR verifies the full shape. |
-| Nested arrays | Not implemented | Requires recursive aggregate shape metadata and nested literal/indexing rules. |
+| Fixed-size one-dimensional arrays | Implemented | Primitive and structure arrays support inference, explicit `type[length]` annotations, structure fields, parameters/returns, and value aggregates. |
+| Array indexing and mutation | Implemented | Runtime bounds checks; nested field/index writes rooted at named aggregates, in both backends. |
+| Array iteration | Implemented | for-in over fixed and dynamic arrays of primitive or structure values. Dynamic length is checked at each loop header. |
+| Array function parameters | Implemented | Fixed arrays of primitives or structures are passed by value; dynamic arrays are shared references. Element type, nominal structure identity, and shape are checked. |
+| Array function returns | Implemented | Fixed arrays of primitives or structures are returned by value; dynamic arrays return a shared reference. IR verifies element identity and shape. |
+| Nested arrays | Not implemented | Arrays of arrays remain unsupported; arrays of structures and array-valued structure fields are implemented. |
 | Integer ranges | Implemented | \`start..end\` exclusive and \`start..=end\` inclusive, directly in \`for-in\`. |
 | Unsigned integer types | Not implemented | Important for systems and binary data. |
 | Smaller/larger integer widths | Not implemented | Consider explicit fixed-width types rather than implicit platform-sized integers. |
 | 32-bit floating point | Not implemented | Useful for memory-sensitive and accelerator workloads. |
 | Character / code-point type | Not implemented | Distinguish Unicode scalar values from bytes. |
 | Byte / raw buffer type | Not implemented | Needed for binary I/O and networking. |
-| User-defined structs / records | Implemented | Named value types with primitive or earlier-declared nested-struct fields; full initialization, field access/mutation, by-value assignment/parameters/returns, typed IR, C and LLVM backends, semantic and runtime tests. Arrays of structs, recursive by-value fields, layout controls and equality remain deferred. |
+| User-defined structs / records | Implemented | Named value types with primitive, earlier-declared nested-struct, and one-dimensional array fields; arrays of structs support fixed value semantics and dynamic shared-reference semantics, nominal identity, nested field/index mutation, parameters/returns, push/pop/iteration, typed IR, C and LLVM backends. Recursive dynamic-array fields are supported; recursive by-value fields, explicit layout controls and equality remain deferred. |
 | Tuples | Not implemented | Could support multiple results and grouped values. |
 | Enums / tagged unions | Not implemented | Should be designed with exhaustive matching. |
 | Union / untagged union | Not implemented | Low-level representation and safety rules needed. |
 | Optional / nullable values | Not implemented | Decide representation and null-safety rules. |
 | Result / error values | Not implemented | Needed for explicit recoverable error handling. |
-| Dynamic arrays / vectors | Implemented | Primitive element types, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Nested collections, slices, per-scope release, and borrowing checks remain absent. |
+| Dynamic arrays / vectors | Implemented | Primitive or structure elements, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Arrays of arrays, slices, per-scope release, and borrowing checks remain absent. |
 | Slices / views | Not implemented | Requires bounds, lifetime and aliasing rules. |
 | Multidimensional arrays | Not implemented | Important for scientific computing; decide contiguous layout and indexing. |
 | Maps / dictionaries | Not implemented | Hashing, equality, key constraints and allocation needed. |
@@ -112,7 +112,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Comparisons and equality | Implemented | Primitive-compatible comparisons. |
 | Boolean logic | Implemented | Includes short-circuit lowering. |
 | Unary operators | Implemented | Unary plus, minus and logical not. |
-| Assignment | Implemented | Local and simple named-array index assignment. |
+| Assignment | Implemented | Local assignment and nested aggregate field/index updates rooted at named bindings; compound assignment to nested targets is not implemented. |
 | Compound assignment | Implemented | \`+= -= *= /= %=\`. |
 | Function-call expressions | Implemented | Direct calls. |
 | Array indexing expressions | Implemented | Checked indexing. |
@@ -125,7 +125,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Null-coalescing / optional operators | Not implemented | Depends on optional values. |
 | Range expressions as values | Not implemented | Current ranges are only accepted directly by \`for-in\`. |
 | Slicing expressions | Not implemented | Depends on slices. |
-| Struct field access | Not implemented | Depends on structs. |
+| Struct field access | Implemented | Named and nested field access, including fields reached through array indexing. |
 | Pattern matching expressions | Not implemented | Depends on enums and patterns. |
 | Operator overloading | Deferred | Avoid until generics and value semantics are stable. |
 | Explicit casts | Partial | Full conversion matrix and checked/unchecked rules remain. |

@@ -8,10 +8,36 @@ struct Rectangle {
     width: int,
 }
 
+struct PointList {
+    fixed: Point[2],
+    dynamic: Point[],
+}
+
+struct Node {
+    value: int,
+    children: Node[],
+}
+
 make shift(point: Point, amount: int) -> Point {
     let copy = point
     copy.x = copy.x + amount
     return copy
+}
+
+make build_points() -> Point[] {
+    let points: Point[] = [
+        Point { x: 10, y: 20 },
+        Point { x: 30, y: 40 }
+    ]
+    return points
+}
+
+make first_x(points: Point[]) -> int {
+    return points[0].x
+}
+
+make copy_points(points: Point[2]) -> Point[2] {
+    return points
 }
 
 make main() {
@@ -41,4 +67,50 @@ make main() {
         branched.y = branched.y + 2
     }
     say(branched.x)
+
+    let fixed_points: Point[2] = [
+        Point { x: 10, y: 20 },
+        Point { x: 30, y: 40 }
+    ]
+    fixed_points[0].x = 11
+    let dynamic_points = build_points()
+    push(dynamic_points, Point { x: 50, y: 60 })
+    dynamic_points[1].x = dynamic_points[1].x + 2
+    say(fixed_points[0].x)
+    say(first_x(dynamic_points))
+    let removed = pop(dynamic_points)
+    say(removed.x)
+    for current in dynamic_points {
+        say(current.x)
+    }
+
+    let fixed_copy = copy_points(fixed_points)
+    fixed_copy[0].x = 99
+    say(fixed_points[0].x)
+    say(fixed_copy[0].x)
+
+    let catalog = PointList {
+        fixed: [
+            Point { x: 10, y: 20 },
+            Point { x: 30, y: 40 }
+        ],
+        dynamic: [
+            Point { x: 10, y: 20 },
+            Point { x: 32, y: 40 }
+        ]
+    }
+    catalog.fixed[1].y = 99
+    catalog.dynamic[0].y = 88
+    let catalog_copy = catalog
+    catalog_copy.fixed[0].x = 100
+    catalog_copy.dynamic[0].x = 77
+    say(catalog.fixed[0].x)
+    say(catalog_copy.fixed[0].x)
+    say(catalog.dynamic[0].x)
+    say(catalog.dynamic[0].y)
+
+    let root = Node { value: 1, children: [] }
+    let child = Node { value: 2, children: [] }
+    push(root.children, child)
+    say(root.children[0].value)
 }

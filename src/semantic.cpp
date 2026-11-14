@@ -100,21 +100,28 @@ private:
             }
             std::string element_name = name.substr(0, open);
             const auto trim = [](std::string& value) {
-                const auto whitespace = [](const char c) {
-                    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+                const auto whitespace = [](const char character) {
+                    return character == ' ' || character == '\t' || character == '\r' || character == '\n';
                 };
                 while (!value.empty() && whitespace(value.front())) value.erase(value.begin());
                 while (!value.empty() && whitespace(value.back())) value.pop_back();
             };
             trim(element_name);
             Type element_type = Type::Error;
+            std::uint32_t element_struct_type_id = 0;
             if (element_name == "int") element_type = Type::Int;
             else if (element_name == "float") element_type = Type::Float;
             else if (element_name == "bool") element_type = Type::Bool;
             else if (element_name == "string") element_type = Type::String;
             else {
-                report("SEM003", "fixed arrays require a primitive element type", span);
-                return Type::Error;
+                const auto structure = struct_ids_.find(element_name);
+                if (structure != struct_ids_.end()) {
+                    element_type = Type::Struct;
+                    element_struct_type_id = structure->second;
+                } else {
+                    report("SEM003", "array element type must be a primitive or a declared structure type", span);
+                    return Type::Error;
+                }
             }
             std::string length_text = name.substr(open + 1, close - open - 1);
             trim(length_text);
@@ -123,7 +130,7 @@ private:
                 length_text.data() + length_text.size(), length);
             if (length_text.empty()) {
                 if (array_shape)
-                    *array_shape = SemanticArrayType{element_type, 0};
+                    *array_shape = SemanticArrayType{element_type, 0, element_struct_type_id};
                 return Type::Array;
             }
             if (parsed.ec != std::errc{} ||
@@ -133,7 +140,7 @@ private:
                 return Type::Error;
             }
             if (array_shape)
-                *array_shape = SemanticArrayType{element_type, length};
+                *array_shape = SemanticArrayType{element_type, length, element_struct_type_id};
             return Type::Array;
         }
         if (name == "int") return Type::Int;
@@ -247,19 +254,41 @@ private:
                                       &field_array_type, &field_struct_id)
                     : Type::Error;
                 if (!field.type_annotation || field_type == Type::Error ||
-                    field_type == Type::Array || field_type == Type::Void ||
-                    field_type == Type::Unknown || field_type == Type::Any) {
-                    report("SEM048", "structure fields require a primitive or previously declared structure type",
+                    field_type == Type::Void || field_type == Type::Unknown ||
+                    field_type == Type::Any ||
+                    (field_type == Type::Array && !field_array_type)) {
+                    report("SEM048", "structure fields require a primitive, a previously declared structure, or a one-dimensional array of either",
                            field.type_annotation.value_or(field.name));
                     continue;
                 }
-                if (field_type == Type::Struct && field_struct_id >= structure.id) {
-                    report("SEM050", "a structure field may only contain a structure declared earlier; recursive by-value fields are not supported",
+                const std::uint32_t contained_struct_id =
+                    field_type == Type::Array && field_array_type
+                        ? field_array_type->element_struct_type_id : field_struct_id;
+                // A fixed array embeds its elements and therefore participates in
+                // by-value recursion. A dynamic array is a pointer-backed edge and
+                // may safely refer to the containing structure.
+                const bool contains_structure =
+                    field_type == Type::Struct ||
+                    (field_type == Type::Array && field_array_type &&
+                     field_array_type->length != 0 &&
+                     field_array_type->element_type == Type::Struct);
+                const bool forward_dynamic_structure =
+                    field_type == Type::Array && field_array_type &&
+                    field_array_type->length == 0 &&
+                    field_array_type->element_type == Type::Struct &&
+                    contained_struct_id > structure.id;
+                if (forward_dynamic_structure) {
+                    report("SEM050", "a dynamic structure-array field may reference its own structure or an earlier declaration, not a later declaration",
+                           field.type_annotation.value_or(field.name));
+                    continue;
+                }
+                if (contains_structure && contained_struct_id >= structure.id) {
+                    report("SEM050", "a structure field may only contain a previously declared structure; recursive by-value fields are not supported",
                            field.type_annotation.value_or(field.name));
                     continue;
                 }
                 structure.fields.push_back(SemanticStructField{
-                    field_name, field_type, field_struct_id, field.name
+                    field_name, field_type, field_struct_id, field_array_type, field.name
                 });
             }
         }
@@ -284,9 +313,19 @@ private:
         while (expression) {
             if (const auto* name = std::get_if<NameExpr>(&expression->data))
                 return name;
-            const auto* member = std::get_if<MemberExpr>(&expression->data);
-            if (!member) return nullptr;
-            expression = member->object.get();
+            if (const auto* member = std::get_if<MemberExpr>(&expression->data)) {
+                expression = member->object.get();
+                continue;
+            }
+            if (const auto* index = std::get_if<IndexExpr>(&expression->data)) {
+                expression = index->object.get();
+                continue;
+            }
+            if (const auto* group = std::get_if<GroupExpr>(&expression->data)) {
+                expression = group->expression.get();
+                continue;
+            }
+            return nullptr;
         }
         return nullptr;
     }
@@ -437,27 +476,42 @@ private:
 
         if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression.data)) {
             const auto contextual_shape = model_.array_expression_types.find(&expression);
-            const bool dynamic_context =
+            const bool has_context =
                 contextual_shape != model_.array_expression_types.end() &&
-                contextual_shape->second.length == 0 &&
                 contextual_shape->second.element_type != Type::Unknown;
             if (array->elements.empty()) {
-                if (dynamic_context) return Type::Array;
+                if (has_context && contextual_shape->second.length == 0)
+                    return Type::Array;
                 report("SEM041", "empty array literals require an explicit dynamic-array type such as int[]",
                        expression.span);
                 return Type::Error;
             }
             Type element_type = Type::Unknown;
+            std::uint32_t element_struct_type_id = 0;
             for (const ExprPtr& element : array->elements) {
                 const Type actual = element ? analyze_expression(*element) : Type::Error;
                 if (actual == Type::Error || actual == Type::Void ||
-                    actual == Type::Array || actual == Type::Struct || actual == Type::Any) {
-                    report("SEM041", "array elements must use one supported primitive type",
+                    actual == Type::Array || actual == Type::Any) {
+                    report("SEM041", "array elements must use one supported primitive or structure type",
                            element ? element->span : expression.span);
                     return Type::Error;
                 }
+                std::uint32_t actual_struct_type_id = 0;
+                if (actual == Type::Struct && element) {
+                    const auto found = model_.struct_expression_types.find(element.get());
+                    if (found != model_.struct_expression_types.end())
+                        actual_struct_type_id = found->second;
+                }
                 if (element_type == Type::Unknown) {
                     element_type = actual;
+                    element_struct_type_id = actual_struct_type_id;
+                } else if (element_type == Type::Struct || actual == Type::Struct) {
+                    if (element_type != actual ||
+                        element_struct_type_id != actual_struct_type_id) {
+                        report("SEM041", "all structure array elements must have the same nominal type",
+                               element ? element->span : expression.span);
+                        return Type::Error;
+                    }
                 } else if (is_numeric(element_type) && is_numeric(actual)) {
                     if (element_type == Type::Float || actual == Type::Float)
                         element_type = Type::Float;
@@ -472,18 +526,27 @@ private:
                        expression.span);
                 return Type::Error;
             }
-            if (dynamic_context) {
-                const Type expected = contextual_shape->second.element_type;
-                if (!(expected == element_type ||
-                      (expected == Type::Float && element_type == Type::Int))) {
-                    report("SEM041", "dynamic array literal elements do not match the annotated element type",
+            if (has_context) {
+                const SemanticArrayType expected = contextual_shape->second;
+                const bool compatible_element =
+                    expected.element_type == element_type ||
+                    (expected.element_type == Type::Float && element_type == Type::Int);
+                const bool compatible_struct =
+                    expected.element_type != Type::Struct ||
+                    expected.element_struct_type_id == element_struct_type_id;
+                const bool compatible_length =
+                    expected.length == 0 ||
+                    expected.length == array->elements.size();
+                if (!compatible_element || !compatible_struct || !compatible_length) {
+                    report("SEM041", "array literal does not match its annotated element type and length",
                            expression.span);
                     return Type::Error;
                 }
-                model_.array_expression_types[&expression] = contextual_shape->second;
+                model_.array_expression_types[&expression] = expected;
             } else {
                 model_.array_expression_types[&expression] = SemanticArrayType{
-                    element_type, static_cast<std::uint32_t>(array->elements.size())};
+                    element_type, static_cast<std::uint32_t>(array->elements.size()),
+                    element_struct_type_id};
             }
             return Type::Array;
         }
@@ -521,16 +584,30 @@ private:
                 }
                 seen[field_index] = true;
                 field_indices.push_back(field_index);
+                if (field.value && expected->type == Type::Array && expected->array_type &&
+                    std::holds_alternative<ArrayLiteralExpr>(field.value->data)) {
+                    model_.array_expression_types[field.value.get()] = *expected->array_type;
+                }
                 const Type actual = field.value
                     ? analyze_expression(*field.value) : Type::Error;
                 const std::uint32_t actual_struct = field.value &&
                     model_.struct_expression_types.find(field.value.get()) !=
                         model_.struct_expression_types.end()
                     ? model_.struct_expression_types.at(field.value.get()) : 0u;
+                const auto actual_array = field.value
+                    ? model_.array_expression_types.find(field.value.get())
+                    : model_.array_expression_types.end();
+                const bool array_shape_matches = expected->type != Type::Array ||
+                    (expected->array_type && actual_array != model_.array_expression_types.end() &&
+                     expected->array_type->element_type == actual_array->second.element_type &&
+                     expected->array_type->length == actual_array->second.length &&
+                     expected->array_type->element_struct_type_id ==
+                         actual_array->second.element_struct_type_id);
                 if (!is_assignable(expected->type, actual) ||
-                    (expected->type == Type::Struct && expected->struct_type_id != actual_struct)) {
+                    (expected->type == Type::Struct && expected->struct_type_id != actual_struct) ||
+                    !array_shape_matches) {
                     report("SEM052", "initializer for field '" + expected->name +
-                           "' has an incompatible type",
+                           "' has an incompatible type or array shape",
                            field.value ? field.value->span : field.name);
                 }
             }
@@ -572,6 +649,8 @@ private:
             model_.member_field_indices[member] = field_index;
             if (field->type == Type::Struct)
                 model_.struct_expression_types[&expression] = field->struct_type_id;
+            if (field->type == Type::Array && field->array_type)
+                model_.array_expression_types[&expression] = *field->array_type;
             return field->type;
         }
 
@@ -624,6 +703,9 @@ private:
                        expression.span);
                 return Type::Error;
             }
+            if (shape->second.element_type == Type::Struct)
+                model_.struct_expression_types[&expression] =
+                    shape->second.element_struct_type_id;
             return shape->second.element_type;
         }
 
@@ -726,26 +808,35 @@ private:
         if (const auto* assignment =
                 std::get_if<AssignmentExpr>(&expression.data)) {
             if (assignment->target &&
-                std::holds_alternative<MemberExpr>(assignment->target->data)) {
+                (std::holds_alternative<MemberExpr>(assignment->target->data) ||
+                 std::holds_alternative<IndexExpr>(assignment->target->data))) {
                 const Type target_type = analyze_expression(*assignment->target);
                 const NameExpr* root = member_root_name(assignment->target.get());
                 if (!root) {
-                    report("SEM055", "structure fields can only be assigned through a named structure binding",
+                    report("SEM055", "aggregate elements and fields can only be assigned through a named binding",
                            assignment->target->span);
                     if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
                     return Type::Error;
                 }
                 Symbol* root_symbol = lookup(spelling(root->name));
-                if (!root_symbol || root_symbol->type != Type::Struct) {
-                    report("SEM055", "structure assignment requires a named structure binding",
+                if (!root_symbol || (root_symbol->type != Type::Struct &&
+                                     root_symbol->type != Type::Array)) {
+                    report("SEM055", "aggregate assignment requires a named structure or array binding",
                            root->name);
                     if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
                     return Type::Error;
                 }
                 model_.assignment_targets[assignment] = root_symbol->id;
                 if (root_symbol->immutable)
-                    report("SEM017", "cannot modify a field of immutable binding '" +
+                    report("SEM017", "cannot modify an aggregate through immutable binding '" +
                            spelling(root->name) + "'", root->name);
+                const auto expected_array = model_.array_expression_types.find(
+                    assignment->target.get());
+                if (target_type == Type::Array && expected_array != model_.array_expression_types.end() &&
+                    assignment->value &&
+                    std::holds_alternative<ArrayLiteralExpr>(assignment->value->data)) {
+                    model_.array_expression_types[assignment->value.get()] = expected_array->second;
+                }
                 const Type actual = assignment->value
                     ? analyze_expression(*assignment->value) : Type::Error;
                 const std::uint32_t target_struct =
@@ -756,56 +847,27 @@ private:
                     model_.struct_expression_types.find(assignment->value.get()) !=
                         model_.struct_expression_types.end()
                     ? model_.struct_expression_types.at(assignment->value.get()) : 0u;
+                const auto actual_array = assignment->value
+                    ? model_.array_expression_types.find(assignment->value.get())
+                    : model_.array_expression_types.end();
+                const bool array_shape_matches = target_type != Type::Array ||
+                    (expected_array != model_.array_expression_types.end() &&
+                     actual_array != model_.array_expression_types.end() &&
+                     expected_array->second.element_type == actual_array->second.element_type &&
+                     expected_array->second.length == actual_array->second.length &&
+                     expected_array->second.element_struct_type_id ==
+                         actual_array->second.element_struct_type_id);
                 if (!is_assignable(target_type, actual) ||
-                    (target_type == Type::Struct && target_struct != actual_struct))
-                    report("SEM018", "cannot assign an incompatible value to structure field",
+                    (target_type == Type::Struct && target_struct != actual_struct) ||
+                    !array_shape_matches)
+                    report("SEM018", "cannot assign an incompatible value to an aggregate field or element",
                            expression.span);
                 if (target_type == Type::Struct && target_struct != 0)
                     model_.struct_expression_types[&expression] = target_struct;
+                if (target_type == Type::Array && expected_array != model_.array_expression_types.end())
+                    model_.array_expression_types[&expression] = expected_array->second;
                 return target_type;
             }
-            if (const auto* indexed = assignment->target
-                    ? std::get_if<IndexExpr>(&assignment->target->data) : nullptr) {
-                const auto* base_name = indexed->object
-                    ? std::get_if<NameExpr>(&indexed->object->data) : nullptr;
-                if (!base_name) {
-                    report("SEM044", "array elements can only be assigned through a named array binding",
-                           indexed->object ? indexed->object->span : expression.span);
-                    if (assignment->value)
-                        static_cast<void>(analyze_expression(*assignment->value));
-                    return Type::Error;
-                }
-                const std::string identifier = spelling(base_name->name);
-                Symbol* symbol = lookup(identifier);
-                if (!symbol || symbol->type != Type::Array || !symbol->array_type) {
-                    report("SEM001", "undefined or non-array identifier '" + identifier + "'",
-                           base_name->name);
-                    if (assignment->value)
-                        static_cast<void>(analyze_expression(*assignment->value));
-                    return Type::Error;
-                }
-                if (indexed->index) {
-                    const Type index_type = analyze_expression(*indexed->index);
-                    if (index_type != Type::Error && index_type != Type::Unknown &&
-                        index_type != Type::Int)
-                        report("SEM042", "array index must have type int",
-                               indexed->index->span);
-                }
-                model_.resolved_names[base_name] = symbol->id;
-                model_.array_expression_types[indexed->object.get()] = *symbol->array_type;
-                model_.assignment_targets[assignment] = symbol->id;
-                const Type value = assignment->value
-                    ? analyze_expression(*assignment->value) : Type::Error;
-                if (symbol->immutable)
-                    report("SEM017", "cannot modify an element of immutable array binding '" +
-                           identifier + "'", base_name->name);
-                if (!is_assignable(symbol->array_type->element_type, value))
-                    report("SEM018", "cannot assign " + std::string(type_name(value)) +
-                           " to array element of type " +
-                           type_name(symbol->array_type->element_type), expression.span);
-                return symbol->array_type->element_type;
-            }
-
             const auto* target = assignment->target
                 ? std::get_if<NameExpr>(&assignment->target->data) : nullptr;
             if (!target) return Type::Error;
@@ -841,7 +903,8 @@ private:
                 const auto shape = model_.array_expression_types.find(assignment->value.get());
                 if (symbol->array_type && shape != model_.array_expression_types.end() &&
                     (symbol->array_type->element_type != shape->second.element_type ||
-                     symbol->array_type->length != shape->second.length))
+                     symbol->array_type->length != shape->second.length ||
+                     symbol->array_type->element_struct_type_id != shape->second.element_struct_type_id))
                     report("SEM045", "array assignment requires the same element type and length",
                            assignment->value->span);
             }
@@ -899,7 +962,6 @@ private:
                 if (function && argument &&
                     index < function->parameter_array_types.size() &&
                     function->parameter_array_types[index] &&
-                    function->parameter_array_types[index]->length == 0 &&
                     std::holds_alternative<ArrayLiteralExpr>(argument->data)) {
                     model_.array_expression_types[argument.get()] =
                         *function->parameter_array_types[index];
@@ -943,16 +1005,23 @@ private:
                            " requires a dynamic array declared with type []", call->arguments[0]->span);
                     return Type::Error;
                 }
-                if (const auto* array_name =
-                        std::get_if<NameExpr>(&call->arguments[0]->data)) {
+                if (const NameExpr* array_name =
+                        member_root_name(call->arguments[0].get())) {
                     Symbol* array_symbol = lookup(spelling(array_name->name));
                     if (array_symbol && array_symbol->immutable) {
                         report("SEM017", builtin_name +
-                               " cannot modify an immutable array binding", array_name->name);
+                               " cannot modify an array through immutable binding '" +
+                               spelling(array_name->name) + "'", array_name->name);
                     }
                 }
                 if (builtin_name == "push") {
-                    if (!is_assignable(shape->second.element_type, argument_types[1])) {
+                    const std::uint32_t value_struct_type_id = call->arguments[1] &&
+                        model_.struct_expression_types.find(call->arguments[1].get()) !=
+                            model_.struct_expression_types.end()
+                        ? model_.struct_expression_types.at(call->arguments[1].get()) : 0u;
+                    if (!is_assignable(shape->second.element_type, argument_types[1]) ||
+                        (shape->second.element_type == Type::Struct &&
+                         shape->second.element_struct_type_id != value_struct_type_id)) {
                         report("SEM021", "push value has type " +
                                std::string(type_name(argument_types[1])) +
                                "; expected " + type_name(shape->second.element_type),
@@ -961,6 +1030,9 @@ private:
                     }
                     return Type::Void;
                 }
+                if (shape->second.element_type == Type::Struct)
+                    model_.struct_expression_types[&expression] =
+                        shape->second.element_struct_type_id;
                 return shape->second.element_type;
             }
 
@@ -1003,7 +1075,8 @@ private:
                         *function->parameter_array_types[index];
                     if (actual_shape == model_.array_expression_types.end() ||
                         actual_shape->second.element_type != expected.element_type ||
-                        actual_shape->second.length != expected.length) {
+                        actual_shape->second.length != expected.length ||
+                        actual_shape->second.element_struct_type_id != expected.element_struct_type_id) {
                         report("SEM021", "array argument " +
                                std::to_string(index + 1) +
                                " does not match the required element type and fixed length",
@@ -1041,8 +1114,7 @@ private:
         }
         const auto* array_initializer = variable.initializer
             ? std::get_if<ArrayLiteralExpr>(&variable.initializer->data) : nullptr;
-        if (array_initializer && declared == Type::Array &&
-            declared_array_type && declared_array_type->length == 0) {
+        if (array_initializer && declared == Type::Array && declared_array_type) {
             model_.array_expression_types[variable.initializer.get()] =
                 *declared_array_type;
         }
@@ -1082,7 +1154,8 @@ private:
             if (shape != model_.array_expression_types.end()) {
                 if (declared_array_type &&
                     (declared_array_type->element_type != shape->second.element_type ||
-                     declared_array_type->length != shape->second.length)) {
+                     declared_array_type->length != shape->second.length ||
+                     declared_array_type->element_struct_type_id != shape->second.element_struct_type_id)) {
                     report("SEM045",
                            "array initializer does not match the annotated element type and fixed length",
                            variable.initializer->span);
@@ -1385,8 +1458,7 @@ private:
                 } else {
                     const auto* array_return = std::get_if<ArrayLiteralExpr>(
                         &returned->value->data);
-                    if (array_return && current_return_array_type_ &&
-                        current_return_array_type_->length == 0) {
+                    if (array_return && current_return_array_type_) {
                         model_.array_expression_types[returned->value.get()] =
                             *current_return_array_type_;
                     }
@@ -1405,7 +1477,9 @@ private:
                             model_.array_expression_types.find(returned->value.get());
                         if (actual_shape == model_.array_expression_types.end() ||
                             actual_shape->second.element_type != current_return_array_type_->element_type ||
-                            actual_shape->second.length != current_return_array_type_->length) {
+                            actual_shape->second.length != current_return_array_type_->length ||
+                            actual_shape->second.element_struct_type_id !=
+                                current_return_array_type_->element_struct_type_id) {
                             report("SEM028",
                                    "returned array does not match the function's annotated element type and fixed length",
                                    returned->value->span);
@@ -1488,6 +1562,8 @@ private:
             scopes_.emplace_back();
             Symbol iteration_variable;
             iteration_variable.type = iteration_type;
+            if (array_type && iteration_type == Type::Struct)
+                iteration_variable.struct_type_id = array_type->element_struct_type_id;
             iteration_variable.declaration = loop->variable;
             SemanticBindingId iteration_binding = 0;
             if (define(spelling(loop->variable), std::move(iteration_variable),

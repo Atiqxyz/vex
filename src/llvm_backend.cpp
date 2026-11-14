@@ -41,8 +41,28 @@ std::string llvm_type(const IRValue& value) {
     if (value.type == IRType::Struct) return llvm_struct_type_name(value.struct_type_id);
     if (value.type != IRType::Array) return llvm_type(value.type);
     if (value.array_length == 0) return "ptr";
+    IRValue element;
+    element.type = value.element_type;
+    element.struct_type_id = value.element_struct_type_id;
     return "[" + std::to_string(value.array_length) + " x " +
-           llvm_type(value.element_type) + "]";
+           llvm_type(element) + "]";
+}
+
+IRValue array_element_value(const IRValue& array) {
+    IRValue value;
+    value.type = array.element_type;
+    value.struct_type_id = array.element_struct_type_id;
+    return value;
+}
+
+IRValue array_field_value(const IRStructField& field) {
+    IRValue value;
+    value.type = field.type;
+    value.struct_type_id = field.struct_type_id;
+    value.element_type = field.element_type;
+    value.array_length = field.array_length;
+    value.element_struct_type_id = field.element_struct_type_id;
+    return value;
 }
 
 std::string llvm_return_type(const IRFunction& function) {
@@ -51,8 +71,11 @@ std::string llvm_return_type(const IRFunction& function) {
     if (function.return_type != IRType::Array)
         return llvm_type(function.return_type);
     if (function.return_array_length == 0) return "ptr";
+    IRValue element;
+    element.type = function.return_element_type;
+    element.struct_type_id = function.return_element_struct_type_id;
     return "[" + std::to_string(function.return_array_length) + " x " +
-           llvm_type(function.return_element_type) + "]";
+           llvm_type(element) + "]";
 }
 
 std::string value_slot(const IRValueId id) {
@@ -272,10 +295,7 @@ private:
             for (std::size_t index = 0; index < structure.fields.size(); ++index) {
                 if (index != 0) output_ << ", ";
                 const IRStructField& field = structure.fields[index];
-                if (field.type == IRType::Struct)
-                    output_ << llvm_struct_type_name(field.struct_type_id);
-                else
-                    output_ << llvm_type(field.type);
+                output_ << llvm_type(array_field_value(field));
             }
             output_ << " }\n";
         }
@@ -621,6 +641,16 @@ done:
 
     std::string next_temp() {
         return "%vex_tmp_" + std::to_string(next_temp_++);
+    }
+
+    std::string emit_type_size(const IRValue& value) {
+        const std::string next = next_temp();
+        const std::string size = next_temp();
+        const std::string type = llvm_type(value);
+        output_ << "  " << next << " = getelementptr " << type
+                << ", ptr null, i64 1\n"
+                << "  " << size << " = ptrtoint ptr " << next << " to i64\n";
+        return size;
     }
 
     std::string load_value(const IRValueId id) {
@@ -1008,10 +1038,10 @@ done:
         }
         case IROp::ArrayMake: {
             const IRValue& array = *instruction.result;
+            const IRValue element = array_element_value(array);
             if (array.array_length == 0) {
+                const std::string element_size = emit_type_size(element);
                 const std::string dynamic_array = next_temp();
-                const std::size_t element_size = array.element_type == IRType::Bool ? 1u :
-                    array.element_type == IRType::String ? 16u : 8u;
                 output_ << "  " << dynamic_array << " = call ptr @vex_array_new(i64 "
                         << element_size << ")\n";
                 for (const IRValueId operand_id : instruction.operands) {
@@ -1023,11 +1053,12 @@ done:
                 return;
             }
             const std::string type = llvm_type(array);
+            const std::string element_type = llvm_type(element);
             std::string aggregate = "poison";
             for (std::size_t index = 0; index < operands.size(); ++index) {
                 const std::string next = next_temp();
                 output_ << "  " << next << " = insertvalue " << type << ' '
-                        << aggregate << ", " << llvm_type(array.element_type) << ' '
+                        << aggregate << ", " << element_type << ' '
                         << operands[index] << ", " << index << "\n";
                 aggregate = next;
             }
@@ -1036,16 +1067,16 @@ done:
         }
         case IROp::ArrayGet: {
             const IRValue& array = value_types_.at(instruction.operands[0]);
+            const IRValue element = array_element_value(array);
+            const std::string element_type = llvm_type(element);
             if (array.array_length == 0) {
-                const std::size_t element_size =
-                    array.element_type == IRType::Bool ? 1u :
-                    array.element_type == IRType::String ? 16u : 8u;
+                const std::string element_size = emit_type_size(element);
                 const std::string pointer = next_temp();
                 const std::string value = next_temp();
                 output_ << "  " << pointer << " = call ptr @vex_array_get(ptr "
                         << operands[0] << ", i64 " << operands[1] << ", i64 "
                         << element_size << ")\n"
-                        << "  " << value << " = load " << llvm_type(array.element_type)
+                        << "  " << value << " = load " << element_type
                         << ", ptr " << pointer << "\n";
                 store_result(instruction, value);
                 return;
@@ -1058,7 +1089,7 @@ done:
                     << "  " << pointer << " = getelementptr inbounds "
                     << llvm_type(array) << ", ptr " << value_slot(instruction.operands[0])
                     << ", i64 0, i64 " << checked << "\n"
-                    << "  " << value << " = load " << llvm_type(array.element_type)
+                    << "  " << value << " = load " << element_type
                     << ", ptr " << pointer << "\n";
             store_result(instruction, value);
             return;
@@ -1066,15 +1097,15 @@ done:
         case IROp::ArraySet: {
             const IRValue& array = value_types_.at(instruction.operands[0]);
             const IRValue& result_array = *instruction.result;
+            const IRValue element = array_element_value(array);
+            const std::string element_type = llvm_type(element);
             if (array.array_length == 0) {
-                const std::size_t element_size =
-                    array.element_type == IRType::Bool ? 1u :
-                    array.element_type == IRType::String ? 16u : 8u;
+                const std::string element_size = emit_type_size(element);
                 const std::string pointer = next_temp();
                 output_ << "  " << pointer << " = call ptr @vex_array_get(ptr "
                         << operands[0] << ", i64 " << operands[1] << ", i64 "
                         << element_size << ")\n"
-                        << "  store " << llvm_type(array.element_type) << ' '
+                        << "  store " << element_type << ' '
                         << operands[2] << ", ptr " << pointer << "\n";
                 store_result(instruction, operands[0]);
                 return;
@@ -1088,7 +1119,7 @@ done:
                     << "  " << pointer << " = getelementptr inbounds "
                     << llvm_type(result_array) << ", ptr " << value_slot(result_array.id)
                     << ", i64 0, i64 " << checked << "\n"
-                    << "  store " << llvm_type(array.element_type) << ' ' << operands[2]
+                    << "  store " << element_type << ' ' << operands[2]
                     << ", ptr " << pointer << "\n";
             return;
         }
@@ -1101,9 +1132,8 @@ done:
         }
         case IROp::ArrayPush: {
             const IRValue& array = value_types_.at(instruction.operands[0]);
-            const std::size_t element_size =
-                array.element_type == IRType::Bool ? 1u :
-                array.element_type == IRType::String ? 16u : 8u;
+            const IRValue element = array_element_value(array);
+            const std::string element_size = emit_type_size(element);
             output_ << "  call void @vex_array_push(ptr " << operands[0]
                     << ", ptr " << value_slot(instruction.operands[1])
                     << ", i64 " << element_size << ")\n";
@@ -1111,9 +1141,8 @@ done:
         }
         case IROp::ArrayPop: {
             const IRValue& array = value_types_.at(instruction.operands[0]);
-            const std::size_t element_size =
-                array.element_type == IRType::Bool ? 1u :
-                array.element_type == IRType::String ? 16u : 8u;
+            const IRValue element = array_element_value(array);
+            const std::string element_size = emit_type_size(element);
             output_ << "  call void @vex_array_pop(ptr " << operands[0]
                     << ", ptr " << value_slot(instruction.result->id)
                     << ", i64 " << element_size << ")\n";

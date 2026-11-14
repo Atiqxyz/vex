@@ -26,6 +26,7 @@ struct FunctionSignature {
     IRType return_element_type{IRType::Void};
     std::uint32_t return_array_length{0};
     std::uint32_t return_struct_type_id{0};
+    std::uint32_t return_element_struct_type_id{0};
 };
 
 struct Definition {
@@ -73,16 +74,21 @@ private:
         if (function_.return_type == IRType::Array) {
             if (function_.return_element_type == IRType::Void ||
                 function_.return_element_type == IRType::Array ||
-                function_.return_element_type == IRType::Struct ||
-                function_.return_array_length > 65536u) {
-                report("IR053", "function has an invalid fixed-array return shape",
-                       function_.span);
+                function_.return_array_length > 65536u ||
+                (function_.return_element_type == IRType::Struct &&
+                 (function_.return_element_struct_type_id == 0 ||
+                  function_.return_element_struct_type_id > struct_types_.size())) ||
+                (function_.return_element_type != IRType::Struct &&
+                 function_.return_element_struct_type_id != 0)) {
+                report("IR053", "function has an invalid array return shape", function_.span);
             }
         } else if (function_.return_type == IRType::Struct) {
             if (function_.return_struct_type_id == 0 ||
                 function_.return_struct_type_id > struct_types_.size())
                 report("IR060", "function has an invalid structure return type", function_.span);
-            if (function_.return_element_type != IRType::Void || function_.return_array_length != 0)
+            if (function_.return_element_type != IRType::Void ||
+                function_.return_array_length != 0 ||
+                function_.return_element_struct_type_id != 0)
                 report("IR054", "structure function return cannot carry array shape metadata", function_.span);
         } else if (function_.return_type == IRType::Void ||
                    function_.return_type == IRType::Int ||
@@ -90,7 +96,8 @@ private:
                    function_.return_type == IRType::Bool ||
                    function_.return_type == IRType::String) {
             if (function_.return_element_type != IRType::Void ||
-                function_.return_array_length != 0) {
+                function_.return_array_length != 0 ||
+                function_.return_element_struct_type_id != 0) {
                 report("IR054", "primitive function return cannot carry array shape metadata",
                        function_.span);
             }
@@ -112,17 +119,24 @@ private:
         }
         if (value.type == IRType::Array &&
             (value.element_type == IRType::Void || value.element_type == IRType::Array ||
-             value.element_type == IRType::Struct || value.array_length > 65536u)) {
-            report("IR050", "SSA array value has an invalid element type or fixed length",
+             value.array_length > 65536u ||
+             (value.element_type == IRType::Struct &&
+              (value.element_struct_type_id == 0 ||
+               value.element_struct_type_id > struct_types_.size())) ||
+             (value.element_type != IRType::Struct &&
+              value.element_struct_type_id != 0) ||
+             value.struct_type_id != 0)) {
+            report("IR050", "SSA array value has an invalid element type or aggregate identity",
                    value.span);
         } else if (value.type == IRType::Struct) {
             if (value.struct_type_id == 0 || value.struct_type_id > struct_types_.size())
                 report("IR060", "SSA value has an invalid structure type", value.span);
-            if (value.element_type != IRType::Void || value.array_length != 0)
+            if (value.element_type != IRType::Void || value.array_length != 0 ||
+                value.element_struct_type_id != 0)
                 report("IR051", "structure SSA value cannot carry array shape metadata", value.span);
         } else if (value.type != IRType::Array &&
                    (value.element_type != IRType::Void || value.array_length != 0 ||
-                    value.struct_type_id != 0)) {
+                    value.struct_type_id != 0 || value.element_struct_type_id != 0)) {
             report("IR051", "primitive SSA value cannot carry aggregate shape metadata", value.span);
         }
         const auto inserted = definitions_.emplace(
@@ -169,7 +183,18 @@ private:
     static bool same_array_shape(const IRValue& left, const IRValue& right) {
         return left.type == IRType::Array && right.type == IRType::Array &&
                left.element_type == right.element_type &&
-               left.array_length == right.array_length;
+               left.array_length == right.array_length &&
+               left.element_struct_type_id == right.element_struct_type_id;
+    }
+
+    static IRValue field_value(const IRStructField& field) {
+        IRValue value;
+        value.type = field.type;
+        value.struct_type_id = field.struct_type_id;
+        value.element_type = field.element_type;
+        value.array_length = field.array_length;
+        value.element_struct_type_id = field.element_struct_type_id;
+        return value;
     }
 
     static bool same_value_shape(const IRValue& left, const IRValue& right) {
@@ -362,7 +387,9 @@ private:
                 if (found->second.return_type == IRType::Array &&
                     instruction.result &&
                     (instruction.result->element_type != found->second.return_element_type ||
-                     instruction.result->array_length != found->second.return_array_length)) {
+                     instruction.result->array_length != found->second.return_array_length ||
+                     instruction.result->element_struct_type_id !=
+                         found->second.return_element_struct_type_id)) {
                     report("IR055", "call result does not match the callee's fixed-array return shape",
                            instruction.span);
                 }
@@ -390,15 +417,23 @@ private:
             }
             const IRValue& result = *instruction.result;
             if (result.element_type == IRType::Void || result.element_type == IRType::Array ||
-                result.element_type == IRType::Struct || result.array_length > 65536u)
-                report("IR042", "array result has an invalid element type or length", result.span);
+                result.array_length > 65536u ||
+                (result.element_type == IRType::Struct &&
+                 (result.element_struct_type_id == 0 ||
+                  result.element_struct_type_id > struct_types_.size())) ||
+                (result.element_type != IRType::Struct &&
+                 result.element_struct_type_id != 0))
+                report("IR042", "array result has an invalid element type or nominal identity", result.span);
             if (result.array_length != 0 &&
                 instruction.operands.size() != result.array_length)
                 report("IR043", "array construction operand count does not match its fixed length", instruction.span);
             for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
-                const auto actual = operand_type(instruction, index);
-                if (actual && *actual != result.element_type)
-                    report("IR044", "array element operand has the wrong type", instruction.span);
+                const IRValue* actual = operand_value(instruction, index);
+                IRValue expected;
+                expected.type = result.element_type;
+                expected.struct_type_id = result.element_struct_type_id;
+                if (actual && !same_value_shape(*actual, expected))
+                    report("IR044", "array element operand has the wrong type or structure identity", instruction.span);
             }
             break;
         }
@@ -418,9 +453,8 @@ private:
             const std::size_t count = std::min(instruction.operands.size(), fields.size());
             for (std::size_t index = 0; index < count; ++index) {
                 const IRValue* actual = operand_value(instruction, index);
-                if (actual && (actual->type != fields[index].type ||
-                    (actual->type == IRType::Struct && actual->struct_type_id != fields[index].struct_type_id)))
-                    report("IR063", "structure construction field has the wrong type", instruction.span);
+                if (actual && !same_value_shape(*actual, field_value(fields[index])))
+                    report("IR063", "structure construction field has the wrong type or aggregate shape", instruction.span);
             }
             break;
         }
@@ -445,16 +479,15 @@ private:
             }
             if (is_set) {
                 const IRValue* value = operand_value(instruction, 1);
-                if (value && (value->type != field->type ||
-                    (value->type == IRType::Struct && value->struct_type_id != field->struct_type_id)))
-                    report("IR063", "structure field update value has the wrong type", instruction.span);
+                if (value && !same_value_shape(*value, field_value(*field)))
+                    report("IR063", "structure field update value has the wrong type or aggregate shape", instruction.span);
                 if (!instruction.result || instruction.result->type != IRType::Struct ||
                     instruction.result->struct_type_id != object->struct_type_id)
                     report("IR066", "structure field update must preserve the source structure type", instruction.span);
             } else {
-                if (!instruction.result || instruction.result->type != field->type ||
-                    (field->type == IRType::Struct && instruction.result->struct_type_id != field->struct_type_id))
-                    report("IR067", "structure field read result has the wrong type", instruction.span);
+                if (!instruction.result ||
+                    !same_value_shape(*instruction.result, field_value(*field)))
+                    report("IR067", "structure field read result has the wrong type or aggregate shape", instruction.span);
             }
             break;
         }
@@ -465,22 +498,32 @@ private:
                 report("IR045", "array indexing requires an array operand", instruction.span);
             if (right && *right != IRType::Int)
                 report("IR046", "array index operand must have type int", instruction.span);
-            if (array) check_result(instruction, array->element_type);
-            else if (!instruction.result)
+            if (array) {
+                if (!instruction.result ||
+                    instruction.result->type != array->element_type ||
+                    (array->element_type == IRType::Struct &&
+                     instruction.result->struct_type_id != array->element_struct_type_id))
+                    report("IR009", "array indexing result has the wrong element type or structure identity",
+                           instruction.span);
+            } else if (!instruction.result) {
                 report("IR009", "array indexing must define a result", instruction.span);
+            }
             break;
         }
         case IROp::ArraySet: {
             check_arity(instruction, 3);
             const IRValue* array = operand_value(instruction, 0);
             const auto index_type = operand_type(instruction, 1);
-            const auto value_type = operand_type(instruction, 2);
+            const IRValue* value = operand_value(instruction, 2);
             if (array && array->type != IRType::Array)
                 report("IR047", "array update requires an array operand", instruction.span);
             if (index_type && *index_type != IRType::Int)
                 report("IR046", "array index operand must have type int", instruction.span);
-            if (array && value_type && *value_type != array->element_type)
-                report("IR048", "array update value has the wrong element type", instruction.span);
+            if (array && value &&
+                (value->type != array->element_type ||
+                 (array->element_type == IRType::Struct &&
+                  value->struct_type_id != array->element_struct_type_id)))
+                report("IR048", "array update value has the wrong element type or structure identity", instruction.span);
             if (array && instruction.result && !same_array_shape(*array, *instruction.result))
                 report("IR049", "array update result must preserve the source array shape", instruction.span);
             else if (array && !instruction.result)
@@ -498,11 +541,14 @@ private:
         case IROp::ArrayPush: {
             check_arity(instruction, 2);
             const IRValue* array = operand_value(instruction, 0);
-            const auto value_type = operand_type(instruction, 1);
+            const IRValue* value = operand_value(instruction, 1);
             if (array && (array->type != IRType::Array || array->array_length != 0))
                 report("IR057", "array push requires a dynamic array operand", instruction.span);
-            if (array && value_type && *value_type != array->element_type)
-                report("IR058", "array push value has the wrong element type", instruction.span);
+            if (array && value &&
+                (value->type != array->element_type ||
+                 (array->element_type == IRType::Struct &&
+                  value->struct_type_id != array->element_struct_type_id)))
+                report("IR058", "array push value has the wrong element type or structure identity", instruction.span);
             check_no_result(instruction);
             break;
         }
@@ -511,9 +557,16 @@ private:
             const IRValue* array = operand_value(instruction, 0);
             if (array && (array->type != IRType::Array || array->array_length != 0))
                 report("IR059", "array pop requires a dynamic array operand", instruction.span);
-            if (array) check_result(instruction, array->element_type);
-            else if (!instruction.result)
+            if (array) {
+                if (!instruction.result ||
+                    instruction.result->type != array->element_type ||
+                    (array->element_type == IRType::Struct &&
+                     instruction.result->struct_type_id != array->element_struct_type_id))
+                    report("IR009", "array pop result has the wrong element type or structure identity",
+                           instruction.span);
+            } else if (!instruction.result) {
                 report("IR009", "array pop must define a result", instruction.span);
+            }
             break;
         }
         }
@@ -566,7 +619,9 @@ private:
                         if (returned.type != function_.return_type ||
                             (function_.return_type == IRType::Array &&
                              (returned.element_type != function_.return_element_type ||
-                              returned.array_length != function_.return_array_length)) ||
+                              returned.array_length != function_.return_array_length ||
+                              returned.element_struct_type_id !=
+                                  function_.return_element_struct_type_id)) ||
                             (function_.return_type == IRType::Struct &&
                              returned.struct_type_id != function_.return_struct_type_id)) {
                             report("IR031", "returned value has the wrong type or fixed-array shape",
@@ -830,13 +885,31 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
             result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR069",
                 "structure types must contain at least one field", {}});
         for (const IRStructField& field : structure.fields) {
+            const bool invalid_array =
+                field.type == IRType::Array &&
+                (field.element_type == IRType::Void || field.element_type == IRType::Array ||
+                 field.array_length > 65536u ||
+                 (field.element_type == IRType::Struct &&
+                  (field.element_struct_type_id == 0 ||
+                   field.element_struct_type_id > struct_types.size() ||
+                   ((field.array_length == 0 &&
+                     field.element_struct_type_id > structure.id) ||
+                    (field.array_length != 0 &&
+                     field.element_struct_type_id >= structure.id)))) ||
+                 (field.element_type != IRType::Struct &&
+                  field.element_struct_type_id != 0));
+            const bool invalid_non_array_shape =
+                field.type != IRType::Array &&
+                (field.element_type != IRType::Void || field.array_length != 0 ||
+                 field.element_struct_type_id != 0);
             if (field.name.empty() || !fields.emplace(field.name, true).second ||
-                field.type == IRType::Void || field.type == IRType::Array ||
+                field.type == IRType::Void ||
                 (field.type == IRType::Struct &&
                  (field.struct_type_id == 0 || field.struct_type_id >= structure.id)) ||
-                (field.type != IRType::Struct && field.struct_type_id != 0)) {
+                (field.type != IRType::Struct && field.struct_type_id != 0) ||
+                invalid_array || invalid_non_array_shape) {
                 result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR070",
-                    "structure field has an invalid name or unsupported type", {}});
+                    "structure field has an invalid name or unsupported aggregate shape", {}});
             }
         }
     }
@@ -853,6 +926,8 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
         signature.return_element_type = function.return_element_type;
         signature.return_array_length = function.return_array_length;
         signature.return_struct_type_id = function.return_struct_type_id;
+        signature.return_element_struct_type_id =
+            function.return_element_struct_type_id;
         for (const IRFunctionParameter& parameter : function.parameters) {
             signature.parameters.push_back(parameter.value);
         }

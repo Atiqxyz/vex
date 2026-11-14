@@ -551,9 +551,32 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
     tests.check(!valid_result.has_errors(),
                 "nested structures, field mutation, and structure parameters/returns type-check");
 
+    const vex::SourceFile composed{"composed_struct_arrays.vex",
+        "struct Point { x: int, y: int }\n"
+        "struct Group { fixed: Point[2], items: Point[] }\n"
+        "struct Node { value: int, children: Node[] }\n"
+        "make main() {\n"
+        "    let points: Point[2] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]\n"
+        "    let items: Point[] = []\n"
+        "    push(items, points[0])\n"
+        "    let group = Group { fixed: [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }], items: [] }\n"
+        "    group.fixed[1].x = 8\n"
+        "    group.items[0].y = 9\n"
+        "    let node = Node { value: 1, children: [] }\n"
+        "    push(node.children, node)\n"
+        "}\n"};
+    const vex::SemanticResult composed_result = analyze(composed);
+    tests.check(!composed_result.has_errors(),
+                "fixed and dynamic structure arrays compose with records, nested indexing, and recursive pointer-backed collections");
+
     const vex::SourceFile invalid{"invalid_structures.vex",
         "struct Point { x: int, y: int }\n"
         "struct Other { x: int, y: int }\n"
+        "struct Group { fixed: Point[2], items: Point[] }\n"
+        "struct RecursiveValue { next: RecursiveValue }\n"
+        "struct RecursiveFixed { values: RecursiveFixed[2] }\n"
+        "struct ForwardList { values: Later[] }\n"
+        "struct Later { value: int }\n"
         "make main() {\n"
         "    const fixed = Point { x: 1, y: 2 }\n"
         "    fixed.x = 3\n"
@@ -562,12 +585,29 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
         "    let incompatible: Point = Other { x: 1, y: 2 }\n"
         "    let unknown = Point { x: 1, y: 2, z: 3 }\n"
         "    let comparison = fixed == fixed\n"
-        "    let structure_array: Point[] = []\n"
+        "    let unknown_array: Missing[] = []\n"
+        "    let wrong_array: Point[] = [Other { x: 1, y: 2 }]\n"
+        "    let points: Point[] = []\n"
+        "    let others: Other[] = []\n"
+        "    points = others\n"
+        "    push(points, Other { x: 3, y: 4 })\n"
         "    say(fixed)\n"
         "}\n"};
     const vex::SemanticResult invalid_result = analyze(invalid);
     tests.check(has_code(invalid_result, "SEM017"),
                 "immutable structure fields cannot be changed");
+
+    const vex::SourceFile immutable_dynamic_field{"immutable_dynamic_field.vex",
+        "struct Point { x: int }\n"
+        "struct Group { items: Point[] }\n"
+        "make main() {\n"
+        "    const locked = Group { items: [] }\n"
+        "    push(locked.items, Point { x: 1 })\n"
+        "}\n"};
+    const vex::SemanticResult immutable_dynamic_result =
+        analyze(immutable_dynamic_field);
+    tests.check(has_code(immutable_dynamic_result, "SEM017"),
+                "dynamic arrays cannot be mutated through immutable structure bindings");
     tests.check(has_code(invalid_result, "SEM053"),
                 "every structure field must be initialized");
     tests.check(has_code(invalid_result, "SEM052"),
@@ -578,10 +618,20 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
                 "unknown structure fields are rejected");
     tests.check(has_code(invalid_result, "SEM014"),
                 "structure equality is rejected until defined explicitly");
+    tests.check(has_code(invalid_result, "SEM041"),
+                "array literals reject a different nominal structure element type");
+    tests.check(has_code(invalid_result, "SEM045"),
+                "array assignment rejects a different nominal structure element type");
+    tests.check(has_code(invalid_result, "SEM021"),
+                "push rejects a different nominal structure element type");
+    tests.check(has_code(invalid_result, "SEM050"),
+                "direct recursion, fixed-array recursion, and forward structure-array fields are rejected");
+    tests.check(has_code(invalid_result, "SEM017"),
+                "dynamic arrays cannot be mutated through immutable structure bindings");
     tests.check(has_code(invalid_result, "SEM056"),
                 "structure values cannot be printed without selecting a field");
     tests.check(has_code(invalid_result, "SEM003"),
-                "arrays of structures are rejected at the type boundary");
+                "unknown structure names are rejected in array element annotations");
 }
 
 void test_for_in_rejects_non_array_values(TestContext& tests) {

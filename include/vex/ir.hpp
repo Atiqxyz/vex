@@ -67,12 +67,16 @@ struct IRValue {
     IRType element_type{IRType::Void};
     std::uint32_t array_length{0};
     std::uint32_t struct_type_id{0};
+    std::uint32_t element_struct_type_id{0};
 };
 
 struct IRStructField {
     std::string name;
     IRType type{IRType::Void};
     std::uint32_t struct_type_id{0};
+    IRType element_type{IRType::Void};
+    std::uint32_t array_length{0};
+    std::uint32_t element_struct_type_id{0};
 };
 
 struct IRStructType {
@@ -139,6 +143,7 @@ struct IRFunction {
     IRType return_element_type{IRType::Void};
     std::uint32_t return_array_length{0};
     std::uint32_t return_struct_type_id{0};
+    std::uint32_t return_element_struct_type_id{0};
     std::vector<IRBlock> blocks;
     IRBlockId entry_block{0};
     SourceSpan span{};

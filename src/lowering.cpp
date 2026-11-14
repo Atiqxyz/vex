@@ -85,6 +85,8 @@ public:
                                 function_.return_element_type = *element_type;
                                 function_.return_array_length =
                                     signature->second.return_array_type->length;
+                                function_.return_element_struct_type_id =
+                                    signature->second.return_array_type->element_struct_type_id;
                             }
                         }
                     }
@@ -131,7 +133,8 @@ public:
                     continue;
                 }
                 value = make_array_value(*element_type, info->array_type->length,
-                                         parameter.name);
+                                         parameter.name,
+                                         info->array_type->element_struct_type_id);
             }
             function_.parameters.push_back(IRFunctionParameter{
                 std::string(source_.slice(parameter.name)), value
@@ -212,10 +215,20 @@ private:
 
     [[nodiscard]] IRValue make_array_value(const IRType element_type,
                                            const std::uint32_t length,
-                                           const SourceSpan span) {
+                                           const SourceSpan span,
+                                           const std::uint32_t element_struct_type_id = 0) {
         IRValue value = make_value(IRType::Array, span);
         value.element_type = element_type;
         value.array_length = length;
+        value.element_struct_type_id = element_struct_type_id;
+        return value;
+    }
+
+    [[nodiscard]] IRValue array_element_value(const IRValue& array,
+                                               const SourceSpan span) {
+        IRValue value = make_value(array.element_type, span);
+        if (array.element_type == IRType::Struct)
+            value.struct_type_id = array.element_struct_type_id;
         return value;
     }
 
@@ -232,6 +245,7 @@ private:
         value.element_type = source.element_type;
         value.array_length = source.array_length;
         value.struct_type_id = source.struct_type_id;
+        value.element_struct_type_id = source.element_struct_type_id;
         return value;
     }
 
@@ -355,6 +369,11 @@ private:
         const IRStructField& field = structure->fields[field_index];
         IRValue result = make_value(field.type, span);
         if (field.type == IRType::Struct) result.struct_type_id = field.struct_type_id;
+        if (field.type == IRType::Array) {
+            result.element_type = field.element_type;
+            result.array_length = field.array_length;
+            result.element_struct_type_id = field.element_struct_type_id;
+        }
         IRInstruction instruction;
         instruction.op = IROp::StructGet;
         instruction.operands = {object.id};
@@ -375,9 +394,14 @@ private:
             return std::nullopt;
         }
         const IRStructField& field = structure->fields[field_index];
+        const bool array_shape_matches = field.type != IRType::Array ||
+            (replacement.element_type == field.element_type &&
+             replacement.array_length == field.array_length &&
+             replacement.element_struct_type_id == field.element_struct_type_id);
         if (replacement.type != field.type ||
             (field.type == IRType::Struct &&
-             replacement.struct_type_id != field.struct_type_id)) {
+             replacement.struct_type_id != field.struct_type_id) ||
+            !array_shape_matches) {
             report("IR146", "structure field update has incompatible value", span);
             return std::nullopt;
         }
@@ -392,31 +416,92 @@ private:
         return result;
     }
 
-    [[nodiscard]] std::optional<IRValue> update_struct_path(
-        const IRValue& object, const std::vector<std::uint32_t>& path,
-        const std::size_t depth, IRValue replacement, const SourceSpan span) {
-        if (depth >= path.size()) return replacement;
-        if (depth + 1u == path.size())
-            return emit_struct_set(object, path[depth], replacement, span);
-        const auto child = emit_struct_get(object, path[depth], span);
-        if (!child) return std::nullopt;
-        const auto updated_child = update_struct_path(
-            *child, path, depth + 1u, replacement, span);
-        if (!updated_child) return std::nullopt;
-        return emit_struct_set(object, path[depth], *updated_child, span);
+    struct AccessStep {
+        enum class Kind { Field, Index } kind{Kind::Field};
+        std::uint32_t field_index{0};
+        const Expr* index_expression{nullptr};
+        IRValue index_value{};
+        IRValue container_value{};
+    };
+
+    [[nodiscard]] std::optional<IRValue> emit_array_get(
+        const IRValue& array, const IRValue& index, const SourceSpan span) {
+        if (array.type != IRType::Array || index.type != IRType::Int) {
+            report("IR145", "array element read has invalid operand types", span);
+            return std::nullopt;
+        }
+        IRValue result = array_element_value(array, span);
+        IRInstruction instruction;
+        instruction.op = IROp::ArrayGet;
+        instruction.operands = {array.id, index.id};
+        instruction.result = result;
+        instruction.span = span;
+        emit(std::move(instruction));
+        return result;
     }
 
-    [[nodiscard]] bool collect_member_path(
-        const Expr& expression, std::vector<std::uint32_t>& path) const {
+    [[nodiscard]] std::optional<IRValue> emit_array_set(
+        const IRValue& array, const IRValue& index, IRValue replacement,
+        const SourceSpan span) {
+        if (array.type != IRType::Array || index.type != IRType::Int ||
+            replacement.type != array.element_type ||
+            (array.element_type == IRType::Struct &&
+             replacement.struct_type_id != array.element_struct_type_id)) {
+            report("IR146", "array element update has incompatible operand types", span);
+            return std::nullopt;
+        }
+        IRValue result = make_value_like(array, span);
+        IRInstruction instruction;
+        instruction.op = IROp::ArraySet;
+        instruction.operands = {array.id, index.id, replacement.id};
+        instruction.result = result;
+        instruction.span = span;
+        emit(std::move(instruction));
+        return result;
+    }
+
+    [[nodiscard]] bool collect_access_path(
+        const Expr& expression, std::vector<AccessStep>& path) const {
+        if (std::holds_alternative<NameExpr>(expression.data)) return true;
+        if (const auto* group = std::get_if<GroupExpr>(&expression.data))
+            return group->expression && collect_access_path(*group->expression, path);
         if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
-            if (!member->object || !collect_member_path(*member->object, path))
+            if (!member->object || !collect_access_path(*member->object, path))
                 return false;
             const auto index = semantic_model_.member_field_indices.find(member);
             if (index == semantic_model_.member_field_indices.end()) return false;
-            path.push_back(index->second);
+            AccessStep step;
+            step.kind = AccessStep::Kind::Field;
+            step.field_index = index->second;
+            path.push_back(step);
             return true;
         }
-        return std::holds_alternative<NameExpr>(expression.data);
+        if (const auto* indexed = std::get_if<IndexExpr>(&expression.data)) {
+            if (!indexed->object || !indexed->index ||
+                !collect_access_path(*indexed->object, path))
+                return false;
+            AccessStep step;
+            step.kind = AccessStep::Kind::Index;
+            step.index_expression = indexed->index.get();
+            path.push_back(step);
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] std::optional<IRValue> rebuild_access_path(
+        const std::vector<AccessStep>& path, IRValue replacement,
+        const SourceSpan span) {
+        for (auto step = path.rbegin(); step != path.rend(); ++step) {
+            const auto updated = step->kind == AccessStep::Kind::Field
+                ? emit_struct_set(step->container_value, step->field_index,
+                                  replacement, span)
+                : emit_array_set(step->container_value, step->index_value,
+                                 replacement, span);
+            if (!updated) return std::nullopt;
+            replacement = *updated;
+        }
+        return replacement;
     }
 
     [[nodiscard]] std::optional<IRValue> lower_struct_literal(
@@ -736,6 +821,11 @@ private:
             const auto converted = convert(arguments[1], arguments[0].element_type,
                                            call.arguments[1]->span);
             if (!converted) return std::nullopt;
+            if (arguments[0].element_type == IRType::Struct &&
+                converted->struct_type_id != arguments[0].element_struct_type_id) {
+                report("IR119", "push value has the wrong structure element type", expression.span);
+                return std::nullopt;
+            }
             IRInstruction instruction;
             instruction.op = IROp::ArrayPush;
             instruction.operands = {arguments[0].id, converted->id};
@@ -752,7 +842,7 @@ private:
             IRInstruction instruction;
             instruction.op = IROp::ArrayPop;
             instruction.operands = {arguments[0].id};
-            instruction.result = make_value(arguments[0].element_type, expression.span);
+            instruction.result = array_element_value(arguments[0], expression.span);
             instruction.span = expression.span;
             const IRValue result = *instruction.result;
             emit(std::move(instruction));
@@ -845,7 +935,8 @@ private:
                 const auto expected_element = to_ir_type(expected.element_type);
                 if (!expected_element || arguments[index].type != IRType::Array ||
                     arguments[index].element_type != *expected_element ||
-                    arguments[index].array_length != expected.length) {
+                    arguments[index].array_length != expected.length ||
+                    arguments[index].element_struct_type_id != expected.element_struct_type_id) {
                     report("IR122", "array argument does not match the parameter's fixed shape",
                            call.arguments[index]->span);
                     return std::nullopt;
@@ -885,7 +976,8 @@ private:
                 }
                 instruction.result = make_array_value(
                     *element_type, signature->second.return_array_type->length,
-                    expression.span);
+                    expression.span,
+                    signature->second.return_array_type->element_struct_type_id);
             } else if (*return_type == IRType::Struct) {
                 instruction.result = make_struct_value(
                     signature->second.return_struct_type_id, expression.span);
@@ -955,7 +1047,8 @@ private:
             IRInstruction instruction;
             instruction.op = IROp::ArrayMake;
             instruction.span = expression.span;
-            instruction.result = make_array_value(*element_type, shape->second.length, expression.span);
+            instruction.result = make_array_value(*element_type, shape->second.length, expression.span,
+                                                   shape->second.element_struct_type_id);
             instruction.operands.reserve(array->elements.size());
             // Array elements are evaluated from first to last.
             for (const ExprPtr& element : array->elements) {
@@ -964,6 +1057,11 @@ private:
                 if (!value) return std::nullopt;
                 const auto converted = convert(*value, *element_type, element->span);
                 if (!converted) return std::nullopt;
+                if (shape->second.element_type == SemanticType::Struct &&
+                    converted->struct_type_id != shape->second.element_struct_type_id) {
+                    report("IR142", "array element has the wrong structure type", element->span);
+                    return std::nullopt;
+                }
                 instruction.operands.push_back(converted->id);
             }
             const IRValue result = *instruction.result;
@@ -977,14 +1075,7 @@ private:
             const auto index = lower_expression(*indexed->index);
             if (!array || !index || array->type != IRType::Array || index->type != IRType::Int)
                 return std::nullopt;
-            IRInstruction instruction;
-            instruction.op = IROp::ArrayGet;
-            instruction.operands = {array->id, index->id};
-            instruction.result = make_value(array->element_type, expression.span);
-            instruction.span = expression.span;
-            const IRValue result = *instruction.result;
-            emit(std::move(instruction));
-            return result;
+            return emit_array_get(*array, *index, expression.span);
         }
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
             if (!unary->operand) return std::nullopt;
@@ -1002,55 +1093,48 @@ private:
         }
         if (const auto* assignment =
                 std::get_if<AssignmentExpr>(&expression.data)) {
-            if (const auto* member_target = assignment->target
-                    ? std::get_if<MemberExpr>(&assignment->target->data) : nullptr) {
-                static_cast<void>(member_target);
+            if (assignment->target &&
+                (std::holds_alternative<MemberExpr>(assignment->target->data) ||
+                 std::holds_alternative<IndexExpr>(assignment->target->data))) {
                 const auto target = semantic_model_.assignment_targets.find(assignment);
                 if (target == semantic_model_.assignment_targets.end() || !assignment->value) {
-                    report("IR148", "structure field assignment is missing its resolved binding", expression.span);
+                    report("IR148", "aggregate assignment is missing its resolved binding", expression.span);
                     return std::nullopt;
                 }
                 IRValue root = current_value(target->second, expression.span);
-                std::vector<std::uint32_t> path;
-                if (!collect_member_path(*assignment->target, path) || path.empty()) {
-                    report("IR148", "structure field assignment has an invalid member path", expression.span);
+                std::vector<AccessStep> path;
+                if (!collect_access_path(*assignment->target, path) || path.empty()) {
+                    report("IR148", "aggregate assignment has an invalid access path", expression.span);
                     return std::nullopt;
+                }
+                // Evaluate the lvalue from the root outward. Each container is
+                // captured before its following index expression; the RHS runs
+                // only after the complete target path has been evaluated.
+                IRValue container = root;
+                for (std::size_t index = 0; index < path.size(); ++index) {
+                    AccessStep& step = path[index];
+                    step.container_value = container;
+                    const bool leaf = index + 1u == path.size();
+                    if (step.kind == AccessStep::Kind::Index) {
+                        const auto evaluated_index = step.index_expression
+                            ? lower_expression(*step.index_expression) : std::nullopt;
+                        if (!evaluated_index || evaluated_index->type != IRType::Int)
+                            return std::nullopt;
+                        step.index_value = *evaluated_index;
+                    }
+                    if (leaf) continue;
+                    const auto child = step.kind == AccessStep::Kind::Field
+                        ? emit_struct_get(container, step.field_index, expression.span)
+                        : emit_array_get(container, step.index_value, expression.span);
+                    if (!child) return std::nullopt;
+                    container = *child;
                 }
                 const auto value = lower_expression(*assignment->value);
                 if (!value) return std::nullopt;
-                const auto updated = update_struct_path(root, path, 0, *value, expression.span);
+                const auto updated = rebuild_access_path(path, *value, expression.span);
                 if (!updated) return std::nullopt;
                 environment_[target->second] = *updated;
                 return *value;
-            }
-            if (const auto* indexed = assignment->target
-                    ? std::get_if<IndexExpr>(&assignment->target->data) : nullptr) {
-                const auto target = semantic_model_.assignment_targets.find(assignment);
-                if (target == semantic_model_.assignment_targets.end() ||
-                    !indexed->index || !assignment->value) {
-                    report("IR143", "array element assignment is missing resolved target information", expression.span);
-                    return std::nullopt;
-                }
-                const IRValue array = current_value(target->second, expression.span);
-                if (array.type != IRType::Array) {
-                    report("IR144", "array element assignment target is not an array value", expression.span);
-                    return std::nullopt;
-                }
-                // For indexed assignment, evaluate the index before the RHS.
-                const auto index = lower_expression(*indexed->index);
-                const auto value = lower_expression(*assignment->value);
-                if (!index || !value || index->type != IRType::Int) return std::nullopt;
-                const auto converted = convert(*value, array.element_type, expression.span);
-                if (!converted) return std::nullopt;
-                IRInstruction instruction;
-                instruction.op = IROp::ArraySet;
-                instruction.operands = {array.id, index->id, converted->id};
-                instruction.result = make_value_like(array, expression.span);
-                instruction.span = expression.span;
-                const IRValue updated = *instruction.result;
-                emit(std::move(instruction));
-                environment_[target->second] = updated;
-                return *converted;
             }
             const auto target = semantic_model_.assignment_targets.find(assignment);
             if (target == semantic_model_.assignment_targets.end()) {
@@ -1579,7 +1663,7 @@ private:
         IRInstruction read_element;
         read_element.op = IROp::ArrayGet;
         read_element.operands = {current_array.id, index_parameter.id};
-        read_element.result = make_value(iterable->element_type, span);
+        read_element.result = array_element_value(*iterable, span);
         read_element.span = span;
         const IRValue element = *read_element.result;
         emit(std::move(read_element));
@@ -1702,12 +1786,27 @@ public:
             converted.name = structure.name;
             for (const SemanticStructField& field : structure.fields) {
                 const auto type = to_ir_type(field.type);
-                if (!type || *type == IRType::Void || *type == IRType::Array) {
+                if (!type || *type == IRType::Void) {
                     diagnostics_.push_back(Diagnostic{DiagnosticSeverity::Error, "IR150",
                         "structure field type cannot be represented in IR", field.declaration});
                     continue;
                 }
-                converted.fields.push_back(IRStructField{field.name, *type, field.struct_type_id});
+                IRStructField ir_field{field.name, *type, field.struct_type_id};
+                if (field.type == SemanticType::Array && field.array_type) {
+                    const auto element_type = to_ir_type(field.array_type->element_type);
+                    if (!element_type || *element_type == IRType::Void ||
+                        *element_type == IRType::Array) {
+                        diagnostics_.push_back(Diagnostic{DiagnosticSeverity::Error, "IR150",
+                            "structure array field element type cannot be represented in IR",
+                            field.declaration});
+                        continue;
+                    }
+                    ir_field.element_type = *element_type;
+                    ir_field.array_length = field.array_type->length;
+                    ir_field.element_struct_type_id =
+                        field.array_type->element_struct_type_id;
+                }
+                converted.fields.push_back(std::move(ir_field));
             }
             module_.struct_types.push_back(std::move(converted));
         }
