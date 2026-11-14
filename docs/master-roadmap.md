@@ -256,7 +256,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** Language capability is only useful if users can understand errors, inspect programs, debug them, and maintain code.
 
-- [ ] Keep source, lexer, parser, semantic analysis, IR, verifier, and backends cleanly separated
+- [x] Keep source, lexer, parser, semantic analysis, IR, verifier, and backends cleanly separated
 - [ ] Expand typed IR for every new semantic feature
 - [ ] Keep backend semantics equivalent
 - [ ] Strong diagnostics with source spans and actionable messages

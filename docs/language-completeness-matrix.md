@@ -201,7 +201,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | String literals | Implemented | Double-quoted literals and documented escapes. |
 | Embedded NUL preservation | Implemented | Length-aware backend string representation. |
 | String output | Implemented | Via \`say\`. |
-| String concatenation | Verify | Check semantic support, allocation and backend behavior. |
+| String concatenation | Not implemented | Binary `+` is restricted to numeric operands in semantic analysis; typed IR arithmetic and both backends also define arithmetic only for numeric values. No string-concatenation allocation/runtime operation exists. |
 | String equality | Implemented | Primitive equality is supported; test byte/Unicode semantics. |
 | UTF-8 validation policy | Design undecided | Decide whether strings guarantee valid UTF-8 or are arbitrary bytes. |
 | Unicode scalar iteration | Not implemented | Must not confuse bytes with code points or grapheme clusters. |
