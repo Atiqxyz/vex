@@ -89,7 +89,16 @@ make main() {
     say(fixed_points[0].x)
     say(fixed_copy[0].x)
 
-    let catalog = PointList { fixed: [Point { x: 10, y: 20 }, Point { x: 30, y: 40 }], dynamic: [Point { x: 10, y: 20 }, Point { x: 32, y: 40 }] }
+    let catalog = PointList {
+        fixed: [
+            Point { x: 10, y: 20 },
+            Point { x: 30, y: 40 }
+        ],
+        dynamic: [
+            Point { x: 10, y: 20 },
+            Point { x: 32, y: 40 }
+        ]
+    }
     catalog.fixed[1].y = 99
     catalog.dynamic[0].y = 88
     let catalog_copy = catalog

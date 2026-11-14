@@ -257,6 +257,23 @@ void test_structure_declarations_literals_and_members(TestContext& tests) {
                 "named structure construction produces a structure literal node");
 }
 
+void test_multiline_structure_literal_with_array_fields(TestContext& tests) {
+    const vex::SourceFile source{"multiline_structure_literal.vex",
+        "struct Point { x: int, y: int }\n"
+        "struct PointList { points: Point[2] }\n"
+        "make main() {\n"
+        "    let catalog = PointList {\n"
+        "        points: [\n"
+        "            Point { x: 1, y: 2 },\n"
+        "            Point { x: 3, y: 4 }\n"
+        "        ]\n"
+        "    }\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(),
+                "multiline structure literals accept a newline after '{' and array-valued fields");
+}
+
 void test_invalid_syntax_and_newline_rules(TestContext& tests) {
     const vex::SourceFile missing_expression{"missing.vex", "let value =\n"};
     const vex::LexResult missing_lex = vex::Lexer(missing_expression).scan();
@@ -293,6 +310,7 @@ void run_parser_tests(TestContext& tests) {
     test_array_literal_indexing_and_assignment(tests);
     test_integer_range_expressions(tests);
     test_structure_declarations_literals_and_members(tests);
+    test_multiline_structure_literal_with_array_fields(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }

@@ -275,32 +275,45 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
     if (!left) return nullptr;
     while (true) {
         if (allow_newlines) skip_newlines();
-        if (check(TokenKind::LeftBrace) && minimum_precedence <= 12 &&
-            current_ + 2 < tokens_.size() &&
-            tokens_[current_ + 1].kind == TokenKind::Identifier &&
-            tokens_[current_ + 2].kind == TokenKind::Colon) {
-            const auto* type_name = std::get_if<NameExpr>(&left->data);
-            if (type_name) {
-                static_cast<void>(advance());
-                std::vector<StructLiteralField> fields;
-                skip_newlines();
-                while (!check(TokenKind::RightBrace) && !check(TokenKind::EndOfFile)) {
-                    const Token field = expect(TokenKind::Identifier,
-                                               "expected a field name in structure literal");
-                    static_cast<void>(expect(TokenKind::Colon,
-                                             "expected ':' after structure literal field name"));
-                    ExprPtr value = parse_expression(true);
-                    fields.push_back(StructLiteralField{field.span, std::move(value)});
+        if (check(TokenKind::LeftBrace) && minimum_precedence <= 12) {
+            // Newlines immediately after the opening brace are allowed in
+            // multiline structure literals, so skip them during lookahead too.
+            std::size_t field_token = current_ + 1;
+            while (field_token < tokens_.size() &&
+                   tokens_[field_token].kind == TokenKind::Newline) {
+                ++field_token;
+            }
+            if (field_token + 1 < tokens_.size() &&
+                tokens_[field_token].kind == TokenKind::Identifier &&
+                tokens_[field_token + 1].kind == TokenKind::Colon) {
+                const auto* type_name = std::get_if<NameExpr>(&left->data);
+                if (type_name) {
+                    static_cast<void>(advance());
+                    std::vector<StructLiteralField> fields;
                     skip_newlines();
-                    if (!match(TokenKind::Comma)) break;
-                    skip_newlines();
+                    while (!check(TokenKind::RightBrace) &&
+                           !check(TokenKind::EndOfFile)) {
+                        const Token field = expect(
+                            TokenKind::Identifier,
+                            "expected a field name in structure literal");
+                        static_cast<void>(expect(
+                            TokenKind::Colon,
+                            "expected ':' after structure literal field name"));
+                        ExprPtr value = parse_expression(true);
+                        fields.push_back(
+                            StructLiteralField{field.span, std::move(value)});
+                        skip_newlines();
+                        if (!match(TokenKind::Comma)) break;
+                        skip_newlines();
+                    }
+                    const Token closing = expect(
+                        TokenKind::RightBrace,
+                        "expected '}' after structure literal");
+                    const std::size_t begin = left->span.begin;
+                    left = make_expression(SourceSpan{begin, closing.span.end},
+                        StructLiteralExpr{type_name->name, std::move(fields)});
+                    continue;
                 }
-                const Token closing = expect(TokenKind::RightBrace,
-                                             "expected '}' after structure literal");
-                const std::size_t begin = left->span.begin;
-                left = make_expression(SourceSpan{begin, closing.span.end},
-                    StructLiteralExpr{type_name->name, std::move(fields)});
-                continue;
             }
         }
         if (check(TokenKind::Dot) && minimum_precedence <= 12) {
