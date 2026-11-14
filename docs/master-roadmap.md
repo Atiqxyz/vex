@@ -96,6 +96,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Bit shifts and rotations with defined edge behavior
 - [x] Struct field access and nested field/index expressions
 - [x] Nested assignment targets across fields and indexes when rooted at a named aggregate binding
+- [x] Compound assignment operators on named bindings and nested fields/indexes, with exactly-once target evaluation
 - [ ] Range values, if they become useful beyond direct loops
 - [ ] Slicing syntax
 - [ ] Conditional expressions or expression-valued if, choose one coherent model
@@ -179,10 +180,11 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** Systems programs need both human-readable text and exact binary data. These must not be confused.
 
-- [ ] Decide and document whether string always means valid UTF-8
+- [x] Decide and document string encoding semantics: length-aware byte sequences with no UTF-8 validation guarantee
 - [ ] Byte buffers and byte slices
 - [ ] String formatting and interpolation
-- [ ] Efficient string building and concatenation
+- [x] Byte-preserving string concatenation with `+` and `+=` across C and LLVM backends
+- [ ] Efficient string builder / amortized string construction
 - [ ] UTF-8 decoding and validation policy
 - [ ] Unicode scalar iteration, with bytes clearly distinguished
 - [ ] Common string operations: search, split, join, trim, replace

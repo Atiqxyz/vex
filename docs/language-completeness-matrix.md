@@ -204,7 +204,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | String output | Implemented | Via \`say\`. |
 | String concatenation | Implemented | Binary string `+` and string `+=` lower through a dedicated typed-IR operation; C and LLVM allocate length-aware byte buffers, preserve embedded NUL bytes, handle empty inputs, and release tracked buffers at normal generated-entry return. |
 | String equality | Implemented | Primitive equality is supported; test byte/Unicode semantics. |
-| UTF-8 validation policy | Design undecided | Decide whether strings guarantee valid UTF-8 or are arbitrary bytes. |
+| UTF-8 validation policy | Implemented | Strings are length-aware byte sequences; no UTF-8 validation or normalization is performed. Unicode-aware text operations remain future work. |
 | Unicode scalar iteration | Not implemented | Must not confuse bytes with code points or grapheme clusters. |
 | String interpolation | Not implemented | Open design question. |
 | Formatting / interpolation library | Not implemented | Needed for practical diagnostics and scientific output. |
