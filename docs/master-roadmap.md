@@ -47,7 +47,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [x] User-defined structures / records with named fields
 - [x] Struct construction, field reads, and field mutation
 - [x] Struct assignment, parameter passing, and return semantics
-- [ ] Defined field layout, padding, and alignment rules
+- [x] Defined field layout, padding, and alignment rules
 - [x] Nested structures, arrays of structures, and array-valued structure fields
 - [ ] Enums for finite named alternatives
 - [ ] Tagged unions / algebraic data types

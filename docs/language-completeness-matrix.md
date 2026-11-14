@@ -102,7 +102,8 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Type inference beyond locals | Partial | Function parameters are explicit; generic inference is absent. |
 | User-defined conversions | Not implemented | Avoid implicit surprising conversions. |
 | Explicit casts / checked narrowing | Partial | int-to-float widening exists; a complete cast system does not. |
-| Layout / alignment controls | Not implemented | Important for FFI, hardware and binary structures. |
+| Structure field order and target-native layout | Implemented | Fields retain declaration order; native target ABI alignment may insert inter-field and tail padding. C uses compiler layout/`sizeof`; LLVM uses native aggregate allocation size. Mixed-alignment records, nested fixed arrays, padded dynamic-array strides, growth, and C/LLVM behavior are integration-tested. Sizes and offsets are target-dependent. |
+| Explicit packed / aligned layout controls | Not implemented | User-selected packing, alignment and ABI annotations remain deferred until a concrete FFI or binary-layout requirement is designed. |
 
 ## 4. Expressions, operators and evaluation
 

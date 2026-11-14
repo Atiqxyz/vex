@@ -3,7 +3,7 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED LLVM_CLANG OR
    NOT DEFINED REMAINDER_ZERO_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
-   NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX LLVM backend integration-test argument")
 endif()
 
@@ -82,6 +82,22 @@ string(REPLACE "\r\n" "\n" struct_output "${struct_output}")
 set(struct_expected "7\n1\n6\n1\n3\n4\n4\n6\n11\n10\n50\n10\n32\n11\n99\n10\n100\n77\n88\n2\n")
 if(NOT "${struct_output}" STREQUAL "${struct_expected}")
     message(FATAL_ERROR "LLVM structure value semantics mismatch. Expected:${struct_expected}Actual:${struct_output}")
+endif()
+
+# Stress native aggregate layout, including tail padding and dynamic growth.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}" "${VEX_EXECUTABLE}" run-llvm "${STRUCT_LAYOUT_SOURCE_FILE}"
+    RESULT_VARIABLE layout_result
+    OUTPUT_VARIABLE layout_output
+    ERROR_VARIABLE layout_error
+)
+if(NOT layout_result EQUAL 0)
+    message(FATAL_ERROR "LLVM backend layout program failed: ${layout_output}${layout_error}")
+endif()
+string(REPLACE "\r\n" "\n" layout_output "${layout_output}")
+set(layout_expected "true\ntrue\n1.5\n17\n3.5\ntrue\n18\n3.5\n2.5\n8.5\n3.5\n99.5\n7.5\n9.25\nfalse\n17\n42.5\n41\n16.5\n4\n37\n2026\n")
+if(NOT "${layout_output}" STREQUAL "${layout_expected}")
+    message(FATAL_ERROR "LLVM backend mixed-layout structure behavior mismatch. Expected:${layout_expected}Actual:${layout_output}")
 endif()
 
 execute_process(

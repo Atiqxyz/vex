@@ -1,0 +1,111 @@
+struct Record {
+    flag: bool,
+    weight: float,
+    identifier: int,
+    samples: float[3],
+    trailing: bool,
+}
+
+struct Packet {
+    flag: bool,
+    payload: Record,
+    snapshots: Record[2],
+    history: Record[],
+    serial: int,
+}
+
+make revise(record: Record) -> Record {
+    let copy = record
+    copy.identifier = copy.identifier + 1
+    copy.samples[0] = copy.samples[0] + 1.0
+    return copy
+}
+
+make main() {
+    let first = Record {
+        flag: true,
+        weight: 1.5,
+        identifier: 17,
+        samples: [2.5, 3.5, 4.5],
+        trailing: true
+    }
+    let second = Record {
+        flag: false,
+        weight: 6.25,
+        identifier: 23,
+        samples: [5.5, 6.5, 7.5],
+        trailing: false
+    }
+    let third = Record {
+        flag: true,
+        weight: 10.5,
+        identifier: 31,
+        samples: [8.5, 9.5, 10.5],
+        trailing: true
+    }
+    let fourth = Record {
+        flag: false,
+        weight: 14.75,
+        identifier: 37,
+        samples: [11.5, 12.5, 13.5],
+        trailing: false
+    }
+    let fifth = Record {
+        flag: true,
+        weight: 19.25,
+        identifier: 41,
+        samples: [14.5, 15.5, 16.5],
+        trailing: true
+    }
+
+    let history: Record[] = [first]
+    push(history, second)
+    push(history, third)
+    push(history, fourth)
+    push(history, fifth)
+
+    let packet = Packet {
+        flag: true,
+        payload: first,
+        snapshots: [first, second],
+        history: history,
+        serial: 2026
+    }
+
+    let revised = revise(packet.payload)
+    let copied = packet
+
+    copied.payload.samples[1] = 8.5
+    copied.snapshots[1].samples[2] = 99.5
+    copied.history[0].weight = 9.25
+    copied.history[0].trailing = false
+    copied.history[4].samples[2] = 42.5
+
+    say(packet.flag)
+    say(packet.payload.flag)
+    say(packet.payload.weight)
+    say(packet.payload.identifier)
+    say(packet.payload.samples[1])
+    say(packet.payload.trailing)
+
+    say(revised.identifier)
+    say(revised.samples[0])
+    say(packet.payload.samples[0])
+
+    say(copied.payload.samples[1])
+    say(packet.payload.samples[1])
+    say(copied.snapshots[1].samples[2])
+    say(packet.snapshots[1].samples[2])
+
+    say(packet.history[0].weight)
+    say(packet.history[0].trailing)
+    say(copied.history[0].identifier)
+    say(copied.history[4].samples[2])
+
+    let removed = pop(packet.history)
+    say(removed.identifier)
+    say(removed.samples[2])
+    say(length(copied.history))
+    say(packet.history[3].identifier)
+    say(packet.serial)
+}

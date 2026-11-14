@@ -88,7 +88,9 @@ make main() {
 - `let` structure bindings permit field updates. A `const` structure binding is immutable, including all of its fields.
 - Structures have value semantics. Assignment, parameter passing, and return copy the structure value. Nested structure fields and fixed-array fields are copied as part of the containing value. Dynamic-array fields copy their shared reference, so the referenced collection remains aliased across structure copies.
 - Struct values are not currently comparable with `==` or `!=`; define equality explicitly in a future language design before enabling it.
-- The C backend uses the target C compiler's natural structure layout and alignment. The LLVM backend uses native aggregate values and derives dynamic element sizes from the target data layout. Explicit packed layout, ABI annotations, and user-visible raw pointers are not implemented.
+- Structure fields retain declaration order. Each field is placed according to the target's native ABI alignment for its type; the implementation may insert padding between fields and at the end of a structure. The structure's allocation size therefore includes any required tail padding and is not necessarily the sum of its field sizes.
+- The C backend relies on the target C compiler's native structure layout and `sizeof` when storing dynamic-array elements. The LLVM backend uses native aggregate types and derives allocation sizes from the target data layout. Both paths must therefore use the target ABI's full structure allocation size, including tail padding, for dynamic-array element strides.
+- Structure sizes, alignments, and field offsets may differ between target ABIs. VEX does not promise a stable cross-platform byte representation, and structure memory must not be treated as a serialization format. Explicit packed layout, user-selected alignment, ABI annotations, and user-visible raw pointers are not implemented.
 
 ### Conditions
 
