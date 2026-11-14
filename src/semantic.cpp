@@ -526,6 +526,9 @@ private:
                        expression.span);
                 return Type::Error;
             }
+            const SemanticArrayType inferred_shape{
+                element_type, static_cast<std::uint32_t>(array->elements.size()),
+                element_struct_type_id};
             if (has_context) {
                 const SemanticArrayType expected = contextual_shape->second;
                 const bool compatible_element =
@@ -537,16 +540,15 @@ private:
                 const bool compatible_length =
                     expected.length == 0 ||
                     expected.length == array->elements.size();
-                if (!compatible_element || !compatible_struct || !compatible_length) {
-                    report("SEM041", "array literal does not match its annotated element type and length",
-                           expression.span);
-                    return Type::Error;
-                }
-                model_.array_expression_types[&expression] = expected;
+                // Compatible context supplies the declared shape (including
+                // numeric widening and dynamic length). An incompatible context
+                // must leave the inferred shape visible to the declaration,
+                // call, or return checker so it can issue its established error.
+                model_.array_expression_types[&expression] =
+                    compatible_element && compatible_struct && compatible_length
+                        ? expected : inferred_shape;
             } else {
-                model_.array_expression_types[&expression] = SemanticArrayType{
-                    element_type, static_cast<std::uint32_t>(array->elements.size()),
-                    element_struct_type_id};
+                model_.array_expression_types[&expression] = inferred_shape;
             }
             return Type::Array;
         }
