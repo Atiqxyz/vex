@@ -65,11 +65,11 @@ make main() {
     push(history, fifth)
 
     let packet = Packet {
-        flag: true,
-        payload: first,
-        snapshots: [first, second],
+        serial: 2026,
         history: history,
-        serial: 2026
+        snapshots: [first, second],
+        payload: first,
+        flag: true
     }
 
     let revised = revise(packet.payload)
