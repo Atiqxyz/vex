@@ -118,7 +118,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
-            "${VEX_EXECUTABLE}" run-llvm "${ARRAY_BOUNDS_SOURCE_FILE}"execute_process(
+            "${VEX_EXECUTABLE}" run-llvm "${ARRAY_BOUNDS_SOURCE_FILE}"
     COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
             "${VEX_EXECUTABLE}" run-llvm "${ARRAY_BOUNDS_SOURCE_FILE}"
     RESULT_VARIABLE bounds_result

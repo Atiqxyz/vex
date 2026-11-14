@@ -180,7 +180,7 @@ if(NOT "${compound_output}" STREQUAL "${compound_expected}")
 endif()
 
 execute_process(
-    COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"
     COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"
     RESULT_VARIABLE bounds_result
     OUTPUT_VARIABLE bounds_output

@@ -79,7 +79,8 @@ void test_operator_and_condition_types(TestContext& tests) {
     const vex::SourceFile source{"operator_types.vex",
         "make main() {\n"
         "    let invalid = \"text\" - 2\n"
-        "    let invalid_compound = \"text\" -= \"more\"\n"
+        "    let compound_text = \"text\"\n"
+        "    compound_text -= \"more\"\n"
         "    if 1 {\n"
         "        say(invalid)\n"
         "    }\n"
