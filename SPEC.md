@@ -202,7 +202,7 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 10 | function call `(...)` | postfix |
 | 11 | array indexing `[...]` | postfix |
 
-The parser and semantic analyzer accept assignment to a named binding and nested aggregate paths rooted at a named structure or array, such as `values[index] = value`, `points[index].x = value`, or `scene.points[index].x = value`. The compiler evaluates the target path from the named root outward: each field or indexed container is read in sequence, each index expression is evaluated before moving to the next path component, and the replacement expression is evaluated only after the full target has been resolved. It then rebuilds the updated value back to the root binding. Compound assignment to an indexed or nested aggregate target is not implemented.
+The parser and semantic analyzer accept assignment to a named binding and nested aggregate paths rooted at a named structure or array, including `values[index] = value`, `points[index].x = value`, and compound forms such as `scene.points[index].x += amount`. The compiler evaluates the target path from the named root outward and evaluates each index expression exactly once. For compound assignment, it reads the old target value after resolving the path, then evaluates the right-hand side, applies the operator, and rebuilds the updated aggregate back to the root binding. For plain assignment, the replacement expression is evaluated after the full target path has been resolved.
 
 ## 4. Initial static semantics implemented
 

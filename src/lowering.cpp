@@ -713,6 +713,30 @@ private:
         return result_parameter;
     }
 
+    [[nodiscard]] std::optional<IRValue> lower_compound_value(
+        const TokenKind op,IRValue left,IRValue right,const SourceSpan span) {
+        IROp operation=IROp::Add;
+        switch(op) {
+        case TokenKind::PlusEqual:operation=IROp::Add;break;
+        case TokenKind::MinusEqual:operation=IROp::Subtract;break;
+        case TokenKind::StarEqual:operation=IROp::Multiply;break;
+        case TokenKind::SlashEqual:operation=IROp::Divide;break;
+        case TokenKind::PercentEqual:operation=IROp::Remainder;break;
+        default:report("IR149","unsupported compound-assignment operator",span);return std::nullopt;
+        }
+        if(!is_numeric(left.type)||!is_numeric(right.type)||
+           (operation==IROp::Remainder&&(left.type!=IRType::Int||right.type!=IRType::Int))) {
+            report("IR149","compound-assignment operands have incompatible IR types",span);
+            return std::nullopt;
+        }
+        if(left.type!=right.type) {
+            const auto l=convert(left,IRType::Float,span),r=convert(right,IRType::Float,span);
+            if(!l||!r)return std::nullopt;
+            left=*l;right=*r;
+        }
+        return emit_operation(operation,left.type,{left.id,right.id},span);
+    }
+
     [[nodiscard]] std::optional<IRValue> lower_binary(
         const BinaryExpr& binary, const Expr& expression) {
         if (binary.op == TokenKind::AndAnd || binary.op == TokenKind::OrOr) {
@@ -1091,80 +1115,93 @@ private:
         if (const auto* binary = std::get_if<BinaryExpr>(&expression.data)) {
             return lower_binary(*binary, expression);
         }
-        if (const auto* assignment =
-                std::get_if<AssignmentExpr>(&expression.data)) {
-            if (assignment->target &&
-                (std::holds_alternative<MemberExpr>(assignment->target->data) ||
-                 std::holds_alternative<IndexExpr>(assignment->target->data))) {
-                const auto target = semantic_model_.assignment_targets.find(assignment);
-                if (target == semantic_model_.assignment_targets.end() || !assignment->value) {
-                    report("IR148", "aggregate assignment is missing its resolved binding", expression.span);
+        if (const auto* assignment = std::get_if<AssignmentExpr>(&expression.data)) {
+            const bool compound=assignment->op!=TokenKind::Equal;
+            if(assignment->target&&(std::holds_alternative<MemberExpr>(assignment->target->data)||
+                                    std::holds_alternative<IndexExpr>(assignment->target->data))) {
+                const auto target=semantic_model_.assignment_targets.find(assignment);
+                if(target==semantic_model_.assignment_targets.end()||!assignment->value) {
+                    report("IR148","aggregate assignment is missing its resolved binding",expression.span);
                     return std::nullopt;
                 }
-                IRValue root = current_value(target->second, expression.span);
+                IRValue root=current_value(target->second,expression.span);
                 std::vector<AccessStep> path;
-                if (!collect_access_path(*assignment->target, path) || path.empty()) {
-                    report("IR148", "aggregate assignment has an invalid access path", expression.span);
+                if(!collect_access_path(*assignment->target,path)||path.empty()) {
+                    report("IR148","aggregate assignment has an invalid access path",expression.span);
                     return std::nullopt;
                 }
-                // Evaluate the lvalue from the root outward. Each container is
-                // captured before its following index expression; the RHS runs
-                // only after the complete target path has been evaluated.
-                IRValue container = root;
-                for (std::size_t index = 0; index < path.size(); ++index) {
-                    AccessStep& step = path[index];
-                    step.container_value = container;
-                    const bool leaf = index + 1u == path.size();
-                    if (step.kind == AccessStep::Kind::Index) {
-                        const auto evaluated_index = step.index_expression
-                            ? lower_expression(*step.index_expression) : std::nullopt;
-                        if (!evaluated_index || evaluated_index->type != IRType::Int)
-                            return std::nullopt;
-                        step.index_value = *evaluated_index;
+                // Resolve the target once. Compound assignment reads its old leaf
+                // before the RHS; each index expression runs exactly once.
+                IRValue container=root;
+                for(std::size_t index=0;index<path.size();++index) {
+                    AccessStep& step=path[index];
+                    step.container_value=container;
+                    const bool leaf=index+1u==path.size();
+                    if(step.kind==AccessStep::Kind::Index) {
+                        const auto evaluated=step.index_expression?lower_expression(*step.index_expression):std::nullopt;
+                        if(!evaluated||evaluated->type!=IRType::Int)return std::nullopt;
+                        step.index_value=*evaluated;
                     }
-                    if (leaf) continue;
-                    const auto child = step.kind == AccessStep::Kind::Field
-                        ? emit_struct_get(container, step.field_index, expression.span)
-                        : emit_array_get(container, step.index_value, expression.span);
-                    if (!child) return std::nullopt;
-                    container = *child;
+                    if(leaf)continue;
+                    const auto child=step.kind==AccessStep::Kind::Field
+                        ?emit_struct_get(container,step.field_index,expression.span)
+                        :emit_array_get(container,step.index_value,expression.span);
+                    if(!child)return std::nullopt;
+                    container=*child;
                 }
-                const auto value = lower_expression(*assignment->value);
-                if (!value) return std::nullopt;
-                const auto updated = rebuild_access_path(path, *value, expression.span);
-                if (!updated) return std::nullopt;
-                environment_[target->second] = *updated;
-                return *value;
+                std::optional<IRValue> previous;
+                if(compound) {
+                    const AccessStep& leaf=path.back();
+                    previous=leaf.kind==AccessStep::Kind::Field
+                        ?emit_struct_get(leaf.container_value,leaf.field_index,expression.span)
+                        :emit_array_get(leaf.container_value,leaf.index_value,expression.span);
+                    if(!previous)return std::nullopt;
+                }
+                const auto value=lower_expression(*assignment->value);
+                if(!value)return std::nullopt;
+                IRValue replacement=*value;
+                if(compound) {
+                    const auto combined=lower_compound_value(assignment->op,*previous,*value,expression.span);
+                    if(!combined)return std::nullopt;
+                    replacement=*combined;
+                }
+                const auto updated=rebuild_access_path(path,replacement,expression.span);
+                if(!updated)return std::nullopt;
+                environment_[target->second]=*updated;
+                return replacement;
             }
-            const auto target = semantic_model_.assignment_targets.find(assignment);
-            if (target == semantic_model_.assignment_targets.end()) {
-                report("IR126", "assignment has no resolved target binding",
-                       expression.span);
+            const auto target=semantic_model_.assignment_targets.find(assignment);
+            if(target==semantic_model_.assignment_targets.end()) {
+                report("IR126","assignment has no resolved target binding",expression.span);
                 return std::nullopt;
             }
-            if (!assignment->value) return std::nullopt;
-            const auto value = lower_expression(*assignment->value);
-            if (!value) return std::nullopt;
-            const SemanticBinding* binding = get_binding(target->second);
-            if (!binding) {
-                report("IR127", "assignment target binding metadata is missing",
-                       expression.span);
+            if(!assignment->value)return std::nullopt;
+            const IRValue previous=current_value(target->second,expression.span);
+            const auto value=lower_expression(*assignment->value);
+            if(!value)return std::nullopt;
+            const SemanticBinding* binding=get_binding(target->second);
+            if(!binding) {
+                report("IR127","assignment target binding metadata is missing",expression.span);
                 return std::nullopt;
             }
-            const auto target_type = to_ir_type(binding->type);
-            if (!target_type) {
-                report("IR128", "assignment target type cannot be represented in IR",
-                       expression.span);
+            const auto target_type=to_ir_type(binding->type);
+            if(!target_type) {
+                report("IR128","assignment target type cannot be represented in IR",expression.span);
                 return std::nullopt;
             }
-            const auto converted = convert(*value, *target_type, expression.span);
-            if (!converted) return std::nullopt;
-            if (*target_type == IRType::Struct &&
-                converted->struct_type_id != binding->struct_type_id) {
-                report("IR146", "assigned structure value has the wrong structure type", expression.span);
+            IRValue replacement=*value;
+            if(compound) {
+                const auto combined=lower_compound_value(assignment->op,previous,*value,expression.span);
+                if(!combined)return std::nullopt;
+                replacement=*combined;
+            }
+            const auto converted=convert(replacement,*target_type,expression.span);
+            if(!converted)return std::nullopt;
+            if(*target_type==IRType::Struct&&converted->struct_type_id!=binding->struct_type_id) {
+                report("IR146","assigned structure value has the wrong structure type",expression.span);
                 return std::nullopt;
             }
-            environment_[target->second] = *converted;
+            environment_[target->second]=*converted;
             return *converted;
         }
         if (const auto* call = std::get_if<CallExpr>(&expression.data)) {

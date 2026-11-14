@@ -40,6 +40,19 @@ Type common_numeric_type(const Type left, const Type right) noexcept {
     return left == Type::Float || right == Type::Float ? Type::Float : Type::Int;
 }
 
+Type compound_assignment_result(const TokenKind assignment,const Type left,const Type right) noexcept {
+    switch(assignment) {
+    case TokenKind::PlusEqual: case TokenKind::MinusEqual:
+    case TokenKind::StarEqual: case TokenKind::SlashEqual:
+        return common_numeric_type(left,right);
+    case TokenKind::PercentEqual:
+        if(left==Type::Error||right==Type::Error)return Type::Error;
+        if(left==Type::Unknown||right==Type::Unknown)return Type::Unknown;
+        return left==Type::Int&&right==Type::Int?Type::Int:Type::Error;
+    default:return Type::Error;
+    }
+}
+
 struct Symbol {
     SemanticBindingId id{0};
     Type type{Type::Unknown};
@@ -807,125 +820,102 @@ private:
             }
         }
 
-        if (const auto* assignment =
-                std::get_if<AssignmentExpr>(&expression.data)) {
-            if (assignment->target &&
-                (std::holds_alternative<MemberExpr>(assignment->target->data) ||
-                 std::holds_alternative<IndexExpr>(assignment->target->data))) {
-                const Type target_type = analyze_expression(*assignment->target);
-                const NameExpr* root = member_root_name(assignment->target.get());
-                if (!root) {
-                    report("SEM055", "aggregate elements and fields can only be assigned through a named binding",
-                           assignment->target->span);
-                    if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
+        if (const auto* assignment = std::get_if<AssignmentExpr>(&expression.data)) {
+            const bool compound=assignment->op!=TokenKind::Equal;
+            if(assignment->target&&(std::holds_alternative<MemberExpr>(assignment->target->data)||
+                                    std::holds_alternative<IndexExpr>(assignment->target->data))) {
+                const Type target_type=analyze_expression(*assignment->target);
+                const NameExpr* root=member_root_name(assignment->target.get());
+                if(!root) {
+                    report("SEM055","aggregate elements and fields can only be assigned through a named binding",assignment->target->span);
+                    if(assignment->value)static_cast<void>(analyze_expression(*assignment->value));
                     return Type::Error;
                 }
-                Symbol* root_symbol = lookup(spelling(root->name));
-                if (!root_symbol || (root_symbol->type != Type::Struct &&
-                                     root_symbol->type != Type::Array)) {
-                    report("SEM055", "aggregate assignment requires a named structure or array binding",
-                           root->name);
-                    if (assignment->value) static_cast<void>(analyze_expression(*assignment->value));
+                Symbol* root_symbol=lookup(spelling(root->name));
+                if(!root_symbol||(root_symbol->type!=Type::Struct&&root_symbol->type!=Type::Array)) {
+                    report("SEM055","aggregate assignment requires a named structure or array binding",root->name);
+                    if(assignment->value)static_cast<void>(analyze_expression(*assignment->value));
                     return Type::Error;
                 }
-                model_.assignment_targets[assignment] = root_symbol->id;
-                if (root_symbol->immutable)
-                    report("SEM017", "cannot modify an aggregate through immutable binding '" +
-                           spelling(root->name) + "'", root->name);
-                const auto expected_array = model_.array_expression_types.find(
-                    assignment->target.get());
-                if (target_type == Type::Array && expected_array != model_.array_expression_types.end() &&
-                    assignment->value &&
-                    std::holds_alternative<ArrayLiteralExpr>(assignment->value->data)) {
-                    model_.array_expression_types[assignment->value.get()] = expected_array->second;
+                model_.assignment_targets[assignment]=root_symbol->id;
+                if(root_symbol->immutable)
+                    report("SEM017","cannot modify an aggregate through immutable binding '"+spelling(root->name)+"'",root->name);
+                const auto expected_array=model_.array_expression_types.find(assignment->target.get());
+                if(target_type==Type::Array&&expected_array!=model_.array_expression_types.end()&&assignment->value&&
+                   std::holds_alternative<ArrayLiteralExpr>(assignment->value->data))
+                    model_.array_expression_types[assignment->value.get()]=expected_array->second;
+                const Type actual=assignment->value?analyze_expression(*assignment->value):Type::Error;
+                if(compound) {
+                    const Type operation_type=compound_assignment_result(assignment->op,target_type,actual);
+                    if(operation_type==Type::Error&&target_type!=Type::Error&&actual!=Type::Error&&
+                       target_type!=Type::Unknown&&actual!=Type::Unknown)
+                        report("SEM012","compound assignment requires compatible numeric operands; '%=' requires two ints",expression.span);
+                    else if(operation_type!=Type::Error&&operation_type!=Type::Unknown&&
+                            !is_assignable(target_type,operation_type))
+                        report("SEM018","compound assignment result cannot be stored in the target type",expression.span);
+                    return target_type;
                 }
-                const Type actual = assignment->value
-                    ? analyze_expression(*assignment->value) : Type::Error;
-                const std::uint32_t target_struct =
-                    model_.struct_expression_types.find(assignment->target.get()) !=
-                        model_.struct_expression_types.end()
-                    ? model_.struct_expression_types.at(assignment->target.get()) : 0u;
-                const std::uint32_t actual_struct = assignment->value &&
-                    model_.struct_expression_types.find(assignment->value.get()) !=
-                        model_.struct_expression_types.end()
-                    ? model_.struct_expression_types.at(assignment->value.get()) : 0u;
-                const auto actual_array = assignment->value
-                    ? model_.array_expression_types.find(assignment->value.get())
-                    : model_.array_expression_types.end();
-                const bool array_shape_matches = target_type != Type::Array ||
-                    (expected_array != model_.array_expression_types.end() &&
-                     actual_array != model_.array_expression_types.end() &&
-                     expected_array->second.element_type == actual_array->second.element_type &&
-                     expected_array->second.length == actual_array->second.length &&
-                     expected_array->second.element_struct_type_id ==
-                         actual_array->second.element_struct_type_id);
-                if (!is_assignable(target_type, actual) ||
-                    (target_type == Type::Struct && target_struct != actual_struct) ||
-                    !array_shape_matches)
-                    report("SEM018", "cannot assign an incompatible value to an aggregate field or element",
-                           expression.span);
-                if (target_type == Type::Struct && target_struct != 0)
-                    model_.struct_expression_types[&expression] = target_struct;
-                if (target_type == Type::Array && expected_array != model_.array_expression_types.end())
-                    model_.array_expression_types[&expression] = expected_array->second;
+                const std::uint32_t target_struct=model_.struct_expression_types.count(assignment->target.get())
+                    ?model_.struct_expression_types.at(assignment->target.get()):0u;
+                const std::uint32_t actual_struct=assignment->value&&model_.struct_expression_types.count(assignment->value.get())
+                    ?model_.struct_expression_types.at(assignment->value.get()):0u;
+                const auto actual_array=assignment->value?model_.array_expression_types.find(assignment->value.get())
+                    :model_.array_expression_types.end();
+                const bool array_shape_matches=target_type!=Type::Array||
+                    (expected_array!=model_.array_expression_types.end()&&actual_array!=model_.array_expression_types.end()&&
+                     expected_array->second.element_type==actual_array->second.element_type&&
+                     expected_array->second.length==actual_array->second.length&&
+                     expected_array->second.element_struct_type_id==actual_array->second.element_struct_type_id);
+                if(!is_assignable(target_type,actual)||(target_type==Type::Struct&&target_struct!=actual_struct)||!array_shape_matches)
+                    report("SEM018","cannot assign an incompatible value to an aggregate field or element",expression.span);
+                if(target_type==Type::Struct&&target_struct!=0)model_.struct_expression_types[&expression]=target_struct;
+                if(target_type==Type::Array&&expected_array!=model_.array_expression_types.end())
+                    model_.array_expression_types[&expression]=expected_array->second;
                 return target_type;
             }
-            const auto* target = assignment->target
-                ? std::get_if<NameExpr>(&assignment->target->data) : nullptr;
-            if (!target) return Type::Error;
-
-            const std::string identifier = spelling(target->name);
-            Symbol* symbol = lookup(identifier);
-            if (!symbol) {
-                report("SEM001", "undefined identifier '" + identifier + "'",
-                       target->name);
-                if (assignment->value) {
-                    static_cast<void>(analyze_expression(*assignment->value));
-                }
+            const auto* target=assignment->target?std::get_if<NameExpr>(&assignment->target->data):nullptr;
+            if(!target)return Type::Error;
+            const std::string identifier=spelling(target->name);
+            Symbol* symbol=lookup(identifier);
+            if(!symbol) {
+                report("SEM001","undefined identifier '"+identifier+"'",target->name);
+                if(assignment->value)static_cast<void>(analyze_expression(*assignment->value));
                 return Type::Error;
             }
-            if (symbol->is_function) {
-                report("SEM016", "cannot assign to function '" + identifier + "'",
-                       target->name);
-                if (assignment->value) {
-                    static_cast<void>(analyze_expression(*assignment->value));
-                }
+            if(symbol->is_function) {
+                report("SEM016","cannot assign to function '"+identifier+"'",target->name);
+                if(assignment->value)static_cast<void>(analyze_expression(*assignment->value));
                 return Type::Error;
             }
-            model_.assignment_targets[assignment] = symbol->id;
-            if (assignment->value && symbol->type == Type::Array &&
-                symbol->array_type && symbol->array_type->length == 0 &&
-                std::holds_alternative<ArrayLiteralExpr>(assignment->value->data)) {
-                model_.array_expression_types[assignment->value.get()] =
-                    *symbol->array_type;
+            model_.assignment_targets[assignment]=symbol->id;
+            if(assignment->value&&symbol->type==Type::Array&&symbol->array_type&&symbol->array_type->length==0&&
+               std::holds_alternative<ArrayLiteralExpr>(assignment->value->data))
+                model_.array_expression_types[assignment->value.get()]=*symbol->array_type;
+            const Type value=assignment->value?analyze_expression(*assignment->value):Type::Error;
+            if(symbol->immutable)report("SEM017","cannot assign to immutable binding '"+identifier+"'",target->name);
+            if(compound) {
+                const Type operation_type=compound_assignment_result(assignment->op,symbol->type,value);
+                if(operation_type==Type::Error&&symbol->type!=Type::Error&&value!=Type::Error&&
+                   symbol->type!=Type::Unknown&&value!=Type::Unknown)
+                    report("SEM012","compound assignment requires compatible numeric operands; '%=' requires two ints",expression.span);
+                else if(operation_type!=Type::Error&&operation_type!=Type::Unknown&&!is_assignable(symbol->type,operation_type))
+                    report("SEM018","compound assignment result cannot be stored in the target type",expression.span);
+                return symbol->type;
             }
-            const Type value = assignment->value
-                ? analyze_expression(*assignment->value) : Type::Error;
-            if (symbol->type == Type::Array && assignment->value) {
-                const auto shape = model_.array_expression_types.find(assignment->value.get());
-                if (symbol->array_type && shape != model_.array_expression_types.end() &&
-                    (symbol->array_type->element_type != shape->second.element_type ||
-                     symbol->array_type->length != shape->second.length ||
-                     symbol->array_type->element_struct_type_id != shape->second.element_struct_type_id))
-                    report("SEM045", "array assignment requires the same element type and length",
-                           assignment->value->span);
+            if(symbol->type==Type::Array&&assignment->value) {
+                const auto shape=model_.array_expression_types.find(assignment->value.get());
+                if(symbol->array_type&&shape!=model_.array_expression_types.end()&&
+                   (symbol->array_type->element_type!=shape->second.element_type||
+                    symbol->array_type->length!=shape->second.length||
+                    symbol->array_type->element_struct_type_id!=shape->second.element_struct_type_id))
+                    report("SEM045","array assignment requires the same element type and length",assignment->value->span);
             }
-            if (symbol->immutable) {
-                report("SEM017", "cannot assign to immutable binding '" +
-                       identifier + "'", target->name);
-            }
-            const std::uint32_t assigned_struct = assignment->value &&
-                model_.struct_expression_types.find(assignment->value.get()) !=
-                    model_.struct_expression_types.end()
-                ? model_.struct_expression_types.at(assignment->value.get()) : 0u;
-            if (!is_assignable(symbol->type, value) ||
-                (symbol->type == Type::Struct && symbol->struct_type_id != assigned_struct)) {
-                report("SEM018", "cannot assign " + std::string(type_name(value)) +
-                       " to " + type_name(symbol->type) + " binding '" + identifier + "'",
-                       expression.span);
-            }
-            if (symbol->type == Type::Struct)
-                model_.struct_expression_types[&expression] = symbol->struct_type_id;
+            const std::uint32_t assigned_struct=assignment->value&&model_.struct_expression_types.count(assignment->value.get())
+                ?model_.struct_expression_types.at(assignment->value.get()):0u;
+            if(!is_assignable(symbol->type,value)||(symbol->type==Type::Struct&&symbol->struct_type_id!=assigned_struct))
+                report("SEM018","cannot assign "+std::string(type_name(value))+" to "+type_name(symbol->type)+
+                       " binding '"+identifier+"'",expression.span);
+            if(symbol->type==Type::Struct)model_.struct_expression_types[&expression]=symbol->struct_type_id;
             return symbol->type;
         }
 

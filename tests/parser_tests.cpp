@@ -159,6 +159,7 @@ void test_array_literal_indexing_and_assignment(TestContext& tests) {
         "    let values = [10, 20, 30]\n"
         "    say(values[1])\n"
         "    values[2] = 42\n"
+        "    values[1] += 5\n"
         "}\n"};
     const vex::ParseResult parsed = parse(source);
     tests.check(!parsed.has_errors(),
@@ -168,7 +169,7 @@ void test_array_literal_indexing_and_assignment(TestContext& tests) {
         std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements.front()->data);
     if (!function || !function->body) return;
     const auto* body = std::get_if<vex::BlockStmt>(&function->body->data);
-    if (!body || body->statements.size() < 3) return;
+    if (!body || body->statements.size() < 4) return;
     const auto* variable =
         std::get_if<vex::VariableDeclStmt>(&body->statements[0]->data);
     tests.check(variable && variable->initializer &&
@@ -188,6 +189,12 @@ void test_array_literal_indexing_and_assignment(TestContext& tests) {
     tests.check(assignment && assignment->target &&
                 std::holds_alternative<vex::IndexExpr>(assignment->target->data),
                 "array indexing can be used as a simple assignment target");
+    const auto* compound_stmt=std::get_if<vex::ExpressionStmt>(&body->statements[3]->data);
+    const auto* compound=compound_stmt&&compound_stmt->expression
+        ?std::get_if<vex::AssignmentExpr>(&compound_stmt->expression->data):nullptr;
+    tests.check(compound&&compound->op==vex::TokenKind::PlusEqual&&compound->target&&
+                std::holds_alternative<vex::IndexExpr>(compound->target->data),
+                "indexed compound assignment keeps its operator and index target");
 }
 
 void test_integer_range_expressions(TestContext& tests) {

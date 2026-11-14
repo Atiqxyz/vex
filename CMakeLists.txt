@@ -153,6 +153,7 @@ if(BUILD_TESTING)
                 -DDYNAMIC_ARRAY_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_out_of_bounds.vex
                 -DSTRUCT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_values.vex
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
+                -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
                 "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm backend integration"
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/llvm_backend_integration.cmake
         )
@@ -172,6 +173,7 @@ if(BUILD_TESTING)
                 -DDYNAMIC_ARRAY_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_out_of_bounds.vex
                 -DSTRUCT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_values.vex
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
+                -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
                 -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/c_backend_integration
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/c_backend_integration.cmake
         )

@@ -113,7 +113,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Comparisons and equality | Implemented | Primitive-compatible comparisons. |
 | Boolean logic | Implemented | Includes short-circuit lowering. |
 | Unary operators | Implemented | Unary plus, minus and logical not. |
-| Assignment | Implemented | Local assignment and nested aggregate field/index updates rooted at named bindings; compound assignment to nested targets is not implemented. |
+| Assignment | Implemented | Local assignment and nested aggregate field/index updates rooted at named bindings; compound targets resolve each indexed path component exactly once. |
 | Compound assignment | Implemented | \`+= -= *= /= %=\`. |
 | Function-call expressions | Implemented | Direct calls. |
 | Array indexing expressions | Implemented | Checked indexing. |

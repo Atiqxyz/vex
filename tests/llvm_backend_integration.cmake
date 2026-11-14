@@ -3,7 +3,8 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED LLVM_CLANG OR
    NOT DEFINED REMAINDER_ZERO_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
-   NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR
+   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX LLVM backend integration-test argument")
 endif()
 
@@ -100,7 +101,24 @@ if(NOT "${layout_output}" STREQUAL "${layout_expected}")
     message(FATAL_ERROR "LLVM backend mixed-layout structure behavior mismatch. Expected:${layout_expected}Actual:${layout_output}")
 endif()
 
+# Exercise nested compound writes and once-only path/RHS evaluation.
 execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+            "${VEX_EXECUTABLE}" run-llvm "${COMPOUND_SOURCE_FILE}"
+    RESULT_VARIABLE compound_result OUTPUT_VARIABLE compound_output ERROR_VARIABLE compound_error
+)
+if(NOT compound_result EQUAL 0)
+    message(FATAL_ERROR "LLVM backend compound test failed: ${compound_output}${compound_error}")
+endif()
+string(REPLACE "\r\n" "\n" compound_output "${compound_output}")
+set(compound_expected "15\n8\n8\n2\n10\n20\n4\n7\n")
+if(NOT "${compound_output}" STREQUAL "${compound_expected}")
+    message(FATAL_ERROR "Compound assignment behavior mismatch. Expected:${compound_expected}Actual:${compound_output}")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+            "${VEX_EXECUTABLE}" run-llvm "${ARRAY_BOUNDS_SOURCE_FILE}"execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
             "${VEX_EXECUTABLE}" run-llvm "${ARRAY_BOUNDS_SOURCE_FILE}"
     RESULT_VARIABLE bounds_result

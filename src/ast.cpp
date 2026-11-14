@@ -23,7 +23,9 @@ void print_expression(std::ostream& output, const SourceFile& source,
             if (node.left) print_expression(output, source, *node.left, depth + 1);
             if (node.right) print_expression(output, source, *node.right, depth + 1);
         } else if constexpr (std::is_same_v<Node, AssignmentExpr>) {
-            output << "Assignment\n";
+            output << "Assignment";
+            if (node.op != TokenKind::Equal) output << " " << token_kind_name(node.op);
+            output << '\n';
             if (node.target) print_expression(output, source, *node.target, depth + 1);
             if (node.value) print_expression(output, source, *node.value, depth + 1);
         } else if constexpr (std::is_same_v<Node, CallExpr>) {

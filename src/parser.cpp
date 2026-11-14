@@ -391,26 +391,9 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
                     "the left side of an assignment must be a variable, array element, or structure field",
                     left->span);
                 left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
-            } else if (op.kind == TokenKind::Equal) {
-                left = make_expression(span, AssignmentExpr{std::move(left), std::move(right)});
-            } else if (const auto* target = std::get_if<NameExpr>(&left->data)) {
-                const SourceSpan target_span = target->name;
-                const TokenKind binary_op =
-                    op.kind == TokenKind::PlusEqual ? TokenKind::Plus :
-                    op.kind == TokenKind::MinusEqual ? TokenKind::Minus :
-                    op.kind == TokenKind::StarEqual ? TokenKind::Star :
-                    op.kind == TokenKind::SlashEqual ? TokenKind::Slash :
-                    TokenKind::Percent;
-                ExprPtr target_read = make_expression(target_span, NameExpr{target_span});
-                ExprPtr combined = make_expression(span,
-                    BinaryExpr{binary_op, std::move(target_read), std::move(right)});
-                left = make_expression(span,
-                    AssignmentExpr{std::move(left), std::move(combined)});
             } else {
-                diagnostics_.error("PAR007",
-                    "compound assignment to an array element is not supported yet",
-                    left->span);
-                left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});
+                left = make_expression(span,
+                    AssignmentExpr{std::move(left), std::move(right), op.kind});
             }
         } else {
             left = make_expression(span, BinaryExpr{op.kind, std::move(left), std::move(right)});

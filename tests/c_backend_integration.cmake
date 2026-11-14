@@ -4,7 +4,8 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED REMAINDER_ZERO_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
-   NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR
+   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -164,7 +165,22 @@ if(NOT "${layout_output}" STREQUAL "${layout_expected}")
     message(FATAL_ERROR "C backend mixed-layout structure behavior mismatch. Expected:${layout_expected}Actual:${layout_output}")
 endif()
 
+# Exercise nested compound writes and once-only path/RHS evaluation.
 execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${COMPOUND_SOURCE_FILE}"
+    RESULT_VARIABLE compound_result OUTPUT_VARIABLE compound_output ERROR_VARIABLE compound_error
+)
+if(NOT compound_result EQUAL 0)
+    message(FATAL_ERROR "C backend compound test failed: ${compound_output}${compound_error}")
+endif()
+string(REPLACE "\r\n" "\n" compound_output "${compound_output}")
+set(compound_expected "15\n8\n8\n2\n10\n20\n4\n7\n")
+if(NOT "${compound_output}" STREQUAL "${compound_expected}")
+    message(FATAL_ERROR "Compound assignment behavior mismatch. Expected:${compound_expected}Actual:${compound_output}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"execute_process(
     COMMAND "${VEX_EXECUTABLE}" run-c "${ARRAY_BOUNDS_SOURCE_FILE}"
     RESULT_VARIABLE bounds_result
     OUTPUT_VARIABLE bounds_output

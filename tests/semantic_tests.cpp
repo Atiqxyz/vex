@@ -79,6 +79,7 @@ void test_operator_and_condition_types(TestContext& tests) {
     const vex::SourceFile source{"operator_types.vex",
         "make main() {\n"
         "    let invalid = \"text\" - 2\n"
+        "    let invalid_compound = \"text\" -= \"more\"\n"
         "    if 1 {\n"
         "        say(invalid)\n"
         "    }\n"
@@ -375,6 +376,7 @@ void test_fixed_arrays_and_index_assignment(TestContext& tests) {
         "make main() {\n"
         "    let values = [1, 2, 3]\n"
         "    values[1] = 9\n"
+        "    values[2] += 1\n"
         "    let mixed = [1, 2.5, 3]\n"
         "    say(values[1])\n"
         "    for value in values { say(value) }\n"

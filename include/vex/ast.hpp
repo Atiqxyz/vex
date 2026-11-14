@@ -13,7 +13,7 @@ struct LiteralExpr { TokenKind token_kind{TokenKind::Invalid}; };
 struct NameExpr { SourceSpan name{}; };
 struct UnaryExpr { TokenKind op{TokenKind::Invalid}; ExprPtr operand; };
 struct BinaryExpr { TokenKind op{TokenKind::Invalid}; ExprPtr left; ExprPtr right; };
-struct AssignmentExpr { ExprPtr target; ExprPtr value; };
+struct AssignmentExpr { ExprPtr target; ExprPtr value; TokenKind op{TokenKind::Equal}; };
 struct CallExpr { ExprPtr callee; std::vector<ExprPtr> arguments; };
 struct GroupExpr { ExprPtr expression; bool multiline{false}; };
 struct ArrayLiteralExpr { std::vector<ExprPtr> elements; };
