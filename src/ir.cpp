@@ -891,7 +891,7 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
                  field.array_length > 65536u ||
                  (field.element_type == IRType::Struct &&
                   (field.element_struct_type_id == 0 ||
-                   field.element_struct_type_id > struct_types.size() ||
+                   field.element_struct_type_id > module.struct_types.size() ||
                    ((field.array_length == 0 &&
                      field.element_struct_type_id > structure.id) ||
                     (field.array_length != 0 &&
