@@ -215,7 +215,7 @@ Dynamic-array allocations are registered in a program-lifetime runtime list and 
 | `int` | Signed 64-bit integer direction |
 | `float` | 64-bit IEEE-754 floating-point direction |
 | `bool` | Boolean value |
-| `string` | UTF-8 string value |
+| `string` | Length-aware byte string; UTF-8 validity is not guaranteed. |
 | `void` | Function return with no value |
 | fixed array | One-dimensional, fixed-length sequence of primitive or structure values; may be inferred or annotated as `Point[3]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |

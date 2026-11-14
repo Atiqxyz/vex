@@ -114,7 +114,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Boolean logic | Implemented | Includes short-circuit lowering. |
 | Unary operators | Implemented | Unary plus, minus and logical not. |
 | Assignment | Implemented | Local assignment and nested aggregate field/index updates rooted at named bindings; compound targets resolve each indexed path component exactly once. |
-| Compound assignment | Implemented | \`+= -= *= /= %=\`. |
+| Compound assignment | Implemented | `+= -= *= /= %=` work on named bindings and nested structure/array paths; target indices execute once before the right-hand side. `+=` also accepts two strings. |
 | Function-call expressions | Implemented | Direct calls. |
 | Array indexing expressions | Implemented | Checked indexing. |
 | Grouping / multiline expression form | Implemented | Explicit square-bracket grouping behavior is documented. |
