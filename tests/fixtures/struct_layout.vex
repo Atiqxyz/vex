@@ -58,7 +58,7 @@ make main() {
         trailing: true
     }
 
-    let history: Record[] = [first]
+    let history: Record[] = [first,]
     push(history, second)
     push(history, third)
     push(history, fourth)
