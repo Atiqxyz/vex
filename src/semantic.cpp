@@ -204,6 +204,14 @@ private:
         length.declaration = {0, 0};
         scopes_.front().emplace("length", std::move(length));
 
+        Symbol join;
+        join.type = Type::String;
+        join.is_function = true;
+        join.parameters = {Type::Array};
+        join.parameter_array_types = {SemanticArrayType{Type::String, 0}};
+        join.declaration = {0, 0};
+        scopes_.front().emplace("join", std::move(join));
+
         Symbol push;
         push.type = Type::Void;
         push.is_function = true;
@@ -975,8 +983,8 @@ private:
             if (name) model_.resolved_calls[call] = spelling(name->name);
 
             const std::string builtin_name = name ? spelling(name->name) : std::string{};
-            if (builtin_name == "length" || builtin_name == "push" ||
-                builtin_name == "pop") {
+            if (builtin_name == "length" || builtin_name == "join" ||
+                builtin_name == "push" || builtin_name == "pop") {
                 const std::size_t expected_count = builtin_name == "push" ? 2u : 1u;
                 if (argument_types.size() != expected_count) {
                     report("SEM020", builtin_name + " expects " +
@@ -1000,6 +1008,19 @@ private:
                     return Type::Error;
                 }
                 if (builtin_name == "length") return Type::Int;
+                if (builtin_name == "join") {
+                    if (shape->second.element_type != Type::String) {
+                        report("SEM021", "join requires a dynamic array of strings",
+                               call->arguments[0]->span);
+                        return Type::Error;
+                    }
+                    if (shape->second.length != 0) {
+                        report("SEM021", "join requires a dynamic string array declared with type []",
+                               call->arguments[0]->span);
+                        return Type::Error;
+                    }
+                    return Type::String;
+                }
                 if (shape->second.length != 0) {
                     report("SEM021", builtin_name +
                            " requires a dynamic array declared with type []", call->arguments[0]->span);

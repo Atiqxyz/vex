@@ -392,6 +392,110 @@ trap:
   unreachable
 }
 
+define internal { ptr, i64 } @vex_string_join(ptr %parts) {
+entry:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %parts, i32 0, i32 3
+  %element_size = load i64, ptr %size_ptr
+  %size_ok = icmp eq i64 %element_size, 16
+  br i1 %size_ok, label %read_array, label %trap
+read_array:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %parts, i32 0, i32 1
+  %data_ptr = getelementptr inbounds %vex.array, ptr %parts, i32 0, i32 0
+  %count = load i64, ptr %length_ptr
+  %items = load ptr, ptr %data_ptr
+  %sum_index_slot = alloca i64, align 8
+  %total_slot = alloca i64, align 8
+  store i64 0, ptr %sum_index_slot
+  store i64 0, ptr %total_slot
+  br label %sum_loop
+sum_loop:
+  %sum_index = load i64, ptr %sum_index_slot
+  %sum_done = icmp uge i64 %sum_index, %count
+  br i1 %sum_done, label %check_empty, label %sum_item
+sum_item:
+  %sum_offset = mul i64 %sum_index, 16
+  %sum_item_ptr = getelementptr inbounds i8, ptr %items, i64 %sum_offset
+  %sum_item_length_ptr = getelementptr inbounds { ptr, i64 }, ptr %sum_item_ptr, i32 0, i32 1
+  %sum_item_length = load i64, ptr %sum_item_length_ptr
+  %old_total = load i64, ptr %total_slot
+  %sum_pair = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %old_total, i64 %sum_item_length)
+  %new_total = extractvalue { i64, i1 } %sum_pair, 0
+  %sum_overflow = extractvalue { i64, i1 } %sum_pair, 1
+  br i1 %sum_overflow, label %trap, label %sum_advance
+sum_advance:
+  store i64 %new_total, ptr %total_slot
+  %next_sum_index = add i64 %sum_index, 1
+  store i64 %next_sum_index, ptr %sum_index_slot
+  br label %sum_loop
+check_empty:
+  %total_length = load i64, ptr %total_slot
+  %empty = icmp eq i64 %total_length, 0
+  br i1 %empty, label %return_empty, label %check_payload
+return_empty:
+  %empty_with_pointer = insertvalue { ptr, i64 } poison, ptr null, 0
+  %empty_result = insertvalue { ptr, i64 } %empty_with_pointer, i64 0, 1
+  ret { ptr, i64 } %empty_result
+check_payload:
+  %payload_pair = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %total_length, i64 1)
+  %payload_size = extractvalue { i64, i1 } %payload_pair, 0
+  %payload_overflow = extractvalue { i64, i1 } %payload_pair, 1
+  %node_size_pointer = getelementptr %vex.string.node, ptr null, i32 1
+  %node_size = ptrtoint ptr %node_size_pointer to i64
+  %allocation_pair = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %node_size, i64 %payload_size)
+  %allocation_size = extractvalue { i64, i1 } %allocation_pair, 0
+  %allocation_overflow = extractvalue { i64, i1 } %allocation_pair, 1
+  %size_overflow = or i1 %payload_overflow, %allocation_overflow
+  br i1 %size_overflow, label %trap, label %allocate
+allocate:
+  %node = call ptr @malloc(i64 %allocation_size)
+  %allocation_failed = icmp eq ptr %node, null
+  br i1 %allocation_failed, label %trap, label %register_allocation
+register_allocation:
+  %next_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 0
+  %old_head = load ptr, ptr @vex_string_head
+  store ptr %old_head, ptr %next_pointer
+  %output_data = getelementptr %vex.string.node, ptr %node, i32 0, i32 1
+  store ptr %node, ptr @vex_string_head
+  %copy_index_slot = alloca i64, align 8
+  %output_offset_slot = alloca i64, align 8
+  store i64 0, ptr %copy_index_slot
+  store i64 0, ptr %output_offset_slot
+  br label %copy_loop
+copy_loop:
+  %copy_index = load i64, ptr %copy_index_slot
+  %copy_done = icmp uge i64 %copy_index, %count
+  br i1 %copy_done, label %finish, label %copy_item
+copy_item:
+  %copy_offset = mul i64 %copy_index, 16
+  %copy_item_ptr = getelementptr inbounds i8, ptr %items, i64 %copy_offset
+  %copy_item_data = load ptr, ptr %copy_item_ptr
+  %copy_item_length_ptr = getelementptr inbounds { ptr, i64 }, ptr %copy_item_ptr, i32 0, i32 1
+  %copy_item_length = load i64, ptr %copy_item_length_ptr
+  %is_empty_chunk = icmp eq i64 %copy_item_length, 0
+  br i1 %is_empty_chunk, label %copy_advance, label %copy_bytes
+copy_bytes:
+  %output_offset = load i64, ptr %output_offset_slot
+  %destination = getelementptr inbounds i8, ptr %output_data, i64 %output_offset
+  call void @llvm.memcpy.p0.p0.i64(ptr %destination, ptr %copy_item_data, i64 %copy_item_length, i1 false)
+  %next_output_offset = add i64 %output_offset, %copy_item_length
+  store i64 %next_output_offset, ptr %output_offset_slot
+  br label %copy_advance
+copy_advance:
+  %old_copy_index = load i64, ptr %copy_index_slot
+  %next_copy_index = add i64 %old_copy_index, 1
+  store i64 %next_copy_index, ptr %copy_index_slot
+  br label %copy_loop
+finish:
+  %terminator = getelementptr inbounds i8, ptr %output_data, i64 %total_length
+  store i8 0, ptr %terminator
+  %result_with_data = insertvalue { ptr, i64 } poison, ptr %output_data, 0
+  %result = insertvalue { ptr, i64 } %result_with_data, i64 %total_length, 1
+  ret { ptr, i64 } %result
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
 define internal void @vex_string_cleanup() {
 entry:
   br label %loop
@@ -1221,6 +1325,13 @@ done:
             const std::string result = next_temp();
             output_ << "  " << result << " = extractvalue { ptr, i64 } "
                     << operands[0] << ", 1\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::StringJoin: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = call { ptr, i64 } @vex_string_join(ptr "
+                    << operands[0] << ")\n";
             store_result(instruction, result);
             return;
         }

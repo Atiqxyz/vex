@@ -31,6 +31,7 @@ enum class IROp {
     Add,
     StringConcat,
     StringLength,
+    StringJoin,
     Subtract,
     Multiply,
     Divide,

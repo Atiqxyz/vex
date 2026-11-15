@@ -855,6 +855,22 @@ private:
             emit(std::move(instruction));
             return result;
         }
+        if (target->second == "join") {
+            if (arguments.size() != 1 || arguments[0].type != IRType::Array ||
+                arguments[0].array_length != 0 ||
+                arguments[0].element_type != IRType::String) {
+                report("IR119", "join expects exactly one dynamic string array", expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::StringJoin;
+            instruction.operands = {arguments[0].id};
+            instruction.result = make_value(IRType::String, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
         if (target->second == "push") {
             if (arguments.size() != 2 || arguments[0].type != IRType::Array ||
                 arguments[0].array_length != 0) {

@@ -483,6 +483,34 @@ private:
             << "    vex_string_head = allocation;\n"
             << "    return (vex_string){data, length};\n"
             << "}\n\n"
+            << "static vex_string vex_string_join(vex_array *parts) {\n"
+            << "    vex_array_check(parts, sizeof(vex_string));\n"
+            << "    const vex_string *items = (const vex_string *)parts->data;\n"
+            << "    size_t length = 0u;\n"
+            << "    for (size_t index = 0u; index < parts->length; ++index) {\n"
+            << "        if (items[index].length > SIZE_MAX - length)\n"
+            << "            vex_runtime_trap(\"string length overflow during join\");\n"
+            << "        length += items[index].length;\n"
+            << "    }\n"
+            << "    if (length == 0u) return (vex_string){NULL, 0u};\n"
+            << "    if (length > SIZE_MAX - sizeof(vex_string_allocation) - 1u)\n"
+            << "        vex_runtime_trap(\"string allocation size overflow during join\");\n"
+            << "    vex_string_allocation *allocation = (vex_string_allocation *)\n"
+            << "        malloc(sizeof(*allocation) + length + 1u);\n"
+            << "    if (allocation == NULL) vex_runtime_trap(\"string join allocation failed\");\n"
+            << "    unsigned char *data = allocation->data;\n"
+            << "    size_t offset = 0u;\n"
+            << "    for (size_t index = 0u; index < parts->length; ++index) {\n"
+            << "        if (items[index].length != 0u) {\n"
+            << "            (void)memcpy(data + offset, items[index].data, items[index].length);\n"
+            << "            offset += items[index].length;\n"
+            << "        }\n"
+            << "    }\n"
+            << "    data[length] = 0u;\n"
+            << "    allocation->next = vex_string_head;\n"
+            << "    vex_string_head = allocation;\n"
+            << "    return (vex_string){data, length};\n"
+            << "}\n\n"
             << "static void vex_string_cleanup(void) {\n"
             << "    while (vex_string_head != NULL) {\n"
             << "        vex_string_allocation *allocation = vex_string_head;\n"
@@ -907,6 +935,9 @@ private:
             return;
         case IROp::StringLength:
             output_ << "    " << result << " = " << operand(0) << ".length;\n";
+            return;
+        case IROp::StringJoin:
+            output_ << "    " << result << " = vex_string_join(" << operand(0) << ");\n";
             return;
         case IROp::ArrayPush: {
             const auto array = value_type(function, instruction.operands[0]);

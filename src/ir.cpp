@@ -276,6 +276,17 @@ private:
                 report("IR073", "string length requires a string operand", instruction.span);
             check_result(instruction, IRType::Int);
             break;
+        case IROp::StringJoin: {
+            check_arity(instruction, 1);
+            const IRValue* array = operand_value(instruction, 0);
+            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+                          array->element_type != IRType::String ||
+                          array->element_struct_type_id != 0)) {
+                report("IR074", "string join requires a dynamic array of strings", instruction.span);
+            }
+            check_result(instruction, IRType::String);
+            break;
+        }
         case IROp::Add:
         case IROp::Subtract:
         case IROp::Multiply:
@@ -841,6 +852,7 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::Add: return "add";
     case IROp::StringConcat: return "string_concat";
     case IROp::StringLength: return "string_length";
+    case IROp::StringJoin: return "string_join";
     case IROp::Subtract: return "sub";
     case IROp::Multiply: return "mul";
     case IROp::Divide: return "div";
