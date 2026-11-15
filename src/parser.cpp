@@ -253,7 +253,7 @@ StmtPtr Parser::parse_block_after_open(const Token& opening) {
         SourceSpan{opening.span.begin, closing.span.end}, BlockStmt{std::move(statements)}});
 }
 std::optional<SourceSpan> Parser::parse_type_annotation() {
-    if (!(check(TokenKind::Identifier) || check(TokenKind::KwInt) ||
+    if (!(check(TokenKind::Identifier) || check(TokenKind::KwInt) || check(TokenKind::KwByte) ||
           check(TokenKind::KwFloat) || check(TokenKind::KwBool) ||
           check(TokenKind::KwString))) {
         report_current("PAR005", "expected a type name");

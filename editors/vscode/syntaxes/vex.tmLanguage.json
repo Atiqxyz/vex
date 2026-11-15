@@ -51,7 +51,7 @@
     },
     "types": {
       "name": "storage.type.primitive.vex",
-      "match": "\\b(?:int|float|bool|string|void)\\b"
+      "match": "\\b(?:int|byte|float|bool|string|void)\\b"
     },
     "constants": {
       "name": "constant.language.boolean.vex",
@@ -71,7 +71,7 @@
     },
     "builtins": {
       "name": "support.function.builtin.vex",
-      "match": "\\bsay(?=\\s*\\()"
+      "match": "\\b(?:say|to_byte|to_int)(?=\\s*\\()"
     },
     "operators": {
       "name": "keyword.operator.vex",

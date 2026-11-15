@@ -42,9 +42,19 @@ make main() {
 
 `length(value)` also accepts a `string` and returns its byte count. VEX strings are length-aware byte sequences; this operation does not count Unicode scalar values or grapheme clusters, validate UTF-8, or stop at embedded NUL bytes. For example, `length("A\\0B")` is `3`.
 
+## Unsigned byte values (implemented)
+
+VEX provides an unsigned `byte` scalar with values from 0 through 255. An `int` does not implicitly narrow to `byte`. Use `to_byte(value)` for an explicit checked conversion; it traps when the input is negative or greater than 255. `to_int(value)` explicitly widens a byte to a signed 64-bit integer without changing its non-negative value.
+
+Byte values support equality, unsigned relational comparisons, and byte-width bitwise operations (`&`, `|`, `^`, and `~`). These operations require matching operand types; byte operations return a byte and `~` flips exactly eight bits. Bytes are not currently general arithmetic operands. `say(byte)` prints its unsigned decimal value.
+
+Bytes work with the existing aggregate model: `byte[N]` fixed arrays, `byte[]` dynamic arrays, structure fields, function parameters and return values, indexing, iteration, and `push`/`pop`/`reserve`. Dynamic arrays retain the same shared-reference and program-lifetime allocation behavior as other element types.
+
+This provides typed in-memory binary data. Dedicated file/network I/O, byte slices, and endian-aware integer serialization helpers are not yet implemented.
+
 ## Dynamic-array built-ins (implemented)
 
-Dynamic arrays hold primitive or nominal structure values and are declared with an empty length suffix, for example `int[]`, `string[]`, or `Point[]`. These compiler-recognized operations are available:
+Dynamic arrays hold primitive or nominal structure values and are declared with an empty length suffix, for example `int[]`, `byte[]`, `string[]`, or `Point[]`. These compiler-recognized operations are available:
 
 | Function | Signature | Behavior |
 |---|---|---|
@@ -107,7 +117,7 @@ This inventory gathers common, useful operations seen across established languag
 |---|---|
 | Core values | type_name, compare, swap, assert, panic, checked conversion, formatting |
 | Strings | length, is_empty, contains, starts_with, ends_with, find, replace, split, join, trim, trim_start, trim_end, lower, upper, parse_int, parse_float |
-| Byte buffers | length, append, slice, read/write integer, read/write float, endian conversion, encode/decode |
+| Byte-buffer utilities | slice, read/write integer, read/write float, endian conversion, encode/decode |
 | Dynamic arrays | capacity, is_empty, reserve, resize, insert, remove, clear, sort, reverse, contains, find |
 | Maps and sets | insert, get, get_or_default, contains, remove, keys, values, entries, union, intersection, difference |
 | Algorithms | sort, stable_sort, binary_search, linear_search, min_element, max_element, accumulate, transform, filter, reduce |

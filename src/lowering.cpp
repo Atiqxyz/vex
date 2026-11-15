@@ -16,6 +16,7 @@ std::optional<IRType> to_ir_type(const SemanticType type) {
     switch (type) {
     case SemanticType::Void: return IRType::Void;
     case SemanticType::Int: return IRType::Int;
+    case SemanticType::Byte: return IRType::Byte;
     case SemanticType::Float: return IRType::Float;
     case SemanticType::Bool: return IRType::Bool;
     case SemanticType::String: return IRType::String;
@@ -826,6 +827,22 @@ private:
             arguments.push_back(*value);
         }
 
+        if (target->second == "to_byte") {
+            if (arguments.size() != 1 || arguments[0].type != IRType::Int) {
+                report("IR119", "to_byte expects exactly one int argument", expression.span);
+                return std::nullopt;
+            }
+            return emit_operation(IROp::IntToByteChecked, IRType::Byte,
+                                  {arguments[0].id}, expression.span);
+        }
+        if (target->second == "to_int") {
+            if (arguments.size() != 1 || arguments[0].type != IRType::Byte) {
+                report("IR119", "to_int expects exactly one byte argument", expression.span);
+                return std::nullopt;
+            }
+            return emit_operation(IROp::ByteToInt, IRType::Int,
+                                  {arguments[0].id}, expression.span);
+        }
         if (target->second == "length") {
             if (arguments.size() != 1) {
                 report("IR119", "length expects exactly one string or array argument", expression.span);

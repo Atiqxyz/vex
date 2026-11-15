@@ -9,7 +9,7 @@ namespace {
 
 using Keyword = std::pair<std::string_view, TokenKind>;
 
-constexpr std::array<Keyword, 20> keywords{{
+constexpr std::array<Keyword, 21> keywords{{
     {"make", TokenKind::KwMake},
     {"struct", TokenKind::KwStruct},
     {"let", TokenKind::KwLet},
@@ -27,6 +27,7 @@ constexpr std::array<Keyword, 20> keywords{{
     {"true", TokenKind::KwTrue},
     {"false", TokenKind::KwFalse},
     {"int", TokenKind::KwInt},
+    {"byte", TokenKind::KwByte},
     {"float", TokenKind::KwFloat},
     {"bool", TokenKind::KwBool},
     {"string", TokenKind::KwString}

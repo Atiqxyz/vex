@@ -17,6 +17,7 @@ enum class SemanticType {
     Any,
     Void,
     Int,
+    Byte,
     Float,
     Bool,
     String,

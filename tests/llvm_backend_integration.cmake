@@ -5,7 +5,9 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED LLVM_CLANG OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
    NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR
    NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED STRING_CONCAT_SOURCE_FILE OR
-   NOT DEFINED BITWISE_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED BITWISE_SOURCE_FILE OR NOT DEFINED BYTE_SOURCE_FILE OR
+   NOT DEFINED BYTE_OVERFLOW_HIGH_SOURCE_FILE OR
+   NOT DEFINED BYTE_OVERFLOW_NEGATIVE_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX LLVM backend integration-test argument")
 endif()
 
@@ -222,3 +224,35 @@ set(bitwise_expected "8\n14\n6\n-6\n15\n-1\n-9223372036854775808\n-9223372036854
 if(NOT "${bitwise_output}" STREQUAL "${bitwise_expected}")
     message(FATAL_ERROR "LLVM bitwise behavior mismatch. Expected:${bitwise_expected}Actual:${bitwise_output}")
 endif()
+
+# Run byte values through LLVM code generation and native execution.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+            "${VEX_EXECUTABLE}" run-llvm "${BYTE_SOURCE_FILE}"
+    RESULT_VARIABLE byte_result
+    OUTPUT_VARIABLE byte_output
+    ERROR_VARIABLE byte_error
+)
+if(NOT byte_result EQUAL 0)
+    message(FATAL_ERROR "LLVM byte program failed: ${byte_output}${byte_error}")
+endif()
+string(REPLACE "\r\n" "\n" byte_output "${byte_output}")
+set(byte_expected "160\n238\n102\n85\ntrue\n255\n255\n3\n7\n2\n3\n170\n425\n")
+if(NOT "${byte_output}" STREQUAL "${byte_expected}")
+    message(FATAL_ERROR "LLVM byte behavior mismatch. Expected:${byte_expected}Actual:${byte_output}")
+endif()
+
+foreach(byte_failure_source IN ITEMS
+        "${BYTE_OVERFLOW_HIGH_SOURCE_FILE}"
+        "${BYTE_OVERFLOW_NEGATIVE_SOURCE_FILE}")
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+                "${VEX_EXECUTABLE}" run-llvm "${byte_failure_source}"
+        RESULT_VARIABLE byte_failure_result
+        OUTPUT_VARIABLE byte_failure_output
+        ERROR_VARIABLE byte_failure_error
+    )
+    if("${byte_failure_result}" STREQUAL "0")
+        message(FATAL_ERROR "LLVM backend did not trap for out-of-range int-to-byte conversion: ${byte_failure_source}")
+    endif()
+endforeach()

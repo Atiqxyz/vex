@@ -47,6 +47,12 @@ void test_keywords_and_identifiers(TestContext& tests) {
     tests.check(!result.has_errors(), "valid declaration has no diagnostics");
     tests.check(result.tokens[1].text(source) == "main",
                 "token text is resolved from its source span");
+
+    const vex::SourceFile byte_type{"byte_type.vex", "let value: byte = to_byte(255)"};
+    const vex::LexResult byte_result = vex::Lexer{byte_type}.scan();
+    tests.check(count_kind(byte_result, vex::TokenKind::KwByte) == 1 &&
+                !byte_result.has_errors(),
+                "byte is recognized as a primitive type keyword");
 }
 
 void test_numeric_literals(TestContext& tests) {

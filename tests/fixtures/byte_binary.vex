@@ -1,0 +1,50 @@
+struct Packet {
+    kind: byte,
+    flags: byte,
+    payload: byte[]
+}
+
+make flip(value: byte) -> byte {
+    return ~value
+}
+
+make read_middle(values: byte[3]) -> byte {
+    return values[1]
+}
+
+make main() {
+    let first = to_byte(170)
+    let high = to_byte(255)
+    let low = to_byte(1)
+
+    say(to_int(first & to_byte(240)))
+    say(to_int(first | to_byte(204)))
+    say(to_int(first ^ to_byte(204)))
+    say(to_int(flip(first)))
+    say(low < high)
+    say(high)
+
+    let fixed: byte[3] = [first, high, to_byte(16)]
+    say(to_int(read_middle(fixed)))
+
+    let payload: byte[] = []
+    reserve(payload, 8)
+    push(payload, first)
+    push(payload, high)
+    let alias = payload
+    push(alias, to_byte(7))
+    say(length(payload))
+    say(to_int(pop(payload)))
+    say(length(payload))
+
+    let packet = Packet{kind: first, flags: high, payload: payload}
+    packet.flags = to_byte(3)
+    say(to_int(packet.flags))
+    say(to_int(packet.payload[0]))
+
+    let total = 0
+    for item in packet.payload {
+        total += to_int(item)
+    }
+    say(total)
+}

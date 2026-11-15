@@ -733,6 +733,44 @@ void test_bitwise_operator_semantics(TestContext& tests) {
                 "bitwise NOT rejects non-integer operands");
 }
 
+void test_byte_type_and_checked_conversions(TestContext& tests) {
+    const vex::SourceFile valid{"byte_valid.vex",
+        "struct Packet {\n"
+        "    tag: byte,\n"
+        "    payload: byte[]\n"
+        "}\n"
+        "make echo(value: byte) -> byte { return value }\n"
+        "make main() {\n"
+        "    let maximum = to_byte(255)\n"
+        "    let minimum: byte = to_byte(0)\n"
+        "    let values: byte[] = [maximum, minimum]\n"
+        "    let fixed: byte[2] = [minimum, maximum]\n"
+        "    let packet = Packet{tag: echo(maximum), payload: values}\n"
+        "    packet.tag = to_byte(7)\n"
+        "    say(to_int(packet.tag))\n"
+        "    say(to_int(fixed[1]))\n"
+        "    say(~minimum)\n"
+        "    say(maximum > minimum)\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "byte works in function signatures, structures, and fixed/dynamic arrays");
+
+    const vex::SourceFile invalid{"byte_invalid.vex",
+        "make main() {\n"
+        "    let implicit: byte = 255\n"
+        "    let mixed = to_byte(1) | 1\n"
+        "    let wrong = to_byte(true)\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM022"),
+                "int literals cannot narrow implicitly to byte");
+    tests.check(has_code(rejected, "SEM012"),
+                "byte bitwise operations reject mixed int and byte operands");
+    tests.check(has_code(rejected, "SEM021"),
+                "checked conversion requires an int argument");
+}
+
 void test_string_join_semantics(TestContext& tests) {
     const vex::SourceFile valid{"string_join.vex",
         "make main() {\n"
@@ -782,4 +820,5 @@ void run_semantic_tests(TestContext& tests) {
     test_string_byte_length_semantics(tests);
     test_string_join_semantics(tests);
     test_bitwise_operator_semantics(tests);
+    test_byte_type_and_checked_conversions(tests);
 }

@@ -14,8 +14,9 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
-- fixed-size, one-dimensional arrays with inferred primitive element types, indexing, indexed updates, and by-value function parameters/returns;
-- heap-backed, one-dimensional dynamic arrays for primitive elements, with typed empty literals, geometric growth, checked indexing, `length`, `push`, and `pop`;
+- fixed-size, one-dimensional arrays with inferred primitive element types (including unsigned `byte`), indexing, indexed updates, and by-value function parameters/returns;
+- a first-class unsigned 8-bit `byte` type (0–255), explicit checked `to_byte(int)` and zero-extending `to_int(byte)` conversions, byte-width bitwise operations, and unsigned byte comparisons;
+- heap-backed, one-dimensional dynamic arrays for primitive elements (including `byte`), with typed empty literals, geometric growth, checked indexing, `length`, `push`, and `pop`;
 - shared-reference dynamic arrays across aliases, function parameters, and function returns, with `for-in` iteration over fixed/dynamic arrays and integer ranges;
 - C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed/dynamic-array access, dynamic allocation and cleanup, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, LLVM IR emission, native builds, and program execution;

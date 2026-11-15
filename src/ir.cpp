@@ -304,15 +304,16 @@ private:
         case IROp::BitwiseOr:
         case IROp::BitwiseXor:
             check_arity(instruction, 2);
-            if ((left && *left != IRType::Int) || (right && *right != IRType::Int))
-                report("IR078", "bitwise binary operations require int operands", instruction.span);
-            check_result(instruction, IRType::Int);
+            if (left && right && (*left != *right ||
+                (*left != IRType::Int && *left != IRType::Byte)))
+                report("IR078", "bitwise binary operations require matching int or byte operands", instruction.span);
+            if (left) check_result(instruction, *left);
             break;
         case IROp::BitwiseNot:
             check_arity(instruction, 1);
-            if (left && *left != IRType::Int)
-                report("IR079", "bitwise NOT requires an int operand", instruction.span);
-            check_result(instruction, IRType::Int);
+            if (left && *left != IRType::Int && *left != IRType::Byte)
+                report("IR079", "bitwise NOT requires an int or byte operand", instruction.span);
+            if (left) check_result(instruction, *left);
             break;
         case IROp::Remainder:
             check_arity(instruction, 2);
@@ -360,8 +361,9 @@ private:
         case IROp::Greater:
         case IROp::GreaterEqual:
             check_arity(instruction, 2);
-            if (left && right && (*left != *right || !is_numeric(*left))) {
-                report("IR019", "relational operands must have the same numeric type",
+            if (left && right && (*left != *right ||
+                (!is_numeric(*left) && *left != IRType::Byte))) {
+                report("IR019", "relational operands must have the same numeric type or both be byte",
                        instruction.span);
             }
             check_result(instruction, IRType::Bool);
@@ -373,6 +375,18 @@ private:
                        instruction.span);
             }
             check_result(instruction, IRType::Float);
+            break;
+        case IROp::IntToByteChecked:
+            check_arity(instruction, 1);
+            if (left && *left != IRType::Int)
+                report("IR081", "checked int-to-byte conversion requires an int operand", instruction.span);
+            check_result(instruction, IRType::Byte);
+            break;
+        case IROp::ByteToInt:
+            check_arity(instruction, 1);
+            if (left && *left != IRType::Byte)
+                report("IR082", "byte-to-int conversion requires a byte operand", instruction.span);
+            check_result(instruction, IRType::Int);
             break;
         case IROp::Math: {
             const bool unary_math = instruction.callee == "sqrt" ||
@@ -870,6 +884,7 @@ const char* ir_type_name(const IRType type) noexcept {
     switch (type) {
     case IRType::Void: return "void";
     case IRType::Int: return "int";
+    case IRType::Byte: return "byte";
     case IRType::Float: return "float";
     case IRType::Bool: return "bool";
     case IRType::String: return "string";
@@ -905,6 +920,8 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::Greater: return "gt";
     case IROp::GreaterEqual: return "ge";
     case IROp::IntToFloat: return "int_to_float";
+    case IROp::IntToByteChecked: return "int_to_byte_checked";
+    case IROp::ByteToInt: return "byte_to_int";
     case IROp::Call: return "call";
     case IROp::Math: return "math";
     case IROp::Say: return "say";

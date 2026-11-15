@@ -17,6 +17,7 @@ using IRBlockId = std::uint32_t;
 enum class IRType {
     Void,
     Int,
+    Byte,
     Float,
     Bool,
     String,
@@ -51,6 +52,8 @@ enum class IROp {
     Greater,
     GreaterEqual,
     IntToFloat,
+    IntToByteChecked,
+    ByteToInt,
     Call,
     Math,
     Say,

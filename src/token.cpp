@@ -32,6 +32,7 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::KwTrue: return "TRUE";
     case TokenKind::KwFalse: return "FALSE";
     case TokenKind::KwInt: return "TYPE_INT";
+    case TokenKind::KwByte: return "TYPE_BYTE";
     case TokenKind::KwFloat: return "TYPE_FLOAT";
     case TokenKind::KwBool: return "TYPE_BOOL";
     case TokenKind::KwString: return "TYPE_STRING";

@@ -896,6 +896,67 @@ void test_bitwise_ir_lowering_and_backends(TestContext& tests) {
                 "LLVM backend emits native i64 bitwise instructions");
 }
 
+void test_byte_lowering_and_backends(TestContext& tests) {
+    const vex::SourceFile source{"byte_ir.vex",
+        "make flip(value: byte) -> byte { return ~value }\n"
+        "make main() {\n"
+        "    let a = to_byte(170)\n"
+        "    let b = to_byte(255)\n"
+        "    let x = a & b\n"
+        "    let y = a | b\n"
+        "    let z = a ^ b\n"
+        "    let inverted = flip(a)\n"
+        "    say(to_int(x))\n"
+        "    say(to_int(y))\n"
+        "    say(to_int(z))\n"
+        "    say(to_int(inverted))\n"
+        "    say(a < b)\n"
+        "}\n"};
+    const auto lexed = vex::Lexer(source).scan();
+    const auto parsed = vex::Parser(source, lexed.tokens).parse();
+    const auto semantic = vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "byte source passes lexing, parsing, and semantic analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+
+    const auto lowered = vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(), "byte values and conversions lower into typed IR");
+    if (lowered.has_errors()) return;
+
+    std::size_t checked_narrowing = 0, widening = 0, byte_bitwise = 0;
+    for (const auto& function : lowered.module.functions)
+        for (const auto& block : function.blocks)
+            for (const auto& instruction : block.instructions) {
+                checked_narrowing += instruction.op == vex::IROp::IntToByteChecked ? 1u : 0u;
+                widening += instruction.op == vex::IROp::ByteToInt ? 1u : 0u;
+                if (instruction.op == vex::IROp::BitwiseAnd ||
+                    instruction.op == vex::IROp::BitwiseOr ||
+                    instruction.op == vex::IROp::BitwiseXor ||
+                    instruction.op == vex::IROp::BitwiseNot) {
+                    if (instruction.result && instruction.result->type == vex::IRType::Byte)
+                        ++byte_bitwise;
+                }
+            }
+    tests.check(checked_narrowing == 2 && widening == 4 && byte_bitwise == 4,
+                "IR preserves byte width and represents checked and widening conversions");
+    tests.check(!vex::IRVerifier{}.verify(lowered.module).has_errors(),
+                "byte operations pass independent IR verification");
+
+    const auto c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() &&
+                c.source.find("uint8_t") != std::string::npos &&
+                c.source.find("vex_checked_byte") != std::string::npos &&
+                c.source.find("vex_say_byte") != std::string::npos,
+                "C backend emits uint8_t storage, checked narrowing, and byte output");
+    const auto llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("call i8 @vex_int_to_byte") != std::string::npos &&
+                llvm.output.find("zext i8") != std::string::npos &&
+                llvm.output.find(" = and i8 ") != std::string::npos &&
+                llvm.output.find("icmp ult i8") != std::string::npos,
+                "LLVM backend emits i8 operations and unsigned byte comparisons");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -912,4 +973,5 @@ void run_ir_tests(TestContext& tests) {
     test_string_byte_length_lowering_and_backends(tests);
     test_string_join_lowering_and_backends(tests);
     test_bitwise_ir_lowering_and_backends(tests);
+    test_byte_lowering_and_backends(tests);
 }

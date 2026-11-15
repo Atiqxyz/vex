@@ -1,0 +1,4 @@
+make main() {
+    let invalid = to_byte(-1)
+    say(to_int(invalid))
+}

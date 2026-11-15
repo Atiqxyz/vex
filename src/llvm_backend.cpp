@@ -24,6 +24,7 @@ std::string llvm_type(const IRType type) {
     switch (type) {
     case IRType::Void: return "void";
     case IRType::Int: return "i64";
+    case IRType::Byte: return "i8";
     case IRType::Float: return "double";
     case IRType::Bool: return "i1";
     case IRType::String: return "{ ptr, i64 }";
@@ -534,6 +535,20 @@ done:
             << "ok:\n"
             << "  ret i64 %result\n"
             << "}\n\n";
+        output_
+            << "define internal i8 @vex_int_to_byte(i64 %value) {\n"
+            << "entry:\n"
+            << "  %negative = icmp slt i64 %value, 0\n"
+            << "  %too_large = icmp sgt i64 %value, 255\n"
+            << "  %invalid = or i1 %negative, %too_large\n"
+            << "  br i1 %invalid, label %trap, label %ok\n"
+            << "trap:\n"
+            << "  call void @llvm.trap()\n"
+            << "  unreachable\n"
+            << "ok:\n"
+            << "  %result = trunc i64 %value to i8\n"
+            << "  ret i8 %result\n"
+            << "}\n\n";
         emit_division_helper("div", "sdiv");
         emit_division_helper("rem", "srem");
     }
@@ -918,6 +933,19 @@ done:
             output_ << "  " << result << " = add i64 0, " << *parsed << "\n";
             break;
         }
+        case IRType::Byte: {
+            std::uint16_t value = 0;
+            const char* begin = instruction.immediate.data();
+            const char* end = begin + instruction.immediate.size();
+            const auto parsed = std::from_chars(begin, end, value, 10);
+            if (parsed.ec != std::errc{} || parsed.ptr != end || value > 255u) {
+                report("LLVM008", "byte constant must be in the range 0 through 255",
+                       instruction.span);
+                return;
+            }
+            output_ << "  " << result << " = add i8 0, " << value << "\n";
+            break;
+        }
         case IRType::Float: {
             const auto literal = llvm_float_literal(instruction.immediate);
             if (!literal) {
@@ -979,7 +1007,14 @@ done:
         else if (instruction.op == IROp::LessEqual) predicate = "sle";
         else if (instruction.op == IROp::Greater) predicate = "sgt";
         else if (instruction.op == IROp::GreaterEqual) predicate = "sge";
-        const char* compare_type = type == IRType::Bool ? "i1" : "i64";
+        if (type == IRType::Byte) {
+            if (instruction.op == IROp::Less) predicate = "ult";
+            else if (instruction.op == IROp::LessEqual) predicate = "ule";
+            else if (instruction.op == IROp::Greater) predicate = "ugt";
+            else if (instruction.op == IROp::GreaterEqual) predicate = "uge";
+        }
+        const char* compare_type = type == IRType::Bool ? "i1" :
+            type == IRType::Byte ? "i8" : "i64";
         const std::string result = next_temp();
         output_ << "  " << result << " = icmp " << predicate << ' '
                 << compare_type << ' ' << left << ", " << right << "\n";
@@ -1032,6 +1067,11 @@ done:
         if (type == IRType::Int) {
             output_ << "  call i32 (ptr, ...) @printf(ptr @.vex_fmt_i64, i64 "
                     << value << ")\n";
+        } else if (type == IRType::Byte) {
+            const std::string widened = next_temp();
+            output_ << "  " << widened << " = zext i8 " << value << " to i64\n"
+                    << "  call i32 (ptr, ...) @printf(ptr @.vex_fmt_i64, i64 "
+                    << widened << ")\n";
         } else if (type == IRType::Float) {
             output_ << "  call i32 (ptr, ...) @printf(ptr @.vex_fmt_f64, double "
                     << value << ")\n";
@@ -1151,17 +1191,21 @@ done:
         case IROp::BitwiseAnd:
         case IROp::BitwiseOr:
         case IROp::BitwiseXor: {
+            const IRType type = value_types_.at(instruction.operands.front()).type;
             const char* operation = instruction.op == IROp::BitwiseAnd ? "and" :
                 instruction.op == IROp::BitwiseOr ? "or" : "xor";
             const std::string result = next_temp();
-            output_ << "  " << result << " = " << operation << " i64 "
-                    << operands[0] << ", " << operands[1] << "\n";
+            output_ << "  " << result << " = " << operation << ' '
+                    << llvm_type(type) << ' ' << operands[0] << ", "
+                    << operands[1] << "\n";
             store_result(instruction, result);
             return;
         }
         case IROp::BitwiseNot: {
+            const IRType type = value_types_.at(instruction.operands.front()).type;
             const std::string result = next_temp();
-            output_ << "  " << result << " = xor i64 " << operands[0] << ", -1\n";
+            output_ << "  " << result << " = xor " << llvm_type(type) << ' '
+                    << operands[0] << ", -1\n";
             store_result(instruction, result);
             return;
         }
@@ -1222,6 +1266,20 @@ done:
             const std::string result = next_temp();
             output_ << "  " << result << " = sitofp i64 " << operands[0]
                     << " to double\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::IntToByteChecked: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = call i8 @vex_int_to_byte(i64 "
+                    << operands[0] << ")\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::ByteToInt: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = zext i8 " << operands[0]
+                    << " to i64\n";
             store_result(instruction, result);
             return;
         }

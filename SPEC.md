@@ -217,7 +217,8 @@ Dynamic-array allocations are registered in a program-lifetime runtime list and 
 
 | Type | Meaning |
 |---|---|
-| `int` | Signed 64-bit integer direction |
+| `int` | Signed 64-bit integer |
+| `byte` | Unsigned 8-bit integer, with values from 0 through 255 |
 | `float` | 64-bit IEEE-754 floating-point direction |
 | `bool` | Boolean value |
 | `string` | Length-aware byte string; UTF-8 validity is not guaranteed. |
@@ -225,22 +226,22 @@ Dynamic-array allocations are registered in a program-lifetime runtime list and 
 | fixed array | One-dimensional, fixed-length sequence of primitive or structure values; may be inferred or annotated as `Point[3]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
-The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Bitwise operations act on the full 64-bit integer representation. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer. Dynamic-array elements are copied as typed values, including whole structures; any dynamic-array fields inside those structures retain their shared references.
+The implemented numeric representation is signed 64-bit `int` values and 64-bit floating-point values. `byte` is a separate unsigned 8-bit scalar and is deliberately not an arithmetic numeric type. `to_byte(int)` checks that the value is in the inclusive range 0 through 255 and traps otherwise; `to_int(byte)` zero-extends the value to `int`. Byte relational comparisons are unsigned. Bitwise operations accept two `int` operands or two `byte` operands: `int` operations act on all 64 bits, while `byte` operations act on exactly 8 bits and return `byte`. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer. Dynamic-array elements are copied as typed values, including whole structures; any dynamic-array fields inside those structures retain their shared references.
 
 - Local `let` and `const` types are inferred from their initializers when no annotation is present.
 - Explicit local annotations are checked against initializer types.
-- An `int` value may widen to `float`; implicit conversion from `float` to `int` is rejected.
+- An `int` value may widen to `float`; implicit conversion from `float` to `int` and from `int` to `byte` is rejected. Use checked `to_byte(int)` and explicit `to_int(byte)` conversions.
 - Addition `+` accepts either two numeric operands or two strings. String concatenation preserves byte lengths, including embedded NUL bytes; it does not decode or normalize UTF-8. Subtraction, multiplication, division, and remainder require numeric operands. The remainder operator `%` requires two `int` operands and uses truncating signed-remainder semantics: the quotient is truncated toward zero and any non-zero remainder has the sign of the left operand (for example, `-7 % 3 == -1`, `7 % -3 == 1`, and `-7 % -3 == -1`). A zero divisor traps. The defined edge case `INT64_MIN % -1` returns `0`; `INT64_MIN / -1` remains a checked division overflow.
-- Relational comparisons require numeric operands. Equality supports compatible primitive types; whole-array equality is rejected.
+- Relational comparisons require numeric operands or two `byte` operands; byte comparisons are unsigned. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
-- Bitwise `&`, `|`, and `^` operate on two signed 64-bit `int` bit patterns and return `int`; unary `~` inverts all 64 bits. They are distinct from short-circuit logical `&&` and `||`. Bit shifts and rotations are not yet implemented.
+- Bitwise `&`, `|`, and `^` operate on matching `int` or `byte` operands and preserve the operand type. Unary `~` inverts all 64 bits for `int` or all 8 bits for `byte`. They are distinct from short-circuit logical `&&` and `||`. Bit shifts and rotations are not yet implemented.
 - `repeat` counts require `int`.
 - `for-in` accepts fixed arrays and dynamic arrays of primitives or structures, plus integer ranges. Fixed-array lengths are known at compile time; dynamic-array lengths are re-read at each loop header, so appending or removing elements during iteration can change the number of iterations. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
 - `break` and `continue` are only valid inside loops and target the innermost enclosing loop.
 - Compound assignments `+=`, `-=`, `*=`, `/=`, and `%=` apply their corresponding operation and store the result. They work on named bindings and nested field/index paths rooted at named aggregate bindings. The `+=` operator also concatenates two strings; `%=` requires two `int` operands. The result must be storable in the target type, and immutable roots cannot be modified.
 - Variables are visible after declaration in their lexical scope. Nested blocks may shadow outer bindings; duplicate declarations in the same scope are errors.
 - Assignment to `let` is allowed when the value is type-compatible. Assignment to `const` is rejected.
-- Function parameters require explicit types. Primitive, structure, and array annotations such as `point: Point`, `values: int[3]`, and `points: Point[]` are supported. Function signatures are registered before body checking, enabling forward calls. Argument count, element types, and fixed-array lengths are checked.
+- Function parameters require explicit types. Primitive, structure, and array annotations such as `point: Point`, `values: int[3]`, `raw: byte[]`, and `points: Point[]` are supported. Function signatures are registered before body checking, enabling forward calls. Argument count, element types, and fixed-array lengths are checked.
 - Fixed arrays of primitives or structures may be passed to and returned from functions by value. A function returning `Point[3]` must return exactly three values of that nominal structure type; an array argument must match the parameter's element type, structure identity, and full fixed shape. Dynamic arrays may also be passed to and returned from functions, but they are shared references rather than copied collections; their element type and nominal structure identity must match the declared `T[]` shape.
 - A function without a return annotation is treated as `void`. A non-void function is rejected when a reachable path can reach the end of its body without returning a compatible value. Return-path analysis follows sequential statements, nested blocks, conditional branches, and loop exits. It recognizes literal boolean conditions, positive or non-positive integer literal repeat counts, and fixed-array or integer-range iteration when non-emptiness can be proven from the source. A loop that may execute zero times cannot by itself satisfy a return requirement. A path proven unable to reach the function end (for example, a literal `while true` loop without a reachable `break`) does not need a return value.
 - The built-in `say(value)` accepts one supported primitive value and returns `void`; arrays must be indexed before printing.

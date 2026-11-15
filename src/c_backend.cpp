@@ -25,6 +25,7 @@ const char* c_type(const IRType type) noexcept {
     switch (type) {
     case IRType::Void: return "void";
     case IRType::Int: return "int64_t";
+    case IRType::Byte: return "uint8_t";
     case IRType::Float: return "double";
     case IRType::Bool: return "bool";
     case IRType::String: return "vex_string";
@@ -47,6 +48,7 @@ std::string array_type_name(const IRType element_type, const std::uint32_t lengt
     const std::string element = element_type == IRType::Int ? "int" :
         element_type == IRType::Float ? "float" :
         element_type == IRType::Bool ? "bool" :
+        element_type == IRType::Byte ? "byte" :
         element_type == IRType::String ? "string" :
         "struct_" + std::to_string(element_struct_type_id);
     return "vex_array_" + element + "_" + std::to_string(length);
@@ -350,6 +352,11 @@ private:
             << "    (void)fprintf(stderr, \"VEX runtime error: %s\\n\", message);\n"
             << "    exit(EXIT_FAILURE);\n"
             << "}\n\n"
+            << "static uint8_t vex_checked_byte(int64_t value) {\n"
+            << "    if (value < 0 || value > 255)\n"
+            << "        vex_runtime_trap(\"integer is outside byte range 0 through 255\");\n"
+            << "    return (uint8_t)value;\n"
+            << "}\n\n"
             << "static size_t vex_checked_array_index(int64_t index, size_t length) {\n"
             << "    if (index < 0 || (uint64_t)index >= (uint64_t)length)\n"
             << "        vex_runtime_trap(\"array index is out of bounds\");\n"
@@ -550,6 +557,9 @@ private:
             << "static void vex_say_int(int64_t value) {\n"
             << "    (void)printf(\"%\" PRId64 \"\\n\", value);\n"
             << "}\n\n"
+            << "static void vex_say_byte(uint8_t value) {\n"
+            << "    (void)printf(\"%u\\n\", (unsigned int)value);\n"
+            << "}\n\n"
             << "static void vex_say_float(double value) {\n"
             << "    (void)printf(\"%.17g\\n\", value);\n"
             << "}\n\n"
@@ -712,6 +722,19 @@ private:
             output_ << "    " << target << " = INT64_C(" << value << ");\n";
             return true;
         }
+        case IRType::Byte: {
+            std::uint16_t value = 0;
+            const char* begin = instruction.immediate.data();
+            const char* end = begin + instruction.immediate.size();
+            const auto parsed = std::from_chars(begin, end, value, 10);
+            if (parsed.ec != std::errc{} || parsed.ptr != end || value > 255u) {
+                report("CG009", "byte constant must be in the range 0 through 255",
+                       instruction.span);
+                return false;
+            }
+            output_ << "    " << target << " = (uint8_t)" << value << "u;\n";
+            return true;
+        }
         case IRType::Float: {
             char* end = nullptr;
             errno = 0;
@@ -815,15 +838,28 @@ private:
         case IROp::BitwiseAnd:
         case IROp::BitwiseOr:
         case IROp::BitwiseXor: {
-            const char* helper = instruction.op == IROp::BitwiseAnd ? "vex_i64_bit_and" :
-                instruction.op == IROp::BitwiseOr ? "vex_i64_bit_or" : "vex_i64_bit_xor";
-            output_ << "    " << result << " = " << helper << "("
-                    << operand(0) << ", " << operand(1) << ");\n";
+            const auto type = value_type(function, instruction.operands[0]);
+            if (type && type->type == IRType::Byte) {
+                const char* operation = instruction.op == IROp::BitwiseAnd ? "&" :
+                    instruction.op == IROp::BitwiseOr ? "|" : "^";
+                output_ << "    " << result << " = (uint8_t)(" << operand(0)
+                        << ' ' << operation << ' ' << operand(1) << ");\n";
+            } else {
+                const char* helper = instruction.op == IROp::BitwiseAnd ? "vex_i64_bit_and" :
+                    instruction.op == IROp::BitwiseOr ? "vex_i64_bit_or" : "vex_i64_bit_xor";
+                output_ << "    " << result << " = " << helper << "("
+                        << operand(0) << ", " << operand(1) << ");\n";
+            }
             return;
         }
-        case IROp::BitwiseNot:
-            output_ << "    " << result << " = vex_i64_bit_not(" << operand(0) << ");\n";
+        case IROp::BitwiseNot: {
+            const auto type = value_type(function, instruction.operands[0]);
+            if (type && type->type == IRType::Byte)
+                output_ << "    " << result << " = (uint8_t)(~" << operand(0) << ");\n";
+            else
+                output_ << "    " << result << " = vex_i64_bit_not(" << operand(0) << ");\n";
             return;
+        }
         case IROp::LogicalNot:
             output_ << "    " << result << " = !" << operand(0) << ";\n";
             return;
@@ -861,6 +897,12 @@ private:
         }
         case IROp::IntToFloat:
             output_ << "    " << result << " = (double)" << operand(0) << ";\n";
+            return;
+        case IROp::IntToByteChecked:
+            output_ << "    " << result << " = vex_checked_byte(" << operand(0) << ");\n";
+            return;
+        case IROp::ByteToInt:
+            output_ << "    " << result << " = (int64_t)" << operand(0) << ";\n";
             return;
         case IROp::Call:
             if (instruction.result) output_ << "    " << result << " = ";
@@ -1014,6 +1056,7 @@ private:
         case IROp::Say: {
             const auto type = value_type(function, instruction.operands[0]);
             const char* helper = type && type->type == IRType::Int ? "vex_say_int" :
+                type && type->type == IRType::Byte ? "vex_say_byte" :
                 type && type->type == IRType::Float ? "vex_say_float" :
                 type && type->type == IRType::Bool ? "vex_say_bool" : "vex_say_string";
             output_ << "    " << helper << '(' << operand(0) << ");\n";

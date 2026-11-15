@@ -125,6 +125,7 @@ private:
             Type element_type = Type::Error;
             std::uint32_t element_struct_type_id = 0;
             if (element_name == "int") element_type = Type::Int;
+            else if (element_name == "byte") element_type = Type::Byte;
             else if (element_name == "float") element_type = Type::Float;
             else if (element_name == "bool") element_type = Type::Bool;
             else if (element_name == "string") element_type = Type::String;
@@ -159,6 +160,7 @@ private:
             return Type::Array;
         }
         if (name == "int") return Type::Int;
+        if (name == "byte") return Type::Byte;
         if (name == "float") return Type::Float;
         if (name == "bool") return Type::Bool;
         if (name == "string") return Type::String;
@@ -195,6 +197,19 @@ private:
         add_math("cos", 1);
         add_math("pow", 2);
         add_math("abs", 1);
+
+        const auto add_conversion = [this](const char* name, const Type result,
+                                           const Type parameter) {
+            Symbol function;
+            function.type = result;
+            function.is_function = true;
+            function.parameters = {parameter};
+            function.parameter_array_types = {std::nullopt};
+            function.declaration = {0, 0};
+            scopes_.front().emplace(name, std::move(function));
+        };
+        add_conversion("to_byte", Type::Byte, Type::Int);
+        add_conversion("to_int", Type::Int, Type::Byte);
 
         Symbol length;
         length.type = Type::Int;
@@ -256,7 +271,7 @@ private:
             const auto* structure = std::get_if<StructDeclStmt>(&statement->data);
             if (!structure) continue;
             const std::string name = spelling(structure->name);
-            if (name == "int" || name == "float" || name == "bool" ||
+            if (name == "int" || name == "byte" || name == "float" || name == "bool" ||
                 name == "string" || name == "void") {
                 report("SEM002", "structure name '" + name + "' conflicts with a built-in type",
                        structure->name);
@@ -765,12 +780,12 @@ private:
                 return Type::Bool;
             }
             if (unary->op == TokenKind::BitNot) {
-                if (operand != Type::Int) {
-                    report("SEM011", "bitwise NOT requires an int operand; got " +
+                if (operand != Type::Int && operand != Type::Byte) {
+                    report("SEM011", "bitwise NOT requires an int or byte operand; got " +
                            std::string(type_name(operand)), unary->operand->span);
                     return Type::Error;
                 }
-                return Type::Int;
+                return operand;
             }
             if (unary->op == TokenKind::Plus || unary->op == TokenKind::Minus) {
                 if (!is_numeric(operand)) {
@@ -817,18 +832,19 @@ private:
             case TokenKind::BitAnd:
             case TokenKind::BitOr:
             case TokenKind::BitXor:
-                if (left != Type::Int || right != Type::Int) {
-                    report("SEM012", "bitwise operators require two int operands",
+                if (left != right || (left != Type::Int && left != Type::Byte)) {
+                    report("SEM012", "bitwise operators require two int operands or two byte operands",
                            expression.span);
                     return Type::Error;
                 }
-                return Type::Int;
+                return left;
             case TokenKind::Less:
             case TokenKind::LessEqual:
             case TokenKind::Greater:
             case TokenKind::GreaterEqual:
-                if (!is_numeric(left) || !is_numeric(right)) {
-                    report("SEM013", "comparison operators require numeric operands",
+                if (!((is_numeric(left) && is_numeric(right)) ||
+                      (left == Type::Byte && right == Type::Byte))) {
+                    report("SEM013", "comparison operators require numeric operands or two byte operands",
                            expression.span);
                     return Type::Error;
                 }
@@ -1682,6 +1698,7 @@ const char* semantic_type_name(const SemanticType type) noexcept {
     case SemanticType::Any: return "any";
     case SemanticType::Void: return "void";
     case SemanticType::Int: return "int";
+    case SemanticType::Byte: return "byte";
     case SemanticType::Float: return "float";
     case SemanticType::Bool: return "bool";
     case SemanticType::String: return "string";
