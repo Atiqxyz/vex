@@ -53,7 +53,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Mutable local bindings | Implemented | \`let\`. |
 | Immutable local bindings | Implemented | \`const\` prevents reassignment. |
 | Local type inference | Implemented | Inferred from initializer. |
-| Explicit local type annotations | Implemented | Primitive and fixed-array annotations such as `int[3]`; user-defined types remain absent. |
+| Explicit local type annotations | Implemented | Primitive, nominal structure, fixed-array, and dynamic-array annotations such as `Point`, `Point[3]`, and `Point[]`. |
 | Lexical block scopes | Implemented | Nested scopes and shadowing. |
 | Duplicate declaration diagnostics | Implemented | Same-scope duplicates rejected. |
 | Top-level executable statements | Implemented | Run in source order when explicit \`main\` is absent. |
@@ -70,7 +70,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Signed 64-bit integer | Implemented | Current \`int\`. |
 | 64-bit floating point | Implemented | Current \`float\`. |
 | Boolean | Implemented | Current \`bool\`. |
-| UTF-8 string | Partial | Length-aware byte strings support literals, equality, output, byte-preserving concatenation, exact byte length, and checked joining of dynamic string arrays; broader text APIs, UTF-8 validation policy, and Unicode behavior remain unfinished. |
+| String type | Partial | Strings are length-aware byte sequences, not guaranteed-valid UTF-8. Literals, exact byte length, equality, output, byte-preserving concatenation, and checked joining are implemented; Unicode-aware text operations remain unfinished. |
 | Void | Implemented | Function no-value result. |
 | Fixed-size one-dimensional arrays | Implemented | Primitive and structure arrays support inference, explicit `type[length]` annotations, structure fields, parameters/returns, and value aggregates. |
 | Array indexing and mutation | Implemented | Runtime bounds checks; nested field/index writes rooted at named aggregates, in both backends. |
@@ -104,7 +104,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Opaque / abstract types | Not implemented | Depends on modules and visibility. |
 | Type inference beyond locals | Partial | Function parameters are explicit; generic inference is absent. |
 | User-defined conversions | Not implemented | Avoid implicit surprising conversions. |
-| Explicit casts / checked narrowing | Partial | int-to-float widening exists; a complete cast system does not. |
+| Explicit casts / checked narrowing | Partial | `int` widens to `float`; `to_byte(int)` is checked and `to_int(byte)` zero-extends. A complete conversion matrix and additional widths do not exist. |
 | Structure field order and target-native layout | Implemented | Fields retain declaration order; native target ABI alignment may insert inter-field and tail padding. C uses compiler layout/`sizeof`; LLVM uses native aggregate allocation size. Mixed-alignment records, nested fixed arrays, padded dynamic-array strides, growth, and C/LLVM behavior are integration-tested. Sizes and offsets are target-dependent. |
 | Explicit packed / aligned layout controls | Not implemented | User-selected packing, alignment and ABI annotations remain deferred until a concrete FFI or binary-layout requirement is designed. |
 
@@ -314,8 +314,8 @@ These are decisions to make consciously, not features to add automatically:
 
 ## 14. Audit gates before choosing the next implementation
 
-1. **Verify existing claims:** add focused tests for string operations, negative modulo behavior and floating-point edge cases. Recursion, mutual recursion, reachable return-path analysis, nested loop control and evaluation order now have dedicated coverage.
-2. **Resolve foundational designs:** structs/layout, array-of-struct representation, dynamic arrays/slices, optional/result errors, memory ownership and resource cleanup.
+1. **Verify existing claims:** add focused tests for floating-point edge cases, broader string/text behavior, and numeric boundary cases. Recursion, mutual recursion, reachable return-path analysis, nested loop control and evaluation order now have dedicated coverage.
+2. **Resolve foundational designs still open:** borrowed slices, nested/multidimensional collections, optional/result errors, ownership/lifetimes, allocators, and deterministic resource cleanup.
 3. **Map dependencies:** do not implement a feature before its required type, lifetime, IR and backend semantics are understood.
 4. **Select a coherent milestone:** choose a group of related features that can be completed end to end, not a scattered set of syntax additions.
 5. **Keep CI broad:** preserve the four-platform matrix and test both C and LLVM backends.
@@ -323,6 +323,6 @@ These are decisions to make consciously, not features to add automatically:
 
 ## 15. Current known baseline
 
-The current \`dev\` baseline includes primitive static typing, inferred local bindings, functions with typed parameters and optional return annotations, forward calls, optional explicit \`main\`, lexical scopes, conditionals, repeat/while/for-in loops, break/continue, compound assignment, checked primitive arithmetic, strings and \`say\`, fixed primitive arrays, array indexing/mutation/bounds checks, integer range iteration, math intrinsics, typed SSA IR, C and LLVM backends, CLI build/run tools, cross-platform tests and a VS Code extension.
+The current `dev` baseline includes statically typed primitives and inferred locals; functions, forward and recursive calls, control flow and ranges; nominal structures with documented target-native layout; fixed and dynamic one-dimensional arrays of primitive and structure values; nested aggregate reads and updates; compound assignment; strings with byte-preserving concatenation and chunk joining; the unsigned 8-bit `byte` type and mutable `byte[]` buffers; checked owning byte slices; 16-/32-bit unsigned little-/big-endian binary codecs; whole-file binary `read_file`/`write_file`; typed SSA IR with an independent verifier; C11 and LLVM backends; native CLI build/run paths; cross-platform CI; and initial VS Code integration.
 
-This baseline does **not** imply that every edge case in the tables has been audited. Items marked **Verify** must be tested before being promoted to **Implemented**.
+The binary-buffer and file-I/O implementation is present end to end in the C and LLVM paths. It passed CI run [#271](https://github.com/Atiqxyz/vex/actions/runs/43743633949) on Ubuntu, Windows, macOS ARM, and macOS Intel at commit `e6286e1`. This does **not** mean VEX has borrowed/zero-copy slices, streaming file handles, a general `Result` type, a complete ownership/lifetime model, or all numeric widths. Items marked **Verify** still need focused tests before being promoted to **Implemented**.
