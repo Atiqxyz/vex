@@ -55,7 +55,7 @@ void test_c_backend_emits_typed_c(TestContext& tests) {
     tests.check(result.source.find("vex_say_int(vex_v_1)") != std::string::npos,
                 "C backend maps the say intrinsic to its runtime helper");
     const auto concat_start = result.source.find("static vex_string vex_string_concat");
-    const auto concat_end = result.source.find("static bool vex_string_equal", concat_start);
+    const auto concat_end = result.source.find("static vex_string vex_string_join", concat_start);
     const bool has_concat_helper = concat_start != std::string::npos &&
                                    concat_end != std::string::npos;
     tests.check(has_concat_helper, "C backend emits its string concatenation runtime helper");
