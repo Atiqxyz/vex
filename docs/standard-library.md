@@ -38,13 +38,17 @@ make main() {
 - Floating-point domain errors and exceptional values follow the platform C math library behavior.
 - This is the first slice of the standard library, not a complete scientific-computing API.
 
+## String byte length (implemented)
+
+`length(value)` also accepts a `string` and returns its byte count. VEX strings are length-aware byte sequences; this operation does not count Unicode scalar values or grapheme clusters, validate UTF-8, or stop at embedded NUL bytes. For example, `length("A\\0B")` is `3`.
+
 ## Dynamic-array built-ins (implemented)
 
 Dynamic arrays use primitive element types and are declared with an empty length suffix, for example `int[]` or `string[]`. These compiler-recognized operations are available:
 
 | Function | Signature | Behavior |
 |---|---|---|
-| `length(array)` | `T[] -> int` (also accepts fixed arrays) | Returns the current element count; fixed-array length is emitted as a constant |
+| `length(value)` | `string -> int`; `T[] -> int` (also accepts fixed arrays) | Returns a string's byte count or an array's element count; fixed-array length is emitted as a constant |
 | `push(array, value)` | `(T[], T) -> void` | Appends an element, growing capacity geometrically when needed |
 | `pop(array)` | `T[] -> T` | Removes and returns the final element; traps when the array is empty |
 

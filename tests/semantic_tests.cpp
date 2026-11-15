@@ -652,6 +652,27 @@ void test_for_in_rejects_non_array_values(TestContext& tests) {
                 "for-in rejects values that are neither arrays nor integer ranges");
 }
 
+void test_string_byte_length_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"string_length.vex",
+        "make main() {\n"
+        "    let plain = length(\"hello\")\n"
+        "    let embedded_nul = length(\"A\\0B\")\n"
+        "    let empty = length(\"\")\n"
+        "    let values = [1, 2, 3]\n"
+        "    let array_count = length(values)\n"
+        "    say(plain + embedded_nul + empty + array_count)\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "length accepts byte strings while preserving array length support");
+
+    const vex::SourceFile invalid{"invalid_string_length.vex",
+        "make main() { let count = length(42) }\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM021"),
+                "length rejects values that are neither strings nor arrays");
+}
+
 } // namespace
 
 void run_semantic_tests(TestContext& tests) {
@@ -672,4 +693,5 @@ void run_semantic_tests(TestContext& tests) {
     test_integer_range_semantics(tests);
     test_for_in_rejects_non_array_values(tests);
     test_structure_types_value_semantics_and_diagnostics(tests);
+    test_string_byte_length_semantics(tests);
 }

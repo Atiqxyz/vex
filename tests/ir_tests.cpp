@@ -574,6 +574,78 @@ void test_fixed_array_lowering_and_backends(TestContext& tests) {
                 "LLVM backend emits aggregate arrays and bounds checks");
 }
 
+void test_string_byte_length_lowering_and_backends(TestContext& tests) {
+    const vex::SourceFile source{"string_length_ir.vex",
+        "make main() {\n"
+        "    let unused_integer = 42\n"
+        "    let embedded_nul_count = length(\"A\\0B\")\n"
+        "    let empty_count = length(\"\")\n"
+        "    say(embedded_nul_count)\n"
+        "    say(empty_count)\n"
+        "}\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "byte-length fixture passes lexical, syntactic, and semantic analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(),
+                "string byte length lowers into typed IR");
+    if (lowered.has_errors()) return;
+
+    std::size_t byte_length_operations = 0;
+    vex::IRModule invalid_operand = lowered.module;
+    vex::IRValueId integer_id = 0;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::Constant && instruction.result &&
+                    instruction.result->type == vex::IRType::Int) {
+                    integer_id = instruction.result->id;
+                }
+                if (instruction.op == vex::IROp::StringLength)
+                    ++byte_length_operations;
+            }
+        }
+    }
+    tests.check(byte_length_operations == 2,
+                "both non-empty and empty strings lower to string_length operations");
+
+    const vex::IRVerificationResult verified = vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(),
+                "string-length operation passes independent IR verification");
+
+    bool corrupted = false;
+    for (vex::IRFunction& function : invalid_operand.functions) {
+        for (vex::IRBlock& block : function.blocks) {
+            for (vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::StringLength) {
+                    instruction.operands[0] = integer_id;
+                    corrupted = true;
+                    break;
+                }
+            }
+            if (corrupted) break;
+        }
+        if (corrupted) break;
+    }
+    const vex::IRVerificationResult rejected = vex::IRVerifier{}.verify(invalid_operand);
+    tests.check(corrupted && integer_id != 0 && has_code(rejected, "IR073"),
+                "IR verifier rejects string length applied to a non-string value");
+
+    const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() && c.source.find(".length;") != std::string::npos,
+                "C backend reads the length-aware string descriptor");
+    const vex::BackendResult llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("extractvalue { ptr, i64 }") != std::string::npos,
+                "LLVM backend extracts the string descriptor byte count");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -586,4 +658,5 @@ void run_ir_tests(TestContext& tests) {
     test_block_arguments_and_control_flow(tests);
     test_invalid_ir_is_rejected(tests);
     test_dominance_and_call_signatures(tests);
+    test_string_byte_length_lowering_and_backends(tests);
 }

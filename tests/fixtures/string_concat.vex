@@ -29,4 +29,8 @@ make main() {
     say(original_copy == "immutable")
     say(original == "immutable")
     say(extended == "immutable!")
+    say(length(strings.title))
+    say(length(strings.labels[0]))
+    say(length(bytes))
+    say(length(""))
 }

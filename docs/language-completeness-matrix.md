@@ -201,6 +201,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 |---|---|---|
 | String literals | Implemented | Double-quoted literals and documented escapes. |
 | Embedded NUL preservation | Implemented | Length-aware backend string representation. |
+| String byte length | Implemented | `length(string)` reads the descriptor byte count; embedded NUL is included. It is not a Unicode character-count API. |
 | String output | Implemented | Via \`say\`. |
 | String concatenation | Implemented | Binary string `+` and string `+=` lower through a dedicated typed-IR operation; C and LLVM allocate one tracked block for each non-empty concatenation, preserve embedded NUL bytes, return the other operand directly for empty-input cases, and release tracked blocks at normal generated-entry return. Repeated dynamic `+=` remains quadratic; an amortized builder is deferred until its alias/lifetime contract is designed. |
 | String equality | Implemented | Primitive equality is supported; test byte/Unicode semantics. |
