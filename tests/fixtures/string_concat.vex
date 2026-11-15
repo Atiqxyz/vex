@@ -16,6 +16,9 @@ make main() {
     let empty_left = "" + "VEX"
     let empty_right = "VEX" + ""
     let both_empty = "" + ""
+    let original = "immutable"
+    let original_copy = original
+    let extended = original + "!"
     say(strings.title)
     say(joined)
     say(bytes == bytes_expected)
@@ -23,4 +26,7 @@ make main() {
     say(empty_right)
     say(both_empty == "")
     say(strings.labels[0] == "A\0C")
+    say(original_copy == "immutable")
+    say(original == "immutable")
+    say(extended == "immutable!")
 }
