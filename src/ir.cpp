@@ -94,6 +94,7 @@ private:
                    function_.return_type == IRType::Int ||
                    function_.return_type == IRType::Float ||
                    function_.return_type == IRType::Bool ||
+                   function_.return_type == IRType::Byte ||
                    function_.return_type == IRType::String) {
             if (function_.return_element_type != IRType::Void ||
                 function_.return_array_length != 0 ||
