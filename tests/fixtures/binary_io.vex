@@ -27,13 +27,13 @@ make main() {
 
     say(write_file("vex_binary_io_test.dat", data))
 
-    let loaded: byte[] = [to_byte(255)]
+    let loaded: byte[] = [to_byte(255),]
     say(read_file("vex_binary_io_test.dat", loaded))
     say(length(loaded))
     say(loaded[0])
     say(read_u32_be(loaded, 9))
 
-    let missing: byte[] = [to_byte(9)]
+    let missing: byte[] = [to_byte(9),]
     say(read_file("vex_file_that_does_not_exist_vex_test.bin", missing))
     say(length(missing))
     say(missing[0])

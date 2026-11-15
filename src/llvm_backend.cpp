@@ -924,7 +924,7 @@ entry:
   %bad_path = or i1 %empty_path, %has_nul
   br i1 %bad_path, label %invalid_path, label %open_file
 open_file:
-  %mode = getelementptr inbounds [3 x i8], ptr @vex_file_read_mode, i64 0, i64 0
+  %mode = getelementptr inbounds [3 x i8], ptr @.vex_file_read_mode, i64 0, i64 0
   %file = call ptr @fopen(ptr %path_data, ptr %mode)
   %open_failed = icmp eq ptr %file, null
   br i1 %open_failed, label %invalid_path, label %check_array
@@ -1005,7 +1005,7 @@ entry:
   %bad_path = or i1 %empty_path, %has_nul
   br i1 %bad_path, label %invalid_path, label %open_file
 open_file:
-  %mode = getelementptr inbounds [3 x i8], ptr @vex_file_write_mode, i64 0, i64 0
+  %mode = getelementptr inbounds [3 x i8], ptr @.vex_file_write_mode, i64 0, i64 0
   %file = call ptr @fopen(ptr %path_data, ptr %mode)
   %open_failed = icmp eq ptr %file, null
   br i1 %open_failed, label %invalid_path, label %check_array
