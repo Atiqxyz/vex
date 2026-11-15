@@ -712,6 +712,41 @@ void test_string_join_lowering_and_backends(TestContext& tests) {
                 llvm.output.find("call { ptr, i64 } @vex_string_join(ptr ") != std::string::npos &&
                 llvm.output.find("define internal { ptr, i64 } @vex_string_join(ptr %parts)") != std::string::npos,
                 "LLVM backend emits and calls the checked string-join runtime helper");
+
+    const auto c_join_start = c.source.find("static vex_string vex_string_join");
+    const auto c_join_end = c.source.find("static void vex_string_cleanup", c_join_start);
+    const bool has_c_join_helper = c_join_start != std::string::npos &&
+                                   c_join_end != std::string::npos;
+    bool c_join_uses_one_allocation = false;
+    if (has_c_join_helper) {
+        const std::string_view helper{c.source.data() + c_join_start,
+                                      c_join_end - c_join_start};
+        const auto allocation = helper.find("malloc(");
+        c_join_uses_one_allocation = allocation != std::string_view::npos &&
+            helper.find("malloc(", allocation + 1) == std::string_view::npos &&
+            helper.find("if (length == 0u) return") < allocation;
+    }
+    tests.check(c_join_uses_one_allocation,
+                "C string join allocates once and returns empty output before allocation");
+
+    const auto llvm_join_start = llvm.output.find(
+        "define internal { ptr, i64 } @vex_string_join");
+    const auto llvm_join_end = llvm.output.find(
+        "define internal void @vex_string_cleanup", llvm_join_start);
+    const bool has_llvm_join_helper = llvm_join_start != std::string::npos &&
+                                      llvm_join_end != std::string::npos;
+    bool llvm_join_uses_one_allocation = false;
+    if (has_llvm_join_helper) {
+        const std::string_view helper{llvm.output.data() + llvm_join_start,
+                                      llvm_join_end - llvm_join_start};
+        const auto empty_return = helper.find("ret { ptr, i64 } %empty_result");
+        const auto allocation = helper.find("call ptr @malloc(i64");
+        llvm_join_uses_one_allocation = allocation != std::string_view::npos &&
+            helper.find("call ptr @malloc(i64", allocation + 1) == std::string_view::npos &&
+            empty_return < allocation;
+    }
+    tests.check(llvm_join_uses_one_allocation,
+                "LLVM string join allocates once and returns empty output before allocation");
 }
 
 } // namespace
