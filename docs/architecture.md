@@ -86,7 +86,7 @@ The backend interface consumes verified IR and keeps code generation behind a re
 
 The C backend consumes only verified IR. It emits C11 source without mixing backend logic into parsing or semantic analysis. Fixed arrays use generated C struct layouts, including function return types, and a shared runtime bounds check for indexed reads and writes.
 
-- Values use fixed-width C types where available. VEX strings use a pointer-plus-length representation, preserving embedded NUL bytes.
+- Values use fixed-width C types where available. VEX strings use a pointer-plus-length representation, preserving embedded NUL bytes. Non-empty concatenation uses one tracked allocation containing both its lifetime node and byte payload; concatenation with an empty operand returns the other descriptor without allocating.
 - Function symbols are mangled into a private generated namespace. All prototypes precede definitions, supporting forward calls.
 - Basic-block parameters are represented by local variables. Each control-flow edge uses temporaries to implement parallel copies before a `goto`, so loop-carried values and branch merges are not corrupted by sequential assignment.
 - Integer arithmetic uses checked helper functions to avoid C signed-overflow undefined behavior. Runtime failure is reported for overflow and invalid integer division/remainder.
