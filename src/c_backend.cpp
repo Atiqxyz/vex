@@ -432,6 +432,100 @@ private:
             << "    --array->length;\n"
             << "    (void)memcpy(result, (unsigned char *)array->data + array->length * element_size, element_size);\n"
             << "}\n\n"
+            << "static vex_array *vex_byte_slice(vex_array *source, int64_t start, int64_t count) {\n"
+            << "    vex_array_check(source, 1u);\n"
+            << "    if (start < 0 || count < 0 || (uint64_t)start > (uint64_t)source->length ||\n"
+            << "        (uint64_t)count > (uint64_t)source->length - (uint64_t)start)\n"
+            << "        vex_runtime_trap(\"byte slice is out of bounds\");\n"
+            << "    vex_array *result = vex_array_new(1u);\n"
+            << "    if (count != 0) {\n"
+            << "        vex_array_reserve(result, count, 1u);\n"
+            << "        (void)memcpy(result->data, (const unsigned char *)source->data + (size_t)start, (size_t)count);\n"
+            << "        result->length = (size_t)count;\n"
+            << "    }\n"
+            << "    return result;\n"
+            << "}\n\n"
+            << "static int64_t vex_byte_read(vex_array *array, int64_t offset, size_t width, bool little_endian) {\n"
+            << "    vex_array_check(array, 1u);\n"
+            << "    if (offset < 0 || (uint64_t)offset > (uint64_t)array->length ||\n"
+            << "        width > (uint64_t)array->length - (uint64_t)offset)\n"
+            << "        vex_runtime_trap(\"binary read is out of bounds\");\n"
+            << "    const unsigned char *bytes = (const unsigned char *)array->data + (size_t)offset;\n"
+            << "    uint64_t value = 0u;\n"
+            << "    for (size_t index = 0u; index < width; ++index) {\n"
+            << "        const size_t shift_index = little_endian ? index : width - 1u - index;\n"
+            << "        value |= (uint64_t)bytes[index] << (shift_index * 8u);\n"
+            << "    }\n"
+            << "    return (int64_t)value;\n"
+            << "}\n\n"
+            << "static void vex_byte_write(vex_array *array, int64_t offset, int64_t value, size_t width, bool little_endian) {\n"
+            << "    vex_array_check(array, 1u);\n"
+            << "    const uint64_t maximum = width == 2u ? UINT64_C(65535) : UINT64_C(4294967295);\n"
+            << "    if (value < 0 || (uint64_t)value > maximum)\n"
+            << "        vex_runtime_trap(\"binary integer value is outside the selected unsigned width\");\n"
+            << "    if (offset < 0 || (uint64_t)offset > (uint64_t)array->length ||\n"
+            << "        width > (uint64_t)array->length - (uint64_t)offset)\n"
+            << "        vex_runtime_trap(\"binary write is out of bounds\");\n"
+            << "    unsigned char *bytes = (unsigned char *)array->data + (size_t)offset;\n"
+            << "    const uint64_t bits = (uint64_t)value;\n"
+            << "    for (size_t index = 0u; index < width; ++index) {\n"
+            << "        const size_t shift_index = little_endian ? index : width - 1u - index;\n"
+            << "        bytes[index] = (unsigned char)(bits >> (shift_index * 8u));\n"
+            << "    }\n"
+            << "}\n\n"
+            << "static bool vex_valid_file_path(vex_string path) {\n"
+            << "    return path.length != 0u && path.data != NULL &&\n"
+            << "        memchr(path.data, 0, path.length) == NULL;\n"
+            << "}\n\n"
+            << "static int64_t vex_file_read(vex_string path, vex_array *array) {\n"
+            << "    vex_array_check(array, 1u);\n"
+            << "    if (!vex_valid_file_path(path)) return -1;\n"
+            << "    FILE *file = fopen((const char *)path.data, \"rb\");\n"
+            << "    if (file == NULL) return -1;\n"
+            << "    const size_t original_length = array->length;\n"
+            << "    for (;;) {\n"
+            << "        if (array->length > (size_t)INT64_MAX - 4096u) {\n"
+            << "            array->length = original_length; (void)fclose(file); return -1;\n"
+            << "        }\n"
+            << "        const size_t required = array->length + 4096u;\n"
+            << "        size_t next_capacity = array->capacity;\n"
+            << "        if (next_capacity < required) {\n"
+            << "            if (next_capacity == 0u) next_capacity = 4096u;\n"
+            << "            while (next_capacity < required) {\n"
+            << "                if (next_capacity > SIZE_MAX / 2u) { next_capacity = required; break; }\n"
+            << "                next_capacity *= 2u;\n"
+            << "            }\n"
+            << "        }\n"
+            << "        if (next_capacity > (size_t)INT64_MAX) {\n"
+            << "            array->length = original_length; (void)fclose(file); return -1;\n"
+            << "        }\n"
+            << "        vex_array_reserve(array, (int64_t)next_capacity, 1u);\n"
+            << "        unsigned char *destination = (unsigned char *)array->data + array->length;\n"
+            << "        const size_t count = fread(destination, 1u, 4096u, file);\n"
+            << "        array->length += count;\n"
+            << "        if (count < 4096u) {\n"
+            << "            if (ferror(file)) { array->length = original_length; (void)fclose(file); return -1; }\n"
+            << "            break;\n"
+            << "        }\n"
+            << "    }\n"
+            << "    if (fclose(file) != 0) { array->length = original_length; return -1; }\n"
+            << "    return (int64_t)(array->length - original_length);\n"
+            << "}\n\n"
+            << "static int64_t vex_file_write(vex_string path, vex_array *array) {\n"
+            << "    vex_array_check(array, 1u);\n"
+            << "    if (!vex_valid_file_path(path) || array->length > (size_t)INT64_MAX) return -1;\n"
+            << "    FILE *file = fopen((const char *)path.data, \"wb\");\n"
+            << "    if (file == NULL) return -1;\n"
+            << "    const unsigned char *source = (const unsigned char *)array->data;\n"
+            << "    size_t offset = 0u;\n"
+            << "    while (offset < array->length) {\n"
+            << "        const size_t count = fwrite(source + offset, 1u, array->length - offset, file);\n"
+            << "        if (count == 0u) { (void)fclose(file); return -1; }\n"
+            << "        offset += count;\n"
+            << "    }\n"
+            << "    if (fclose(file) != 0) return -1;\n"
+            << "    return (int64_t)array->length;\n"
+            << "}\n\n"
             << "static void vex_array_cleanup(void) {\n"
             << "    while (vex_array_head != NULL) {\n"
             << "        vex_array *array = vex_array_head;\n"
@@ -1033,6 +1127,33 @@ private:
             return;
         case IROp::StringJoin:
             output_ << "    " << result << " = vex_string_join(" << operand(0) << ");\n";
+            return;
+        case IROp::ByteSlice:
+            output_ << "    " << result << " = vex_byte_slice(" << operand(0) << ", "
+                    << operand(1) << ", " << operand(2) << ");\n";
+            return;
+        case IROp::ByteRead:
+        case IROp::ByteWrite: {
+            const std::size_t width = instruction.immediate.starts_with("2") ? 2u : 4u;
+            const bool little = instruction.immediate.ends_with("le");
+            if (instruction.op == IROp::ByteRead) {
+                output_ << "    " << result << " = vex_byte_read(" << operand(0) << ", "
+                        << operand(1) << ", " << width << "u, "
+                        << (little ? "true" : "false") << ");\n";
+            } else {
+                output_ << "    vex_byte_write(" << operand(0) << ", " << operand(1)
+                        << ", " << operand(2) << ", " << width << "u, "
+                        << (little ? "true" : "false") << ");\n";
+            }
+            return;
+        }
+        case IROp::FileRead:
+            output_ << "    " << result << " = vex_file_read(" << operand(0)
+                    << ", " << operand(1) << ");\n";
+            return;
+        case IROp::FileWrite:
+            output_ << "    " << result << " = vex_file_write(" << operand(0)
+                    << ", " << operand(1) << ");\n";
             return;
         case IROp::ArrayPush: {
             const auto array = value_type(function, instruction.operands[0]);

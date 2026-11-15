@@ -291,6 +291,8 @@ private:
                    "c\"true\\00\", align 1\n"
                 << "@.vex_false = private unnamed_addr constant [6 x i8] "
                    "c\"false\\00\", align 1\n"
+                << "@.vex_file_read_mode = private unnamed_addr constant [3 x i8] c\"rb\\00\", align 1\n"
+                << "@.vex_file_write_mode = private unnamed_addr constant [3 x i8] c\"wb\\00\", align 1\n"
                 << "%vex.array = type { ptr, i64, i64, i64, ptr }\n"
                 << "%vex.string.node = type { ptr, [0 x i8] }\n";
         for (const IRStructType& structure : module_.struct_types) {
@@ -323,6 +325,12 @@ private:
                 << "declare ptr @malloc(i64)\n"
                 << "declare ptr @realloc(ptr, i64)\n"
                 << "declare void @free(ptr)\n"
+                << "declare ptr @fopen(ptr, ptr)\n"
+                << "declare i64 @fread(ptr, i64, i64, ptr)\n"
+                << "declare i64 @fwrite(ptr, i64, i64, ptr)\n"
+                << "declare i32 @fclose(ptr)\n"
+                << "declare i32 @ferror(ptr)\n"
+                << "declare ptr @memchr(ptr, i32, i64)\n"
                 << "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1 immarg)\n"
                 << "declare { i64, i1 } @llvm.umul.with.overflow.i64(i64, i64)\n"
                 << "declare { i64, i1 } @llvm.uadd.with.overflow.i64(i64, i64)\n"
@@ -766,6 +774,281 @@ body:
 done:
   store ptr null, ptr @vex_array_head
   ret void
+}
+
+define internal ptr @vex_byte_slice(ptr %source, i64 %start, i64 %count) {
+entry:
+  %source_size_ptr = getelementptr inbounds %vex.array, ptr %source, i32 0, i32 3
+  %source_size = load i64, ptr %source_size_ptr
+  %is_byte_array = icmp eq i64 %source_size, 1
+  br i1 %is_byte_array, label %check_start, label %trap
+check_start:
+  %source_length_ptr = getelementptr inbounds %vex.array, ptr %source, i32 0, i32 1
+  %source_length = load i64, ptr %source_length_ptr
+  %start_negative = icmp slt i64 %start, 0
+  %count_negative = icmp slt i64 %count, 0
+  %start_after_end = icmp ugt i64 %start, %source_length
+  %bad_start = or i1 %start_negative, %start_after_end
+  %bad_range = or i1 %bad_start, %count_negative
+  br i1 %bad_range, label %trap, label %check_count
+check_count:
+  %remaining = sub i64 %source_length, %start
+  %count_valid = icmp ule i64 %count, %remaining
+  br i1 %count_valid, label %allocate, label %trap
+allocate:
+  %result = call ptr @vex_array_new(i64 1)
+  %empty = icmp eq i64 %count, 0
+  br i1 %empty, label %return_result, label %copy
+copy:
+  call void @vex_array_reserve(ptr %result, i64 %count, i64 1)
+  %source_data_ptr = getelementptr inbounds %vex.array, ptr %source, i32 0, i32 0
+  %source_data = load ptr, ptr %source_data_ptr
+  %source_start = getelementptr inbounds i8, ptr %source_data, i64 %start
+  %result_data_ptr = getelementptr inbounds %vex.array, ptr %result, i32 0, i32 0
+  %result_data = load ptr, ptr %result_data_ptr
+  call void @llvm.memcpy.p0.p0.i64(ptr %result_data, ptr %source_start, i64 %count, i1 false)
+  %result_length_ptr = getelementptr inbounds %vex.array, ptr %result, i32 0, i32 1
+  store i64 %count, ptr %result_length_ptr
+  br label %return_result
+return_result:
+  ret ptr %result
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal i64 @vex_byte_read(ptr %array, i64 %offset, i64 %width, i1 %little) {
+entry:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %size = load i64, ptr %size_ptr
+  %size_ok = icmp eq i64 %size, 1
+  br i1 %size_ok, label %check_offset, label %trap
+check_offset:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %negative = icmp slt i64 %offset, 0
+  %past_end = icmp ugt i64 %offset, %length
+  %bad_offset = or i1 %negative, %past_end
+  br i1 %bad_offset, label %trap, label %check_width
+check_width:
+  %remaining = sub i64 %length, %offset
+  %fits = icmp uge i64 %remaining, %width
+  br i1 %fits, label %read_start, label %trap
+read_start:
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %data = load ptr, ptr %data_ptr
+  %base = getelementptr inbounds i8, ptr %data, i64 %offset
+  br label %read_loop
+read_loop:
+  %index = phi i64 [ 0, %read_start ], [ %next_index, %read_body ]
+  %accumulator = phi i64 [ 0, %read_start ], [ %next_value, %read_body ]
+  %finished = icmp uge i64 %index, %width
+  br i1 %finished, label %read_done, label %read_body
+read_body:
+  %byte_pointer = getelementptr inbounds i8, ptr %base, i64 %index
+  %byte = load i8, ptr %byte_pointer
+  %extended = zext i8 %byte to i64
+  %last_index = sub i64 %width, 1
+  %big_shift_index = sub i64 %last_index, %index
+  %shift_index = select i1 %little, i64 %index, i64 %big_shift_index
+  %shift = mul i64 %shift_index, 8
+  %shifted = shl i64 %extended, %shift
+  %next_value = or i64 %accumulator, %shifted
+  %next_index = add i64 %index, 1
+  br label %read_loop
+read_done:
+  ret i64 %accumulator
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal void @vex_byte_write(ptr %array, i64 %offset, i64 %value, i64 %width, i1 %little) {
+entry:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %size = load i64, ptr %size_ptr
+  %size_ok = icmp eq i64 %size, 1
+  br i1 %size_ok, label %check_value, label %trap
+check_value:
+  %negative_value = icmp slt i64 %value, 0
+  %is_16 = icmp eq i64 %width, 2
+  %maximum = select i1 %is_16, i64 65535, i64 4294967295
+  %too_large = icmp ugt i64 %value, %maximum
+  %invalid_value = or i1 %negative_value, %too_large
+  br i1 %invalid_value, label %trap, label %check_offset
+check_offset:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %negative_offset = icmp slt i64 %offset, 0
+  %past_end = icmp ugt i64 %offset, %length
+  %bad_offset = or i1 %negative_offset, %past_end
+  br i1 %bad_offset, label %trap, label %check_width
+check_width:
+  %remaining = sub i64 %length, %offset
+  %fits = icmp uge i64 %remaining, %width
+  br i1 %fits, label %write_start, label %trap
+write_start:
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %data = load ptr, ptr %data_ptr
+  %base = getelementptr inbounds i8, ptr %data, i64 %offset
+  br label %write_loop
+write_loop:
+  %index = phi i64 [ 0, %write_start ], [ %next_index, %write_body ]
+  %finished = icmp uge i64 %index, %width
+  br i1 %finished, label %write_done, label %write_body
+write_body:
+  %last_index = sub i64 %width, 1
+  %big_shift_index = sub i64 %last_index, %index
+  %shift_index = select i1 %little, i64 %index, i64 %big_shift_index
+  %shift = mul i64 %shift_index, 8
+  %shifted = lshr i64 %value, %shift
+  %byte = trunc i64 %shifted to i8
+  %byte_pointer = getelementptr inbounds i8, ptr %base, i64 %index
+  store i8 %byte, ptr %byte_pointer
+  %next_index = add i64 %index, 1
+  br label %write_loop
+write_done:
+  ret void
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal i64 @vex_file_read({ ptr, i64 } %path, ptr %array) {
+entry:
+  %path_data = extractvalue { ptr, i64 } %path, 0
+  %path_length = extractvalue { ptr, i64 } %path, 1
+  %empty_path = icmp eq i64 %path_length, 0
+  %embedded_nul = call ptr @memchr(ptr %path_data, i32 0, i64 %path_length)
+  %has_nul = icmp ne ptr %embedded_nul, null
+  %bad_path = or i1 %empty_path, %has_nul
+  br i1 %bad_path, label %invalid_path, label %open_file
+open_file:
+  %mode = getelementptr inbounds [3 x i8], ptr @vex_file_read_mode, i64 0, i64 0
+  %file = call ptr @fopen(ptr %path_data, ptr %mode)
+  %open_failed = icmp eq ptr %file, null
+  br i1 %open_failed, label %invalid_path, label %check_array
+check_array:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %element_size = load i64, ptr %size_ptr
+  %byte_array = icmp eq i64 %element_size, 1
+  br i1 %byte_array, label %setup, label %trap
+setup:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %original_length = load i64, ptr %length_ptr
+  br label %read_loop
+read_loop:
+  %current_length = load i64, ptr %length_ptr
+  %requested_pair = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %current_length, i64 4096)
+  %requested = extractvalue { i64, i1 } %requested_pair, 0
+  %overflow = extractvalue { i64, i1 } %requested_pair, 1
+  %signed_limit_exceeded = icmp ugt i64 %requested, 9223372036854775807
+  %request_invalid = or i1 %overflow, %signed_limit_exceeded
+  br i1 %request_invalid, label %read_error, label %choose_capacity
+choose_capacity:
+  %capacity_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 2
+  %capacity = load i64, ptr %capacity_ptr
+  %capacity_zero = icmp eq i64 %capacity, 0
+  %double_pair = call { i64, i1 } @llvm.umul.with.overflow.i64(i64 %capacity, i64 2)
+  %doubled = extractvalue { i64, i1 } %double_pair, 0
+  %double_overflow = extractvalue { i64, i1 } %double_pair, 1
+  %safe_doubled = select i1 %double_overflow, i64 %requested, i64 %doubled
+  %initial_or_doubled = select i1 %capacity_zero, i64 4096, i64 %safe_doubled
+  %growth_undersized = icmp ult i64 %initial_or_doubled, %requested
+  %growth_capacity = select i1 %growth_undersized, i64 %requested, i64 %initial_or_doubled
+  %already_enough = icmp uge i64 %capacity, %requested
+  %target_capacity = select i1 %already_enough, i64 %capacity, i64 %growth_capacity
+  br label %reserve
+reserve:
+  call void @vex_array_reserve(ptr %array, i64 %target_capacity, i64 1)
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %data = load ptr, ptr %data_ptr
+  %destination = getelementptr inbounds i8, ptr %data, i64 %current_length
+  %count = call i64 @fread(ptr %destination, i64 1, i64 4096, ptr %file)
+  %new_length = add i64 %current_length, %count
+  store i64 %new_length, ptr %length_ptr
+  %io_error = call i32 @ferror(ptr %file)
+  %has_error = icmp ne i32 %io_error, 0
+  br i1 %has_error, label %read_error, label %check_eof
+check_eof:
+  %full_chunk = icmp eq i64 %count, 4096
+  br i1 %full_chunk, label %read_loop, label %close_success
+close_success:
+  %close_status = call i32 @fclose(ptr %file)
+  %close_ok = icmp eq i32 %close_status, 0
+  br i1 %close_ok, label %success, label %close_error
+success:
+  %final_length = load i64, ptr %length_ptr
+  %appended = sub i64 %final_length, %original_length
+  ret i64 %appended
+read_error:
+  store i64 %original_length, ptr %length_ptr
+  %ignored_close = call i32 @fclose(ptr %file)
+  ret i64 -1
+close_error:
+  store i64 %original_length, ptr %length_ptr
+  ret i64 -1
+invalid_path:
+  ret i64 -1
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal i64 @vex_file_write({ ptr, i64 } %path, ptr %array) {
+entry:
+  %path_data = extractvalue { ptr, i64 } %path, 0
+  %path_length = extractvalue { ptr, i64 } %path, 1
+  %empty_path = icmp eq i64 %path_length, 0
+  %embedded_nul = call ptr @memchr(ptr %path_data, i32 0, i64 %path_length)
+  %has_nul = icmp ne ptr %embedded_nul, null
+  %bad_path = or i1 %empty_path, %has_nul
+  br i1 %bad_path, label %invalid_path, label %open_file
+open_file:
+  %mode = getelementptr inbounds [3 x i8], ptr @vex_file_write_mode, i64 0, i64 0
+  %file = call ptr @fopen(ptr %path_data, ptr %mode)
+  %open_failed = icmp eq ptr %file, null
+  br i1 %open_failed, label %invalid_path, label %check_array
+check_array:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %element_size = load i64, ptr %size_ptr
+  %byte_array = icmp eq i64 %element_size, 1
+  br i1 %byte_array, label %setup, label %trap
+setup:
+  %length_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %data = load ptr, ptr %data_ptr
+  br label %write_loop
+write_loop:
+  %offset = phi i64 [ 0, %setup ], [ %next_offset, %write_body ]
+  %done = icmp uge i64 %offset, %length
+  br i1 %done, label %close_success, label %write_body
+write_body:
+  %remaining = sub i64 %length, %offset
+  %source = getelementptr inbounds i8, ptr %data, i64 %offset
+  %count = call i64 @fwrite(ptr %source, i64 1, i64 %remaining, ptr %file)
+  %no_progress = icmp eq i64 %count, 0
+  br i1 %no_progress, label %write_error, label %continue_write
+continue_write:
+  %next_offset = add i64 %offset, %count
+  br label %write_loop
+close_success:
+  %close_status = call i32 @fclose(ptr %file)
+  %close_ok = icmp eq i32 %close_status, 0
+  br i1 %close_ok, label %success, label %close_error
+success:
+  ret i64 %length
+write_error:
+  %ignored_close = call i32 @fclose(ptr %file)
+  ret i64 -1
+close_error:
+  ret i64 -1
+invalid_path:
+  ret i64 -1
+trap:
+  call void @llvm.trap()
+  unreachable
 }
 )IR";
     }
@@ -1475,6 +1758,40 @@ done:
             const std::string element_size = emit_type_size(element);
             output_ << "  call void @vex_array_reserve(ptr " << operands[0]
                     << ", i64 " << operands[1] << ", i64 " << element_size << ")\n";
+            return;
+        }
+        case IROp::ByteSlice: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = call ptr @vex_byte_slice(ptr "
+                    << operands[0] << ", i64 " << operands[1] << ", i64 "
+                    << operands[2] << ")\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::ByteRead:
+        case IROp::ByteWrite: {
+            const std::string width = instruction.immediate.starts_with("2") ? "2" : "4";
+            const std::string little = instruction.immediate.ends_with("le") ? "true" : "false";
+            if (instruction.op == IROp::ByteRead) {
+                const std::string result = next_temp();
+                output_ << "  " << result << " = call i64 @vex_byte_read(ptr "
+                        << operands[0] << ", i64 " << operands[1] << ", i64 "
+                        << width << ", i1 " << little << ")\n";
+                store_result(instruction, result);
+            } else {
+                output_ << "  call void @vex_byte_write(ptr " << operands[0]
+                        << ", i64 " << operands[1] << ", i64 " << operands[2]
+                        << ", i64 " << width << ", i1 " << little << ")\n";
+            }
+            return;
+        }
+        case IROp::FileRead:
+        case IROp::FileWrite: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = call i64 @"
+                    << (instruction.op == IROp::FileRead ? "vex_file_read" : "vex_file_write")
+                    << "({ ptr, i64 } " << operands[0] << ", ptr " << operands[1] << ")\n";
+            store_result(instruction, result);
             return;
         }
         case IROp::ArrayPush: {

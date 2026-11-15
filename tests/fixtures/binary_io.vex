@@ -1,0 +1,55 @@
+make main() {
+    let data: byte[] = []
+    reserve(data, 12)
+    repeat 12 times {
+        push(data, to_byte(0))
+    }
+
+    write_u16_le(data, 0, 4660)
+    write_u16_be(data, 2, 4660)
+    write_u32_le(data, 4, 305419896)
+    write_u32_be(data, 8, 305419896)
+
+    say(read_u16_le(data, 0))
+    say(read_u16_be(data, 2))
+    say(read_u32_le(data, 4))
+    say(read_u32_be(data, 8))
+
+    let sample = byte_slice(data, 1, 4)
+    say(length(sample))
+    say(sample[0])
+    say(sample[1])
+    say(sample[2])
+    say(sample[3])
+    sample[0] = to_byte(99)
+    say(sample[0])
+    say(data[1])
+
+    say(write_file("vex_binary_io_test.dat", data))
+
+    let loaded: byte[] = [to_byte(255)]
+    say(read_file("vex_binary_io_test.dat", loaded))
+    say(length(loaded))
+    say(loaded[0])
+    say(read_u32_be(loaded, 9))
+
+    let missing: byte[] = [to_byte(9)]
+    say(read_file("vex_file_that_does_not_exist_vex_test.bin", missing))
+    say(length(missing))
+    say(missing[0])
+
+    say(write_file("vex_missing_directory_vex_test/output.bin", data))
+
+    let large: byte[] = []
+    reserve(large, 10000)
+    repeat 10000 times {
+        push(large, to_byte(173))
+    }
+    say(write_file("vex_binary_io_large_test.dat", large))
+
+    let large_loaded: byte[] = []
+    say(read_file("vex_binary_io_large_test.dat", large_loaded))
+    say(length(large_loaded))
+    say(large_loaded[0])
+    say(large_loaded[9999])
+}

@@ -1,0 +1,4 @@
+make main() {
+    let data: byte[] = [to_byte(1), to_byte(2)]
+    say(read_u32_be(data, 0))
+}

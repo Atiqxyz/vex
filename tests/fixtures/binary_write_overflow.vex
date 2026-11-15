@@ -1,0 +1,4 @@
+make main() {
+    let data: byte[] = [to_byte(0), to_byte(0)]
+    write_u16_be(data, 0, 65536)
+}

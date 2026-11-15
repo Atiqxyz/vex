@@ -262,6 +262,62 @@ private:
         };
         reserve.declaration = {0, 0};
         scopes_.front().emplace("reserve", std::move(reserve));
+
+        Symbol byte_slice;
+        byte_slice.type = Type::Array;
+        byte_slice.is_function = true;
+        byte_slice.parameters = {Type::Array, Type::Int, Type::Int};
+        byte_slice.parameter_array_types = {
+            SemanticArrayType{Type::Byte, 0}, std::nullopt, std::nullopt
+        };
+        byte_slice.return_array_type = SemanticArrayType{Type::Byte, 0};
+        byte_slice.declaration = {0, 0};
+        scopes_.front().emplace("byte_slice", std::move(byte_slice));
+
+        Symbol read_file;
+        read_file.type = Type::Int;
+        read_file.is_function = true;
+        read_file.parameters = {Type::String, Type::Array};
+        read_file.parameter_array_types = {
+            std::nullopt, SemanticArrayType{Type::Byte, 0}
+        };
+        read_file.declaration = {0, 0};
+        scopes_.front().emplace("read_file", std::move(read_file));
+
+        Symbol write_file;
+        write_file.type = Type::Int;
+        write_file.is_function = true;
+        write_file.parameters = {Type::String, Type::Array};
+        write_file.parameter_array_types = {
+            std::nullopt, SemanticArrayType{Type::Byte, 0}
+        };
+        write_file.declaration = {0, 0};
+        scopes_.front().emplace("write_file", std::move(write_file));
+
+        for (const char* name : {"read_u16_le", "read_u16_be",
+                                 "read_u32_le", "read_u32_be"}) {
+            Symbol reader;
+            reader.type = Type::Int;
+            reader.is_function = true;
+            reader.parameters = {Type::Array, Type::Int};
+            reader.parameter_array_types = {
+                SemanticArrayType{Type::Byte, 0}, std::nullopt
+            };
+            reader.declaration = {0, 0};
+            scopes_.front().emplace(name, std::move(reader));
+        }
+        for (const char* name : {"write_u16_le", "write_u16_be",
+                                 "write_u32_le", "write_u32_be"}) {
+            Symbol writer;
+            writer.type = Type::Void;
+            writer.is_function = true;
+            writer.parameters = {Type::Array, Type::Int, Type::Int};
+            writer.parameter_array_types = {
+                SemanticArrayType{Type::Byte, 0}, std::nullopt, std::nullopt
+            };
+            writer.declaration = {0, 0};
+            scopes_.front().emplace(name, std::move(writer));
+        }
     }
 
     void collect_struct_types() {
@@ -1034,6 +1090,91 @@ private:
             if (name) model_.resolved_calls[call] = spelling(name->name);
 
             const std::string builtin_name = name ? spelling(name->name) : std::string{};
+
+            const auto is_byte_array_argument = [&](const std::size_t index) {
+                if (index >= argument_types.size() || argument_types[index] != Type::Array ||
+                    index >= call->arguments.size() || !call->arguments[index]) return false;
+                const auto shape = model_.array_expression_types.find(call->arguments[index].get());
+                return shape != model_.array_expression_types.end() &&
+                       shape->second.element_type == Type::Byte &&
+                       shape->second.length == 0 &&
+                       shape->second.element_struct_type_id == 0;
+            };
+            const auto is_int_argument = [&](const std::size_t index) {
+                return index < argument_types.size() &&
+                       argument_types[index] == Type::Int;
+            };
+            const auto check_mutable_byte_array = [&](const std::size_t index,
+                                                       const char* operation) {
+                if (index >= call->arguments.size() || !call->arguments[index]) return;
+                if (const NameExpr* array_name =
+                        member_root_name(call->arguments[index].get())) {
+                    Symbol* array_symbol = lookup(spelling(array_name->name));
+                    if (array_symbol && array_symbol->immutable) {
+                        report("SEM017", std::string(operation) +
+                               " cannot modify a byte array through immutable binding '" +
+                               spelling(array_name->name) + "'", array_name->name);
+                    }
+                }
+            };
+
+            if (builtin_name == "byte_slice") {
+                if (argument_types.size() != 3) {
+                    report("SEM020", "byte_slice expects 3 arguments", expression.span);
+                    return Type::Error;
+                }
+                if (!is_byte_array_argument(0) || !is_int_argument(1) ||
+                    !is_int_argument(2)) {
+                    report("SEM021", "byte_slice requires byte[], int, int", expression.span);
+                    return Type::Error;
+                }
+                model_.array_expression_types[&expression] =
+                    SemanticArrayType{Type::Byte, 0, 0};
+                return Type::Array;
+            }
+            if (builtin_name == "read_file" || builtin_name == "write_file") {
+                if (argument_types.size() != 2) {
+                    report("SEM020", builtin_name + " expects 2 arguments", expression.span);
+                    return Type::Error;
+                }
+                if (argument_types[0] != Type::String || !is_byte_array_argument(1)) {
+                    report("SEM021", builtin_name + " requires a string path and a dynamic byte array",
+                           expression.span);
+                    return Type::Error;
+                }
+                if (builtin_name == "read_file")
+                    check_mutable_byte_array(1, "read_file");
+                return Type::Int;
+            }
+            if (builtin_name == "read_u16_le" || builtin_name == "read_u16_be" ||
+                builtin_name == "read_u32_le" || builtin_name == "read_u32_be") {
+                if (argument_types.size() != 2) {
+                    report("SEM020", builtin_name + " expects 2 arguments", expression.span);
+                    return Type::Error;
+                }
+                if (!is_byte_array_argument(0) || !is_int_argument(1)) {
+                    report("SEM021", builtin_name + " requires byte[] and an int offset",
+                           expression.span);
+                    return Type::Error;
+                }
+                return Type::Int;
+            }
+            if (builtin_name == "write_u16_le" || builtin_name == "write_u16_be" ||
+                builtin_name == "write_u32_le" || builtin_name == "write_u32_be") {
+                if (argument_types.size() != 3) {
+                    report("SEM020", builtin_name + " expects 3 arguments", expression.span);
+                    return Type::Error;
+                }
+                if (!is_byte_array_argument(0) || !is_int_argument(1) ||
+                    !is_int_argument(2)) {
+                    report("SEM021", builtin_name + " requires byte[], int offset, int value",
+                           expression.span);
+                    return Type::Error;
+                }
+                check_mutable_byte_array(0, builtin_name.c_str());
+                return Type::Void;
+            }
+
             if (builtin_name == "length" || builtin_name == "capacity" ||
                 builtin_name == "join" || builtin_name == "push" ||
                 builtin_name == "pop" || builtin_name == "reserve") {

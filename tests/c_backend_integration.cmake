@@ -8,7 +8,12 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED STRING_CONCAT_SOURCE_FILE OR
    NOT DEFINED BITWISE_SOURCE_FILE OR NOT DEFINED BYTE_SOURCE_FILE OR
    NOT DEFINED BYTE_OVERFLOW_HIGH_SOURCE_FILE OR
-   NOT DEFINED BYTE_OVERFLOW_NEGATIVE_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED BYTE_OVERFLOW_NEGATIVE_SOURCE_FILE OR
+   NOT DEFINED BINARY_IO_SOURCE_FILE OR
+   NOT DEFINED BINARY_READ_BOUNDS_SOURCE_FILE OR
+   NOT DEFINED BINARY_WRITE_OVERFLOW_SOURCE_FILE OR
+   NOT DEFINED BINARY_SLICE_BOUNDS_SOURCE_FILE OR
+   NOT DEFINED BINARY_IMMUTABLE_BUFFER_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -297,6 +302,63 @@ set(byte_expected "160\n238\n102\n85\ntrue\n255\n255\n3\n7\n2\n3\n170\n425\n")
 if(NOT "${byte_output}" STREQUAL "${byte_expected}")
     message(FATAL_ERROR "C backend byte behavior mismatch. Expected:${byte_expected}Actual:${byte_output}")
 endif()
+
+# Exercise binary buffers, endian-aware integer access, and whole-file I/O.
+set(binary_output_file "${WORK_DIR}/vex_binary_io_test.dat")
+set(binary_large_output_file "${WORK_DIR}/vex_binary_io_large_test.dat")
+file(REMOVE "${binary_output_file}" "${binary_large_output_file}")
+file(REMOVE "${WORK_DIR}/vex_file_that_does_not_exist_vex_test.bin")
+file(REMOVE_RECURSE "${WORK_DIR}/vex_missing_directory_vex_test")
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${BINARY_IO_SOURCE_FILE}"
+    WORKING_DIRECTORY "${WORK_DIR}"
+    RESULT_VARIABLE binary_result
+    OUTPUT_VARIABLE binary_output
+    ERROR_VARIABLE binary_error
+)
+if(NOT binary_result EQUAL 0)
+    message(FATAL_ERROR "C backend binary I/O test failed: ${binary_output}${binary_error}")
+endif()
+string(REPLACE "\r\n" "\n" binary_output "${binary_output}")
+set(binary_expected "4660\n4660\n305419896\n305419896\n4\n18\n18\n52\n120\n99\n18\n12\n12\n13\n255\n305419896\n-1\n1\n9\n-1\n10000\n10000\n10000\n173\n173\n")
+if(NOT "${binary_output}" STREQUAL "${binary_expected}")
+    message(FATAL_ERROR "C backend binary I/O mismatch. Expected:${binary_expected}Actual:${binary_output}")
+endif()
+file(SIZE "${binary_output_file}" binary_file_size)
+if(NOT binary_file_size EQUAL 12)
+    message(FATAL_ERROR "C backend binary output file has size ${binary_file_size}, expected 12")
+endif()
+file(SIZE "${binary_large_output_file}" binary_large_file_size)
+if(NOT binary_large_file_size EQUAL 10000)
+    message(FATAL_ERROR "Binary output file has size ${binary_large_file_size}, expected 10000")
+endif()
+file(REMOVE "${binary_output_file}" "${binary_large_output_file}")
+
+foreach(binary_failure_source IN ITEMS
+        "${BINARY_READ_BOUNDS_SOURCE_FILE}"
+        "${BINARY_WRITE_OVERFLOW_SOURCE_FILE}"
+        "${BINARY_SLICE_BOUNDS_SOURCE_FILE}")
+    execute_process(
+        COMMAND "${VEX_EXECUTABLE}" run-c "${binary_failure_source}"
+        RESULT_VARIABLE binary_failure_result
+        OUTPUT_VARIABLE binary_failure_output
+        ERROR_VARIABLE binary_failure_error
+    )
+    if("${binary_failure_result}" STREQUAL "0")
+        message(FATAL_ERROR "C backend failed to reject invalid binary operation: ${binary_failure_source}")
+    endif()
+endforeach()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${BINARY_IMMUTABLE_BUFFER_SOURCE_FILE}"
+    RESULT_VARIABLE immutable_buffer_result
+    OUTPUT_VARIABLE immutable_buffer_output
+    ERROR_VARIABLE immutable_buffer_error
+)
+if("${immutable_buffer_result}" STREQUAL "0")
+    message(FATAL_ERROR "C backend semantic checker allowed mutation of an immutable byte buffer")
+endif()
+
 
 foreach(byte_failure_source IN ITEMS
         "${BYTE_OVERFLOW_HIGH_SOURCE_FILE}"

@@ -57,9 +57,10 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Type aliases and distinct newtypes
 - [ ] Optional values and explicit nullable representation
 - [ ] Result-like recoverable error values
-- [ ] Unsigned and explicitly sized integer types
+- [ ] Additional unsigned integer scalar types (`u16`, `u32`, `u64`, etc.)
 - [ ] 32-bit and additional floating-point types where justified
-- [ ] Byte and character types with precise meanings
+- [x] Unsigned 8-bit `byte` scalar and byte arrays with defined semantics
+- [ ] Character / Unicode scalar type
 - [ ] Explicit casts, checked narrowing, and conversion rules
 - [ ] Type inference beyond local initializers
 - [ ] Generic types and constrained generic functions
@@ -76,7 +77,8 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [x] Dynamic one-dimensional primitive and structure arrays
 - [ ] Nested arrays and collections of collections
 - [ ] Multidimensional arrays with documented storage order
-- [ ] Slices / non-owning views over arrays and buffers
+- [x] Checked owning byte-range copies through `byte_slice`
+- [ ] Slices / non-owning views over arrays and buffers (requires lifetimes and aliasing rules)
 - [ ] Array views with explicit shape and stride where useful
 - [x] Capacity inspection and reservation
 - [ ] Resize, insert, remove, clear, and efficient bulk operations
@@ -93,7 +95,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** The grammar determines how naturally users can express algorithms. Additions should improve capability without creating overlapping syntax.
 
-- [ ] Bitwise AND, OR, XOR, NOT
+- [x] Bitwise AND, OR, XOR, NOT for matching `int` and `byte` operands
 - [ ] Bit shifts and rotations with defined edge behavior
 - [x] Struct field access and nested field/index expressions
 - [x] Nested assignment targets across fields and indexes when rooted at a named aggregate binding
@@ -182,7 +184,9 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 **Why it matters:** Systems programs need both human-readable text and exact binary data. These must not be confused.
 
 - [x] Decide and document string encoding semantics: length-aware byte sequences with no UTF-8 validation guarantee
-- [ ] Byte buffers and byte slices
+- [x] Mutable contiguous byte buffers through dynamic `byte[]`
+- [x] Checked owning byte-range copies through `byte_slice`
+- [ ] Borrowed / zero-copy byte slices (requires a memory-lifetime model)
 - [ ] String formatting and interpolation
 - [x] Byte-preserving string concatenation with `+` and `+=` across C and LLVM backends
 - [x] Efficient chunk-based string building with one-pass join
@@ -191,7 +195,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Common string operations: search, split, delimiter join, trim, replace
 - [ ] Parsing and formatting numeric values
 - [ ] Encoding and decoding APIs
-- [ ] Endian-aware binary readers and writers
+- [x] Unsigned 16-/32-bit little- and big-endian readers and writers over `byte[]`
 
 **Design guardrails:** Define whether indexing counts bytes, Unicode scalar values, or something else. Do not silently treat grapheme clusters as single bytes. Keep arbitrary binary buffers separate from text strings. Do not expose mutable string storage until aliasing, lifetime, and ownership are explicit; an efficient builder should have its own predictable mutation and snapshot semantics.
 
@@ -201,14 +205,16 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 - [ ] Formatted output and output streams
 - [ ] Standard input and line reading
-- [ ] File and directory APIs
+- [x] Whole-file binary read/write helpers with deterministic close in C and LLVM backends
+- [ ] Long-lived file handles, buffered streams, and directory/filesystem APIs
 - [ ] Paths and filesystem metadata
 - [ ] Process arguments and environment variables
 - [ ] Exit codes and process control
 - [ ] Time, clocks, durations, and timers
 - [ ] Random generators
 - [ ] Networking primitives and higher-level protocols
-- [ ] Serialization formats such as JSON, CSV, and binary formats
+- [x] Primitive 16-/32-bit unsigned binary integer codecs with explicit endianness
+- [ ] Structured binary serialization, JSON, and CSV formats
 - [ ] Sorting, searching, and general algorithms
 - [ ] Collection utilities and iterators
 - [ ] Testing and assertion library
@@ -329,9 +335,9 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 
 ### Milestone 2 — Complete the core type and expression model
 1. Nested and multidimensional arrays, with explicit layout decisions.
-2. Slices and views, after lifetime/aliasing rules are established.
-3. Integer widths, unsigned types, bytes, and floating-point variants.
-4. Bitwise operators and fully specified numeric conversions.
+2. Borrowed slices and views, after lifetime/aliasing rules are established (owning byte copies already exist).
+3. Additional integer widths and floating-point variants (the 8-bit `byte` type already exists).
+4. [x] Bitwise operators for `int` and `byte`; complete numeric conversion rules remain.
 5. Optionals and Result-like values.
 6. Generic functions and types, after real examples identify the necessary constraints.
 7. Function values and closures only after their lifetime model is understood.
@@ -346,8 +352,8 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 ### Milestone 4 — Error handling and standard runtime
 1. Recoverable error conventions and propagation.
 2. Scope cleanup and resource guards.
-3. String and byte APIs.
-4. File, path, process, environment, input/output, and time APIs.
+3. Expand string APIs and byte-buffer operations (basic buffers, owning copies, endian codecs already exist).
+4. Expand runtime APIs beyond whole-file binary read/write: streaming files, paths, process, environment, input/output, and time.
 5. Random generation and core algorithms.
 
 ### Milestone 5 — Scientific and numerical libraries
@@ -412,9 +418,9 @@ A feature is complete only when its behavior is implemented and verified end to 
 
 ## 7. Current starting point
 
-At the 2026-11-15 verified baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values with capacity inspection and reservation; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation and chunk joining; compound assignment; cross-platform CI; and initial editor integration. The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority.
+At the 2026-11-15 audited baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values with capacity inspection and reservation; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation and chunk joining; compound assignment; a first-class unsigned `byte`; dynamic `byte[]` buffers; checked owning byte slices; 16-/32-bit endian-aware binary access; whole-file binary read/write; cross-platform CI; and initial editor integration. The latest binary-I/O milestone must still be backed by its fresh four-platform CI run before it is called verified. The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority.
 
-Recent string/runtime work has delivered single-allocation concatenation, byte-counting string length, chunk-based string building through `join`, and dynamic-array capacity reservation. The next engineering slice should audit binary buffers, file I/O, resource lifetimes, and foreign-library interoperability. These are foundational both for a capable self-hosted compiler and for later graphics, audio, and interactive applications.
+The binary layer deliberately uses owned byte slices rather than borrowed views: the latter must wait for a sound lifetime and aliasing model. Whole-file I/O opens in binary mode, closes before returning, and reports ordinary I/O failures with `-1`; a general `Result` type, streaming handles, directories, paths, networking, and FFI remain future work. These foundations matter for a capable self-hosted compiler and later graphics, audio, and interactive applications.
 
 Graphics is an explicit long-term target, not an immediate diversion from core compiler work. VEX should eventually support cross-platform windows and input, 2D and 3D rendering, real-time event/frame loops, and scientific visualisation through portable libraries and runtime abstractions. In parallel, every major capability must be evaluated against the self-hosting-capability goal: VEX should eventually be able to express its own lexer, parser, type checker, IR, code generators, tests, and build workflow, even if the compiler remains implemented in C++.
 

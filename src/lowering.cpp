@@ -843,6 +843,79 @@ private:
             return emit_operation(IROp::ByteToInt, IRType::Int,
                                   {arguments[0].id}, expression.span);
         }
+        if (target->second == "byte_slice") {
+            if (arguments.size() != 3 || arguments[0].type != IRType::Array ||
+                arguments[0].array_length != 0 || arguments[0].element_type != IRType::Byte ||
+                arguments[1].type != IRType::Int || arguments[2].type != IRType::Int) {
+                report("IR119", "byte_slice expects byte[], int start, and int length",
+                       expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::ByteSlice;
+            instruction.operands = {arguments[0].id, arguments[1].id, arguments[2].id};
+            instruction.result = make_array_value(IRType::Byte, 0, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
+        if (target->second == "read_file" || target->second == "write_file") {
+            if (arguments.size() != 2 || arguments[0].type != IRType::String ||
+                arguments[1].type != IRType::Array || arguments[1].array_length != 0 ||
+                arguments[1].element_type != IRType::Byte) {
+                report("IR119", target->second +
+                       " expects a string path and a dynamic byte array", expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = target->second == "read_file" ? IROp::FileRead : IROp::FileWrite;
+            instruction.operands = {arguments[0].id, arguments[1].id};
+            instruction.result = make_value(IRType::Int, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
+        const bool is_binary_reader =
+            target->second == "read_u16_le" || target->second == "read_u16_be" ||
+            target->second == "read_u32_le" || target->second == "read_u32_be";
+        const bool is_binary_writer =
+            target->second == "write_u16_le" || target->second == "write_u16_be" ||
+            target->second == "write_u32_le" || target->second == "write_u32_be";
+        if (is_binary_reader || is_binary_writer) {
+            const std::size_t expected = is_binary_writer ? 3u : 2u;
+            if (arguments.size() != expected || arguments[0].type != IRType::Array ||
+                arguments[0].array_length != 0 || arguments[0].element_type != IRType::Byte ||
+                arguments[1].type != IRType::Int ||
+                (is_binary_writer && arguments[2].type != IRType::Int)) {
+                report("IR119", target->second + " received invalid binary buffer arguments",
+                       expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = is_binary_writer ? IROp::ByteWrite : IROp::ByteRead;
+            instruction.operands = is_binary_writer
+                ? std::vector<IRValueId>{arguments[0].id, arguments[1].id, arguments[2].id}
+                : std::vector<IRValueId>{arguments[0].id, arguments[1].id};
+            const bool sixteen_bit = target->second.find("u16_") != std::string::npos;
+            const bool little_endian = target->second.ends_with("_le");
+            instruction.immediate = sixteen_bit
+                ? (little_endian ? "2le" : "2be")
+                : (little_endian ? "4le" : "4be");
+            instruction.result = is_binary_reader
+                ? std::optional<IRValue>{make_value(IRType::Int, expression.span)}
+                : std::nullopt;
+            instruction.span = expression.span;
+            if (is_binary_reader) {
+                const IRValue result = *instruction.result;
+                emit(std::move(instruction));
+                return result;
+            }
+            emit(std::move(instruction));
+            return std::nullopt;
+        }
+
         if (target->second == "length") {
             if (arguments.size() != 1) {
                 report("IR119", "length expects exactly one string or array argument", expression.span);

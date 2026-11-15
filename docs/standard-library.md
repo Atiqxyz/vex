@@ -1,6 +1,6 @@
 # VEX Standard Library
 
-The VEX standard library is being introduced incrementally. The initial implementation provides a small mathematical surface as compiler-recognized built-ins. These functions are type-checked by the frontend, lowered to dedicated math IR instructions, verified independently, and emitted as calls to the platform C math library by the current C11 bootstrap backend.
+The VEX standard library is being introduced incrementally. Current compiler-recognized built-ins are type-checked by the frontend, lowered to dedicated typed IR operations, independently verified, and implemented by both the C11 and LLVM backends where supported. They are not yet packaged as separately importable modules.
 
 ## Initial mathematical functions
 
@@ -50,7 +50,7 @@ Byte values support equality, unsigned relational comparisons, and byte-width bi
 
 Bytes work with the existing aggregate model: `byte[N]` fixed arrays, `byte[]` dynamic arrays, structure fields, function parameters and return values, indexing, iteration, and `push`/`pop`/`reserve`. Dynamic arrays retain the same shared-reference and program-lifetime allocation behavior as other element types.
 
-This provides typed in-memory binary data. Dedicated file/network I/O, byte slices, and endian-aware integer serialization helpers are not yet implemented.
+This provides typed in-memory binary data. Dynamic `byte[]` values are mutable contiguous buffers. `byte_slice` copies a requested range into an independent buffer; it is an owning copy, not a zero-copy view. The next sections document the binary codecs and file APIs.
 
 ## Dynamic-array built-ins (implemented)
 
@@ -64,7 +64,7 @@ Dynamic arrays hold primitive or nominal structure values and are declared with 
 | `capacity(array)` | `T[] -> int` | Returns the number of allocated element slots |
 | `reserve(array, n)` | `(T[], int) -> void` | Ensures capacity is at least `n` elements without changing length or contents; never shrinks |
 
-Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive and nominal structure elements; nested arrays, slices, and per-scope deallocation are not implemented. Use `reserve` when the expected element count is known to avoid geometric growth reallocations; `capacity` reports allocated element slots.
+Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive and nominal structure elements; nested arrays, borrowed/non-owning slices, and per-scope deallocation are not implemented. The `byte_slice` helper is a separate copying operation, not a slice type. Use `reserve` when the expected element count is known to avoid geometric growth reallocations; `capacity` reports allocated element slots.
 
 ```vex
 make main() {
@@ -81,7 +81,42 @@ make main() {
 
 ## Planned expansion
 
-Future library work can add constants, additional trigonometric and transcendental functions, numeric utilities, string operations, file I/O, and time/system facilities. New functions should be added with explicit signatures, IR verification rules, backend behavior, documentation, and executable integration tests.
+Future library work can add constants, additional trigonometric and transcendental functions, numeric utilities, string operations, streaming/file-system APIs, networking, and time/system facilities. Whole-file binary I/O and basic endian-aware byte codecs are already implemented as compiler-known built-ins. New functions should be added with explicit signatures, IR verification rules, backend behavior, documentation, and executable integration tests.
+
+
+## Byte buffers, slicing, and binary integer codecs (implemented)
+
+A dynamic `byte[]` is the mutable binary buffer type. It supports normal dynamic-array operations (`length`, `capacity`, `reserve`, `push`, `pop`, indexing, and mutation). A byte is an unsigned 8-bit value; the buffer is not a text string and preserves arbitrary byte values.
+
+`byte_slice(source, start, count)` returns a new dynamic byte array containing the selected range. Both indices are measured in bytes. The operation checks that `start` and `count` are non-negative and that the complete range is inside the source. The returned buffer is an independent copy; changing either buffer does not change the other. A borrowed zero-copy view is intentionally not available until VEX has lifetime and aliasing rules.
+
+The binary integer helpers read or write packed unsigned values at byte offsets. Reads return an `int`; the full unsigned 32-bit range fits in VEX's signed 64-bit `int`. Writes check that the value is in range and that the complete operation fits inside the existing buffer.
+
+| Function | Signature | Behavior |
+|---|---|---|
+| `read_u16_le(bytes, offset)` | `(byte[], int) -> int` | Read unsigned 16-bit little-endian value |
+| `read_u16_be(bytes, offset)` | `(byte[], int) -> int` | Read unsigned 16-bit big-endian value |
+| `read_u32_le(bytes, offset)` | `(byte[], int) -> int` | Read unsigned 32-bit little-endian value |
+| `read_u32_be(bytes, offset)` | `(byte[], int) -> int` | Read unsigned 32-bit big-endian value |
+| `write_u16_le(bytes, offset, value)` | `(byte[], int, int) -> void` | Write checked unsigned 16-bit little-endian value |
+| `write_u16_be(bytes, offset, value)` | `(byte[], int, int) -> void` | Write checked unsigned 16-bit big-endian value |
+| `write_u32_le(bytes, offset, value)` | `(byte[], int, int) -> void` | Write checked unsigned 32-bit little-endian value |
+| `write_u32_be(bytes, offset, value)` | `(byte[], int, int) -> void` | Write checked unsigned 32-bit big-endian value |
+
+Out-of-bounds reads/writes, negative offsets, and writes outside the unsigned width trap. The codecs operate on existing buffer contents; writes do not grow the buffer.
+
+## Whole-file binary I/O (implemented)
+
+| Function | Signature | Behavior |
+|---|---|---|
+| `read_file(path, destination)` | `(string, byte[]) -> int` | Read a file in binary mode and append its bytes to `destination` |
+| `write_file(path, bytes)` | `(string, byte[]) -> int` | Replace the file contents with the exact bytes in `bytes` |
+
+`read_file` returns the number of bytes appended, or `-1` when the path is invalid or opening, reading, or closing fails. If a read or close error occurs, the destination's original logical length and contents are preserved; its allocated capacity may have grown. Reads use fixed-size chunks and grow destination capacity geometrically rather than reallocating per byte.
+
+`write_file` opens in binary write mode, so an existing file is truncated. It returns the number of bytes written or `-1` on an ordinary I/O error. A failure after some bytes have been written can leave a partially replaced file; filesystem writes cannot be rolled back by this API. Both helpers close their file handle before returning. They reject empty paths and paths containing embedded NUL bytes. Paths currently pass through the platform C runtime's narrow-character file API; portable Unicode path encoding is not yet specified.
+
+The error contract is deliberately small at this stage: `-1` reports failure, without a structured error code or message. There is no long-lived file-handle type, streaming API, directory API, path abstraction, or asynchronous I/O yet. Allocation failure remains a runtime trap, consistent with the current dynamic-array runtime.
 
 ## Planned mathematical expansion (not implemented)
 
@@ -111,7 +146,7 @@ Mathematical constants should be provided as typed constants rather than zero-ar
 
 ## Planned non-mathematical API inventory (not implemented)
 
-This inventory gathers common, useful operations seen across established language libraries. It deliberately describes capabilities rather than copying every language's names. Exact naming, types, overloads, error behavior, and namespace boundaries should be decided together when VEX has collections, strings, and modules. Equivalent names must not become duplicate operations.
+This inventory gathers common, useful operations seen across established language libraries. It deliberately describes capabilities rather than copying every language's names. Exact naming, types, overloads, error behavior, and namespace boundaries should be decided together when VEX has collections, strings, and modules. Equivalent names must not become duplicate operations. The implemented subset above includes dynamic byte buffers, owning byte copies, 16-/32-bit endian codecs, and whole-file binary reads/writes; the remaining candidates below are proposals.
 
 | Area | Candidate API capabilities |
 |---|---|

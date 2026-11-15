@@ -16,6 +16,8 @@ The current C++20 development build has:
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
 - fixed-size, one-dimensional arrays with inferred primitive element types (including unsigned `byte`), indexing, indexed updates, and by-value function parameters/returns;
 - a first-class unsigned 8-bit `byte` type (0–255), explicit checked `to_byte(int)` and zero-extending `to_int(byte)` conversions, byte-width bitwise operations, and unsigned byte comparisons;
+- mutable dynamic `byte[]` buffers, bounds-checked owning `byte_slice` copies, and checked 16-/32-bit unsigned little-/big-endian binary integer codecs;
+- whole-file binary `read_file` and `write_file` operations in both backends, with chunked reads, geometric buffer growth, deterministic file close, and `-1` error reporting;
 - heap-backed, one-dimensional dynamic arrays for primitive elements (including `byte`), with typed empty literals, geometric growth, checked indexing, `length`, `push`, and `pop`;
 - shared-reference dynamic arrays across aliases, function parameters, and function returns, with `for-in` iteration over fixed/dynamic arrays and integer ranges;
 - C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed/dynamic-array access, dynamic allocation and cleanup, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
@@ -23,7 +25,7 @@ The current C++20 development build has:
 - cross-platform process launching and temporary-build management;
 - unit tests plus cross-platform integration tests for the public CLI and portable compiler discovery.
 
-The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
+The binary file helpers operate on complete files rather than exposing streaming handles. `read_file` appends to a mutable byte array and returns the appended byte count or `-1`; `write_file` replaces the destination file and returns the byte count or `-1`. The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
 
 VEX is an early language implementation. It supports nominal structures, fixed and dynamic one-dimensional arrays of primitive and structure values, nested aggregate updates, functions, control flow, and length-aware byte strings. Nested collections, modules, and a general-purpose ownership/borrowing system remain unfinished. Fixed arrays and structures have value semantics; dynamic arrays are heap-backed shared references whose aliases and function parameters/returns refer to the same collection. Dynamic-array and concatenated-string allocations are tracked by the generated program and reclaimed when its entry function returns. This program-lifetime strategy is an initial runtime contract, not the final memory model.
 

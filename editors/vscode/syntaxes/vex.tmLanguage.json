@@ -71,7 +71,7 @@
     },
     "builtins": {
       "name": "support.function.builtin.vex",
-      "match": "\\b(?:say|to_byte|to_int)(?=\\s*\\()"
+      "match": "\\b(?:say|to_byte|to_int|length|capacity|reserve|push|pop|join|byte_slice|read_file|write_file|read_u16_le|read_u16_be|read_u32_le|read_u32_be|write_u16_le|write_u16_be|write_u32_le|write_u32_be)(?=\\s*\\()"
     },
     "operators": {
       "name": "keyword.operator.vex",

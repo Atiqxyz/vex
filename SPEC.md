@@ -17,7 +17,7 @@ This document distinguishes current project decisions from provisional syntax an
 - **Square brackets:** comma-separated values form fixed-size array literals; a single expression without a comma remains the existing multiline/grouping form. Postfix brackets index an array.
 - **Compiler implementation:** the initial compiler is written in C++20. This does not constrain the language implementation forever.
 - **Self-hosting capability:** VEX is not required to be self-hosted, but its language, runtime, and build tooling should eventually be capable of implementing the full compiler in VEX.
-- **Backend direction:** the IR is backend-independent; the first implemented source-generation target is portable C11. C is a bootstrap backend, not the language definition.
+- **Backend direction:** the IR is backend-independent and has C11 and LLVM code-generation backends. LLVM is the default native build path; C remains an optional bootstrap/fallback backend. Neither backend defines language semantics.
 
 ## 2. Provisional syntax
 
@@ -247,6 +247,23 @@ The implemented numeric representation is signed 64-bit `int` values and 64-bit 
 - The built-in `say(value)` accepts one supported primitive value and returns `void`; arrays must be indexed before printing.
 - `length(string)` returns the exact byte count stored in the string descriptor, including embedded NUL bytes; it does not count Unicode scalar values. `length(array)` returns the element count for fixed or dynamic arrays (fixed-array length is lowered as a constant). join(chunks) accepts a dynamic string[] and returns an immutable byte string containing each chunk in order, preserving embedded NUL bytes and using one allocation for non-empty output after checking cumulative length and allocation-size overflow. `push(array, value)` appends a matching primitive or structure value to a dynamic array and returns `void`. `pop(array)` removes and returns the last element, including a structure value; popping an empty dynamic array traps. `push` and `pop` reject fixed arrays and mutation through immutable aggregate bindings.
 
+
+### Binary buffers, byte codecs, and file I/O
+
+A dynamic `byte[]` is the current mutable binary-buffer type. It is separate from `string`; strings are length-aware byte sequences intended for text-like values and do not gain mutable buffer semantics.
+
+- `byte_slice(source, start, count) -> byte[]` copies the specified byte range to an independent dynamic array. `start` and `count` must be non-negative and the whole range must be inside the source; otherwise the operation traps. This is an owning copy, not a borrowed view.
+- `read_u16_le`, `read_u16_be`, `read_u32_le`, and `read_u32_be` accept `(byte[], int)` and return the decoded unsigned value as `int`.
+- `write_u16_le`, `write_u16_be`, `write_u32_le`, and `write_u32_be` accept `(byte[], int, int)` and return `void`. The value must be in the range 0 through 65,535 for 16-bit writes or 0 through 4,294,967,295 for 32-bit writes. The target byte range must already exist; writes do not grow the buffer.
+- Binary integer reads and writes trap for negative offsets or ranges outside the current buffer. Writes also trap for values outside the selected unsigned width.
+- `read_file(path, destination) -> int` opens `path` in binary read mode and appends the file's bytes to the supplied mutable `byte[]`. It returns the appended byte count or `-1` for invalid paths or ordinary open/read/close failures. A failed read/close restores the destination's original logical length and bytes, although capacity may have grown.
+- `write_file(path, bytes) -> int` opens in binary write mode (truncating an existing file), writes the complete buffer, and returns the byte count or `-1` on ordinary I/O failure. A failure after partial output may leave a partially written file.
+- File paths must be non-empty and must not contain embedded NUL bytes. Both file operations close the file before returning; no long-lived handle is exposed.
+- File-I/O failure reporting currently uses the `-1` sentinel. A general `Result` type, structured OS error values, streaming file handles, and directory APIs are not implemented.
+- Buffer allocations follow the existing dynamic-array program-lifetime runtime model. Allocation failure traps. The language still has no borrowed slice or general ownership/borrowing checker.
+
+The C and LLVM backends implement these operations with the same checked bounds, unsigned width, byte order, append/truncate, and error-return behavior. They are compiler-known runtime operations rather than importable modules.
+
 ## 5. Lexical rules implemented in the current frontend
 
 - Identifiers currently use ASCII letters or `_` as the first character, followed by ASCII letters, digits, or `_`.
@@ -283,9 +300,9 @@ No default tracing garbage collector is currently planned. This is a preference,
 2. Parser and AST.
 3. Initial name resolution and static type checking.
 4. Typed, backend-independent intermediate representation (initial SSA IR, verifier, and lowering implemented).
-5. Initial C source-generation backend (implemented); executable generation and native code generation remain future work.
-6. Runtime, standard library, and memory model implementation.
-7. Native toolchain integration and editor tooling.
+5. C11 and LLVM code-generation backends, including native build/run integration (implemented for the current language subset).
+6. Runtime, standard library, and memory model implementation (ongoing; now includes dynamic byte buffers, binary codecs, and whole-file binary I/O).
+7. Native toolchain integration and editor tooling (initial integration implemented; ongoing).
 8. Optimization, releases, and eventual self-hosting research.
 
 ### Initial typed IR implemented
@@ -295,7 +312,7 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 - Values have explicit primitive IR types and unique SSA identifiers.
 - Functions contain ordered basic blocks; each block has one explicit terminator.
 - Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
-- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, byte-preserving string concatenation/joining and byte-length inspection, dynamic-array length/capacity/reservation and mutation, direct calls, the `say` intrinsic, typed fixed/dynamic array construction and indexing, and structure construction/field access/updates including array-valued fields.
+- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, checked integer-to-byte conversion, byte-width bitwise operations, byte-preserving string concatenation/joining and byte-length inspection, owning byte slices, endian-aware binary integer reads/writes, whole-file byte-array reads/writes, dynamic-array length/capacity/reservation and mutation, direct calls, the `say` intrinsic, typed fixed/dynamic array construction and indexing, and structure construction/field access/updates including array-valued fields.
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
 - `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, fixed-array iteration, integer-range iteration, and loop-control edges lower into explicit control-flow graphs.
 - The verifier checks instruction and call types, array element types, lengths and nominal structure identities, structure field aggregate shapes, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
@@ -306,7 +323,7 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 The `vex emit-c <file.vex>` command runs lexing, parsing, semantic analysis, IR lowering, and IR verification, then emits portable C11 source to standard output.
 
 - Every current IR instruction and terminator has a C representation.
-- VEX `int`, `float`, `bool`, `string`, and `void` map to `int64_t`, `double`, `bool`, a length-aware byte string, and `void`.
+- VEX `int`, `byte`, `float`, `bool`, `string`, and `void` map to `int64_t`, `uint8_t`, `double`, `bool`, a length-aware byte string, and `void`. Dynamic `byte[]` buffers use the shared dynamic-array runtime.
 - Basic-block parameters are emitted as local SSA variables with parallel edge-copy temporaries, preserving merge and loop semantics.
 - Direct calls use generated private C symbols, with prototypes emitted before definitions so forward VEX calls work.
 - `say` prints integers, floating-point values, booleans, and strings followed by a newline.
@@ -314,8 +331,10 @@ The `vex emit-c <file.vex>` command runs lexing, parsing, semantic analysis, IR 
 - Signed integer arithmetic is checked. Overflow, division or remainder by zero, and the `INT64_MIN / -1` and `INT64_MIN % -1` cases produce a runtime failure instead of invoking C signed-overflow undefined behavior.
 - Fixed arrays use generated aggregate layouts. Index reads and writes check negative and out-of-range indices at runtime.
 - String literals are decoded from VEX escapes and emitted as length-aware byte sequences, so embedded NUL bytes are retained.
+- Byte-buffer operations use checked bounds and unsigned-width rules. `byte_slice` makes an independent copy; endian helpers encode/decode unsigned 16-/32-bit values.
+- Whole-file `read_file`/`write_file` helpers use binary mode, chunked reads with geometric buffer growth, explicit `-1` I/O status, and close each file before returning.
 
-The backend emits C source only. It does not invoke a C compiler, link an executable, or execute VEX programs. Those are the next integration milestone.
+The C backend can emit C11 source; the compiler's build/run commands can invoke the C backend toolchain. The default build/run commands use the LLVM backend and the bundled Zig/Clang toolchain. The language subset supported by both backends is covered by the cross-backend integration tests.
 
 ## 8. Open language-design questions
 

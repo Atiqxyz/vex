@@ -162,6 +162,11 @@ if(BUILD_TESTING)
                 -DBYTE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/byte_binary.vex
                 -DBYTE_OVERFLOW_HIGH_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/byte_overflow_high.vex
                 -DBYTE_OVERFLOW_NEGATIVE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/byte_overflow_negative.vex
+                -DBINARY_IO_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_io.vex
+                -DBINARY_READ_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_read_bounds.vex
+                -DBINARY_WRITE_OVERFLOW_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_write_overflow.vex
+                -DBINARY_SLICE_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_slice_bounds.vex
+                -DBINARY_IMMUTABLE_BUFFER_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_immutable_buffer.vex
                 "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm backend integration"
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/llvm_backend_integration.cmake
         )
@@ -190,6 +195,11 @@ if(BUILD_TESTING)
                 -DBYTE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/byte_binary.vex
                 -DBYTE_OVERFLOW_HIGH_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/byte_overflow_high.vex
                 -DBYTE_OVERFLOW_NEGATIVE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/byte_overflow_negative.vex
+                -DBINARY_IO_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_io.vex
+                -DBINARY_READ_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_read_bounds.vex
+                -DBINARY_WRITE_OVERFLOW_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_write_overflow.vex
+                -DBINARY_SLICE_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_slice_bounds.vex
+                -DBINARY_IMMUTABLE_BUFFER_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_immutable_buffer.vex
                 -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/c_backend_integration
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/c_backend_integration.cmake
         )

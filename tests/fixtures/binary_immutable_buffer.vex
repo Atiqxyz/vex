@@ -1,0 +1,4 @@
+make main() {
+    const data: byte[] = [to_byte(0), to_byte(0)]
+    write_u16_le(data, 0, 1)
+}

@@ -79,21 +79,22 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Array function returns | Implemented | Fixed arrays of primitives or structures are returned by value; dynamic arrays return a shared reference. IR verifies element identity and shape. |
 | Nested arrays | Not implemented | Arrays of arrays remain unsupported; arrays of structures and array-valued structure fields are implemented. |
 | Integer ranges | Implemented | \`start..end\` exclusive and \`start..=end\` inclusive, directly in \`for-in\`. |
-| Unsigned integer types | Not implemented | Important for systems and binary data. |
-| Smaller/larger integer widths | Not implemented | Consider explicit fixed-width types rather than implicit platform-sized integers. |
+| Unsigned integer types | Partial | `byte` is an unsigned 8-bit scalar; broader unsigned integer types are not yet language types. |
+| Smaller/larger integer widths | Partial | `byte` provides 8-bit storage and `int` is signed 64-bit; independent 16/32/unsigned integer scalar types remain absent. |
 | 32-bit floating point | Not implemented | Useful for memory-sensitive and accelerator workloads. |
 | Character / code-point type | Not implemented | Distinguish Unicode scalar values from bytes. |
-| Byte / raw buffer type | Not implemented | Needed for binary I/O and networking. |
+| Byte / raw buffer type | Implemented | `byte` is an unsigned 8-bit scalar; dynamic `byte[]` arrays provide mutable contiguous buffers with checked indexing, growth, capacity and reservation. |
 | User-defined structs / records | Implemented | Named value types with primitive, earlier-declared nested-struct, and one-dimensional array fields; arrays of structs support fixed value semantics and dynamic shared-reference semantics, nominal identity, nested field/index mutation, parameters/returns, push/pop/iteration, typed IR, C and LLVM backends. Recursive dynamic-array fields are supported; recursive by-value fields, explicit layout controls and equality remain deferred. |
 | Tuples | Not implemented | Could support multiple results and grouped values. |
 | Enums / tagged unions | Not implemented | Should be designed with exhaustive matching. |
 | Union / untagged union | Not implemented | Low-level representation and safety rules needed. |
 | Optional / nullable values | Not implemented | Decide representation and null-safety rules. |
 | Result / error values | Not implemented | Needed for explicit recoverable error handling. |
-| Dynamic arrays / vectors | Implemented | Primitive or structure elements, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `capacity`, absolute-minimum `reserve`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Arrays of arrays, slices, per-scope release, and borrowing checks remain absent. |
+| Dynamic arrays / vectors | Implemented | Primitive or structure elements, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `capacity`, absolute-minimum `reserve`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Arrays of arrays, borrowed slices, per-scope release, and borrowing checks remain absent; the separate `byte_slice` helper returns an owning copy. |
 | Dynamic-array capacity and reservation | Implemented | `capacity` reports allocated element slots; `reserve(array, n)` treats `n` as an absolute minimum, preserves contents and length, never shrinks, and updates all shared aliases. |
 | Chunk-based string building | Implemented | A StringBuilder structure can store string[] chunks, append with push, and materialize an immutable snapshot with join; joining validates length overflow and copies each output byte once. |
-| Slices / views | Not implemented | Requires bounds, lifetime and aliasing rules. |
+| Owning byte slices | Implemented | `byte_slice(byte[], start, count)` returns an independent copy with checked bounds; it does not expose a borrowed view. |
+| Borrowed / zero-copy slices | Not implemented | Requires explicit lifetime, aliasing and invalidation rules. |
 | Multidimensional arrays | Not implemented | Important for scientific computing; decide contiguous layout and indexing. |
 | Maps / dictionaries | Not implemented | Hashing, equality, key constraints and allocation needed. |
 | Sets | Not implemented | Usually built on hashing/equality and collection infrastructure. |
@@ -114,13 +115,13 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Integer and floating arithmetic | Implemented | Checked signed integer arithmetic. |
 | Comparisons and equality | Implemented | Primitive-compatible comparisons. |
 | Boolean logic | Implemented | Includes short-circuit lowering. |
-| Unary operators | Implemented | Unary plus, minus, logical not, and integer bitwise NOT. |
+| Unary operators | Implemented | Unary plus, minus, logical not, and bitwise NOT for `int` (64 bits) and `byte` (8 bits). |
 | Assignment | Implemented | Local assignment and nested aggregate field/index updates rooted at named bindings; compound targets resolve each indexed path component exactly once. |
 | Compound assignment | Implemented | `+= -= *= /= %=` work on named bindings and nested structure/array paths; target indices execute once before the right-hand side. `+=` also accepts two strings. |
 | Function-call expressions | Implemented | Direct calls. |
 | Array indexing expressions | Implemented | Checked indexing. |
 | Grouping / multiline expression form | Implemented | Explicit square-bracket grouping behavior is documented. |
-| Bitwise AND / OR / XOR / NOT | Implemented | `&`, `|`, `^`, and `~` operate on `int`; lexer, precedence, semantic checks, typed IR verification, C/LLVM code generation, and integration execution tests cover the operations. |
+| Bitwise AND / OR / XOR / NOT | Implemented | `&`, `|`, `^`, and `~` operate on matching `int` or `byte` values; byte operations are exactly 8 bits. Lexer, precedence, semantic checks, typed IR verification, C/LLVM code generation, and integration execution tests cover both types. |
 | Bit shifts and rotates | Not implemented | Need defined behavior for negative counts and overflow. |
 | Modulo semantics for negative operands | Implemented | Truncating signed remainder; non-zero result follows the dividend's sign; `INT64_MIN % -1` is defined as zero. |
 | Increment / decrement | Deferred | Avoid duplicating \`+= 1\` and \`-= 1\` unless a concrete need appears. |
@@ -189,7 +190,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | IR verifier diagnostics | Implemented | Verifies typed IR and control-flow invariants. |
 | Runtime checked integer arithmetic | Implemented | Overflow and invalid division cases trap/fail. |
 | Runtime array bounds checks | Implemented | C and LLVM integration coverage. |
-| Recoverable error return type | Not implemented | Result-like type not available. |
+| Recoverable error return type | Not implemented | Result-like type not available. File I/O currently reports failure with the documented `-1` integer sentinel instead of a general error value. |
 | Error propagation syntax | Not implemented | Design after Result semantics. |
 | Exceptions | Design undecided | Must not conflate with process traps. |
 | Assertions | Not implemented as a standard language facility | Separate from compiler internal checks. |
@@ -213,8 +214,10 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Formatting / interpolation library | Not implemented | Needed for practical diagnostics and scientific output. |
 | Built-in mutable string builder / buffer | Not implemented | No dedicated mutable string-buffer type or built-in; chunk-based building is already composable from `string[]`, `push`, and `join` as documented above. |
 | Split / delimiter join / trim / replace | Not implemented | The existing `join(string[])` concatenates chunks without a delimiter; text splitting, delimiter-based joining, trimming and replacement remain future standard-library work. |
-| Byte arrays / byte slices | Not implemented | Important for file and network APIs. |
-| Encoding / decoding | Not implemented | Standard-library work. |
+| Dynamic byte buffers | Implemented | `byte[]` uses the dynamic-array runtime, including `push`, `pop`, `reserve`, `capacity`, checked indexing, and alias sharing. |
+| Owning byte slicing | Implemented | `byte_slice` copies a checked range into a separately owned dynamic byte array; borrowed slices remain unavailable. |
+| Endian-aware integer encoding / decoding | Implemented | Checked 16-bit and 32-bit unsigned little-/big-endian read/write helpers operate on `byte[]`; no `u16`/`u32` scalar types are introduced. |
+| UTF-8 and general text encoding / decoding | Not implemented | String validity, Unicode scalar iteration, and general text encoders/decoders remain future work. |
 
 ## 9. Runtime, operating system and standard library
 
@@ -222,15 +225,15 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 |---|---|---|
 | Terminal output | Partial | \`say\` only; formatted output and output streams absent. |
 | Terminal input | Not implemented | Standard input API absent. |
-| File read/write | Not implemented | Runtime and resource model absent. |
-| Directory / filesystem APIs | Not implemented | Paths, metadata and iteration absent. |
+| Whole-file binary read/write | Partial | `read_file(path, byte_array)` appends in chunks and returns bytes appended or `-1`; `write_file(path, byte_array)` truncates/writes and returns bytes written or `-1`. Both backends close the file before returning; streaming handles and richer `Result` errors are absent. |
+| Directory / filesystem APIs | Not implemented | Path manipulation, metadata, directory iteration, and long-lived file handles are absent. |
 | Process arguments | Not implemented | Needed for real command-line tools. |
 | Environment variables | Not implemented | Runtime API absent. |
 | Exit status control | Partial | C entry adaptation supports integer result; user-facing process API needs tests/spec. |
 | Time / clocks / durations | Not implemented | Standard library. |
 | Random number generation | Not implemented | Seedable deterministic API needed. |
 | Networking | Not implemented | TCP/UDP/DNS/HTTP APIs absent. |
-| Serialization | Not implemented | JSON/CSV/binary formats absent. |
+| Serialization | Partial | Primitive 16-/32-bit unsigned values can be read/written with explicit endianness in `byte[]`; structured formats, JSON/CSV, and general codecs are absent. |
 | Math intrinsics | Partial | Current built-ins: sqrt, sin, cos, pow, abs. |
 | Broader math library | Not implemented | Logs, exponentials, inverse trig, rounding, constants and numeric utilities. |
 | Linear algebra | Not implemented | High priority for scientific computing, likely library/package layer. |

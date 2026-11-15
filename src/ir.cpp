@@ -288,6 +288,63 @@ private:
             check_result(instruction, IRType::String);
             break;
         }
+        case IROp::ByteSlice: {
+            check_arity(instruction, 3);
+            const IRValue* array = operand_value(instruction, 0);
+            const IRValue* start = operand_value(instruction, 1);
+            const IRValue* count = operand_value(instruction, 2);
+            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+                          array->element_type != IRType::Byte ||
+                          array->element_struct_type_id != 0))
+                report("IR080", "byte_slice requires a dynamic byte array", instruction.span);
+            if (start && start->type != IRType::Int)
+                report("IR081", "byte_slice start must be an int", instruction.span);
+            if (count && count->type != IRType::Int)
+                report("IR082", "byte_slice length must be an int", instruction.span);
+            check_result(instruction, IRType::Array);
+            if (instruction.result &&
+                (instruction.result->array_length != 0 ||
+                 instruction.result->element_type != IRType::Byte ||
+                 instruction.result->element_struct_type_id != 0))
+                report("IR083", "byte_slice result must be a dynamic byte array", instruction.span);
+            break;
+        }
+        case IROp::ByteRead:
+        case IROp::ByteWrite: {
+            const bool writing = instruction.op == IROp::ByteWrite;
+            check_arity(instruction, writing ? 3u : 2u);
+            const IRValue* array = operand_value(instruction, 0);
+            const IRValue* offset = operand_value(instruction, 1);
+            const IRValue* value = writing ? operand_value(instruction, 2) : nullptr;
+            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+                          array->element_type != IRType::Byte ||
+                          array->element_struct_type_id != 0))
+                report("IR084", "binary integer operations require a dynamic byte array", instruction.span);
+            if (offset && offset->type != IRType::Int)
+                report("IR085", "binary integer offset must be an int", instruction.span);
+            if (value && value->type != IRType::Int)
+                report("IR086", "binary integer value must be an int", instruction.span);
+            if (instruction.immediate != "2le" && instruction.immediate != "2be" &&
+                instruction.immediate != "4le" && instruction.immediate != "4be")
+                report("IR087", "binary integer operation has an invalid width or byte order", instruction.span);
+            if (writing) check_no_result(instruction);
+            else check_result(instruction, IRType::Int);
+            break;
+        }
+        case IROp::FileRead:
+        case IROp::FileWrite: {
+            check_arity(instruction, 2);
+            const IRValue* path = operand_value(instruction, 0);
+            const IRValue* array = operand_value(instruction, 1);
+            if (path && path->type != IRType::String)
+                report("IR088", "file path must be a string", instruction.span);
+            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+                          array->element_type != IRType::Byte ||
+                          array->element_struct_type_id != 0))
+                report("IR089", "binary file operations require a dynamic byte array", instruction.span);
+            check_result(instruction, IRType::Int);
+            break;
+        }
         case IROp::Add:
         case IROp::Subtract:
         case IROp::Multiply:
@@ -902,6 +959,11 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::StringConcat: return "string_concat";
     case IROp::StringLength: return "string_length";
     case IROp::StringJoin: return "string_join";
+    case IROp::ByteSlice: return "byte_slice";
+    case IROp::ByteRead: return "byte_read";
+    case IROp::ByteWrite: return "byte_write";
+    case IROp::FileRead: return "file_read";
+    case IROp::FileWrite: return "file_write";
     case IROp::Subtract: return "sub";
     case IROp::Multiply: return "mul";
     case IROp::Divide: return "div";
