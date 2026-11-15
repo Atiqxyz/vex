@@ -126,3 +126,43 @@ This inventory gathers common, useful operations seen across established languag
 - Time APIs must distinguish monotonic durations from wall-clock timestamps.
 - Algorithms should compose with common iterable and slice types rather than introduce parallel APIs for each container.
 - Keep advanced capabilities configurable without making ordinary calls verbose: provide safe defaults and optional configuration objects/arguments for allocator, buffering, capacity, and precision choices.
+
+## Byte-preserving string joining
+
+```vex
+let chunks: string[] = ["VEX", " ", "language"]
+let message = join(chunks)
+say(message)
+```
+
+The built-in `join(chunks)` accepts a dynamic `string[]` and returns one immutable string containing the chunks in order. It preserves embedded NUL bytes and exact byte lengths. The runtime first checks the total length for overflow, then allocates the final string once and copies each non-empty chunk once. Joining an empty array, or an array containing only empty strings, returns an empty string without allocating.
+
+A reusable chunk-based builder can be written directly in VEX:
+
+```vex
+struct StringBuilder {
+    chunks: string[],
+}
+
+make builder_append(builder: StringBuilder, chunk: string) {
+    push(builder.chunks, chunk)
+}
+
+make builder_build(builder: StringBuilder) -> string {
+    return join(builder.chunks)
+}
+
+make main() {
+    let builder = StringBuilder { chunks: [] }
+    builder_append(builder, "VEX")
+    builder_append(builder, " runtime")
+    let snapshot = builder_build(builder)
+    builder_append(builder, " builder")
+    say(snapshot)
+    say(builder_build(builder))
+}
+```
+
+The builder stores string descriptors in VEX's existing geometrically growing dynamic array rather than repeatedly concatenating the accumulated text. Appending a chunk is amortized O(1) in the number of chunks; building the final string is O(number of chunks + total output bytes), with one final string allocation for non-empty output. `builder_build` creates an immutable snapshot, so later appends do not change previously built strings. Dynamic-array storage and joined-string allocations follow the current program-lifetime cleanup model and are released when the generated entry function returns normally.
+
+This is a chunk builder: it is best when text arrives in pieces. If each chunk is itself produced by repeated string concatenation, that chunk's own construction can still be quadratic.

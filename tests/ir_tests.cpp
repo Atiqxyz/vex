@@ -646,6 +646,74 @@ void test_string_byte_length_lowering_and_backends(TestContext& tests) {
                 "LLVM backend extracts the string descriptor byte count");
 }
 
+void test_string_join_lowering_and_backends(TestContext& tests) {
+    const vex::SourceFile source{"string_join_ir.vex",
+        "make main() {\n"
+        "    let marker = 7\n"
+        "    let chunks: string[] = [\"A\", \"\\0B\", \"\"]\n"
+        "    let joined = join(chunks)\n"
+        "    say(length(joined))\n"
+        "}\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "string join fixture passes frontend analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(), "string join lowers into typed IR");
+    if (lowered.has_errors()) return;
+
+    vex::IRModule malformed = lowered.module;
+    vex::IRValueId integer_id = 0;
+    std::size_t join_count = 0;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::Constant && instruction.result &&
+                    instruction.result->type == vex::IRType::Int)
+                    integer_id = instruction.result->id;
+                if (instruction.op == vex::IROp::StringJoin) ++join_count;
+            }
+        }
+    }
+    tests.check(join_count == 1, "join lowers to one dedicated string_join IR operation");
+    tests.check(!vex::IRVerifier{}.verify(lowered.module).has_errors(),
+                "string_join passes independent IR verification");
+
+    bool corrupted = false;
+    for (vex::IRFunction& function : malformed.functions) {
+        for (vex::IRBlock& block : function.blocks) {
+            for (vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::StringJoin && integer_id != 0) {
+                    instruction.operands[0] = integer_id;
+                    corrupted = true;
+                    break;
+                }
+            }
+            if (corrupted) break;
+        }
+        if (corrupted) break;
+    }
+    const auto rejected = vex::IRVerifier{}.verify(malformed);
+    tests.check(corrupted && has_code(rejected, "IR074"),
+                "IR verifier rejects joining a non-string-array value");
+
+    const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() &&
+                c.source.find("vex_string_join(vex_v_") != std::string::npos &&
+                c.source.find("static vex_string vex_string_join(vex_array *parts)") != std::string::npos,
+                "C backend emits and calls the checked string-join runtime helper");
+    const vex::BackendResult llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("call { ptr, i64 } @vex_string_join(ptr ") != std::string::npos &&
+                llvm.output.find("define internal { ptr, i64 } @vex_string_join(ptr %parts)") != std::string::npos,
+                "LLVM backend emits and calls the checked string-join runtime helper");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -659,4 +727,5 @@ void run_ir_tests(TestContext& tests) {
     test_invalid_ir_is_rejected(tests);
     test_dominance_and_call_signatures(tests);
     test_string_byte_length_lowering_and_backends(tests);
+    test_string_join_lowering_and_backends(tests);
 }

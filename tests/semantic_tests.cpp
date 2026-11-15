@@ -673,6 +673,31 @@ void test_string_byte_length_semantics(TestContext& tests) {
                 "length rejects values that are neither strings nor arrays");
 }
 
+void test_string_join_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"string_join.vex",
+        "make main() {\n"
+        "    let chunks: string[] = [\"VEX\", \"\"]\n"
+        "    let result = join(chunks)\n"
+        "    const immutable: string[] = [\"safe\"]\n"
+        "    say(join(immutable))\n"
+        "    say(result)\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "join accepts mutable and immutable dynamic string arrays");
+
+    const vex::SourceFile invalid{"invalid_string_join.vex",
+        "make main() {\n"
+        "    let numbers: int[] = [1, 2]\n"
+        "    let fixed: string[2] = [\"a\", \"b\"]\n"
+        "    let wrong = join(numbers)\n"
+        "    let also_wrong = join(fixed)\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM021"),
+                "join rejects non-string and fixed-size arrays");
+}
+
 } // namespace
 
 void run_semantic_tests(TestContext& tests) {
@@ -694,4 +719,5 @@ void run_semantic_tests(TestContext& tests) {
     test_for_in_rejects_non_array_values(tests);
     test_structure_types_value_semantics_and_diagnostics(tests);
     test_string_byte_length_semantics(tests);
+    test_string_join_semantics(tests);
 }

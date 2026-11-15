@@ -1,3 +1,15 @@
+struct StringBuilder {
+    chunks: string[],
+}
+
+make builder_append(builder: StringBuilder, chunk: string) {
+    push(builder.chunks, chunk)
+}
+
+make builder_build(builder: StringBuilder) -> string {
+    return join(builder.chunks)
+}
+
 struct Strings {
     title: string,
     labels: string[2],
@@ -33,4 +45,29 @@ make main() {
     say(length(strings.labels[0]))
     say(length(bytes))
     say(length(""))
+
+    let builder = StringBuilder { chunks: [] }
+    builder_append(builder, "VEX")
+    builder_append(builder, " ")
+    builder_append(builder, "builder")
+    let snapshot = builder_build(builder)
+    builder_append(builder, "!")
+    say(snapshot == "VEX builder")
+    say(builder_build(builder) == "VEX builder!")
+
+    let empty_chunks: string[] = []
+    say(join(empty_chunks) == "")
+    let binary_chunks: string[] = []
+    push(binary_chunks, "A\0")
+    push(binary_chunks, "B\0C")
+    let binary_joined = join(binary_chunks)
+    say(binary_joined == "A\0B\0C")
+    say(length(binary_joined))
+
+    let large_builder = StringBuilder { chunks: [] }
+    repeat 100000 times {
+        builder_append(large_builder, "x")
+    }
+    let large_result = builder_build(large_builder)
+    say(length(large_result))
 }

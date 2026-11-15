@@ -70,7 +70,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Signed 64-bit integer | Implemented | Current \`int\`. |
 | 64-bit floating point | Implemented | Current \`float\`. |
 | Boolean | Implemented | Current \`bool\`. |
-| UTF-8 string | Partial | Length-aware byte strings support literals, equality, output, and byte-preserving concatenation; broader text APIs, UTF-8 validation policy, and Unicode behavior remain unfinished. |
+| UTF-8 string | Partial | Length-aware byte strings support literals, equality, output, byte-preserving concatenation, exact byte length, and checked joining of dynamic string arrays; broader text APIs, UTF-8 validation policy, and Unicode behavior remain unfinished. |
 | Void | Implemented | Function no-value result. |
 | Fixed-size one-dimensional arrays | Implemented | Primitive and structure arrays support inference, explicit `type[length]` annotations, structure fields, parameters/returns, and value aggregates. |
 | Array indexing and mutation | Implemented | Runtime bounds checks; nested field/index writes rooted at named aggregates, in both backends. |
@@ -91,6 +91,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Optional / nullable values | Not implemented | Decide representation and null-safety rules. |
 | Result / error values | Not implemented | Needed for explicit recoverable error handling. |
 | Dynamic arrays / vectors | Implemented | Primitive or structure elements, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Arrays of arrays, slices, per-scope release, and borrowing checks remain absent. |
+| Chunk-based string building | Implemented | A StringBuilder structure can store string[] chunks, append with push, and materialize an immutable snapshot with join; joining validates length overflow and copies each output byte once. |
 | Slices / views | Not implemented | Requires bounds, lifetime and aliasing rules. |
 | Multidimensional arrays | Not implemented | Important for scientific computing; decide contiguous layout and indexing. |
 | Maps / dictionaries | Not implemented | Hashing, equality, key constraints and allocation needed. |
