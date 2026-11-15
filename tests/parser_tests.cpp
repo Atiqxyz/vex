@@ -61,11 +61,7 @@ void test_bitwise_precedence(TestContext& tests) {
     tests.check(logical && logical->op == vex::TokenKind::AndAnd,
                 "logical AND remains lower precedence than bitwise and equality");
     if (!logical || !logical->left) return;
-    const auto* equality = std::get_if<vex::BinaryExpr>(&logical->left->data);
-    tests.check(equality && equality->op == vex::TokenKind::EqualEqual,
-                "equality binds more tightly than bitwise operators");
-    if (!equality || !equality->left) return;
-    const auto* bit_or = std::get_if<vex::BinaryExpr>(&equality->left->data);
+    const auto* bit_or = std::get_if<vex::BinaryExpr>(&logical->left->data);
     tests.check(bit_or && bit_or->op == vex::TokenKind::BitOr,
                 "bitwise OR has the lowest bitwise precedence");
     if (!bit_or || !bit_or->right) return;
@@ -76,6 +72,10 @@ void test_bitwise_precedence(TestContext& tests) {
     const auto* bit_and = std::get_if<vex::BinaryExpr>(&bit_xor->right->data);
     tests.check(bit_and && bit_and->op == vex::TokenKind::BitAnd,
                 "bitwise AND binds more tightly than XOR");
+    if (!bit_and || !bit_and->right) return;
+    const auto* equality = std::get_if<vex::BinaryExpr>(&bit_and->right->data);
+    tests.check(equality && equality->op == vex::TokenKind::EqualEqual,
+                "equality binds more tightly than bitwise operators");
 }
 
 void test_functions_and_calls(TestContext& tests) {
