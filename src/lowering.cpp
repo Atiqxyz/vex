@@ -824,8 +824,22 @@ private:
         }
 
         if (target->second == "length") {
-            if (arguments.size() != 1 || arguments[0].type != IRType::Array) {
-                report("IR119", "length expects exactly one array argument", expression.span);
+            if (arguments.size() != 1) {
+                report("IR119", "length expects exactly one string or array argument", expression.span);
+                return std::nullopt;
+            }
+            if (arguments[0].type == IRType::String) {
+                IRInstruction instruction;
+                instruction.op = IROp::StringLength;
+                instruction.operands = {arguments[0].id};
+                instruction.result = make_value(IRType::Int, expression.span);
+                instruction.span = expression.span;
+                const IRValue result = *instruction.result;
+                emit(std::move(instruction));
+                return result;
+            }
+            if (arguments[0].type != IRType::Array) {
+                report("IR119", "length expects a string or array argument", expression.span);
                 return std::nullopt;
             }
             if (arguments[0].array_length != 0) {

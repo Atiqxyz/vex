@@ -270,6 +270,12 @@ private:
                 report("IR072", "string concatenation requires two string operands", instruction.span);
             check_result(instruction, IRType::String);
             break;
+        case IROp::StringLength:
+            check_arity(instruction, 1);
+            if (left && *left != IRType::String)
+                report("IR073", "string length requires a string operand", instruction.span);
+            check_result(instruction, IRType::Int);
+            break;
         case IROp::Add:
         case IROp::Subtract:
         case IROp::Multiply:
@@ -834,6 +840,7 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::Constant: return "const";
     case IROp::Add: return "add";
     case IROp::StringConcat: return "string_concat";
+    case IROp::StringLength: return "string_length";
     case IROp::Subtract: return "sub";
     case IROp::Multiply: return "mul";
     case IROp::Divide: return "div";

@@ -30,6 +30,7 @@ enum class IROp {
     Constant,
     Add,
     StringConcat,
+    StringLength,
     Subtract,
     Multiply,
     Divide,

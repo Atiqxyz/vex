@@ -983,9 +983,13 @@ private:
                            std::to_string(expected_count) + " argument(s)", expression.span);
                     return Type::Error;
                 }
+                if (builtin_name == "length" && argument_types[0] == Type::String)
+                    return Type::Int;
                 if (argument_types[0] != Type::Array || !call->arguments[0]) {
-                    report("SEM021", builtin_name +
-                           " requires an array as its first argument", call->arguments[0]
+                    const std::string requirement = builtin_name == "length"
+                        ? " requires a string or array as its first argument"
+                        : " requires an array as its first argument";
+                    report("SEM021", builtin_name + requirement, call->arguments[0]
                                ? call->arguments[0]->span : expression.span);
                     return Type::Error;
                 }

@@ -905,6 +905,9 @@ private:
         case IROp::ArrayLength:
             output_ << "    " << result << " = vex_array_length(" << operand(0) << ");\n";
             return;
+        case IROp::StringLength:
+            output_ << "    " << result << " = " << operand(0) << ".length;\n";
+            return;
         case IROp::ArrayPush: {
             const auto array = value_type(function, instruction.operands[0]);
             if (!array) return;

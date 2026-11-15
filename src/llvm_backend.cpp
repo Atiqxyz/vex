@@ -1217,6 +1217,13 @@ done:
             store_result(instruction, result);
             return;
         }
+        case IROp::StringLength: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = extractvalue { ptr, i64 } "
+                    << operands[0] << ", 1\n";
+            store_result(instruction, result);
+            return;
+        }
         case IROp::ArrayPush: {
             const IRValue& array = value_types_.at(instruction.operands[0]);
             const IRValue element = array_element_value(array);
