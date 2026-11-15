@@ -291,7 +291,7 @@ private:
                 << "@.vex_false = private unnamed_addr constant [6 x i8] "
                    "c\"false\\00\", align 1\n"
                 << "%vex.array = type { ptr, i64, i64, i64, ptr }\n"
-                << "%vex.string.node = type { ptr, ptr }\n";
+                << "%vex.string.node = type { ptr, [0 x i8] }\n";
         for (const IRStructType& structure : module_.struct_types) {
             output_ << llvm_struct_type_name(structure.id) << " = type { ";
             for (std::size_t index = 0; index < structure.fields.size(); ++index) {
@@ -324,6 +324,7 @@ private:
                 << "declare void @free(ptr)\n"
                 << "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1 immarg)\n"
                 << "declare { i64, i1 } @llvm.umul.with.overflow.i64(i64, i64)\n"
+                << "declare { i64, i1 } @llvm.uadd.with.overflow.i64(i64, i64)\n"
                 << "declare void @llvm.trap()\n"
                 << "declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)\n"
                 << "declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)\n"
@@ -343,31 +344,40 @@ entry:
   %left_length = extractvalue { ptr, i64 } %left, 1
   %right_data = extractvalue { ptr, i64 } %right, 0
   %right_length = extractvalue { ptr, i64 } %right, 1
-  %total_length = add i64 %left_length, %right_length
-  %length_overflow = icmp ult i64 %total_length, %left_length
-  %sentinel_overflow = icmp eq i64 %total_length, -1
-  %invalid_size = or i1 %length_overflow, %sentinel_overflow
-  br i1 %invalid_size, label %trap, label %allocate_data
-trap:
-  call void @llvm.trap()
-  unreachable
-allocate_data:
-  %allocation_size = add i64 %total_length, 1
-  %data = call ptr @malloc(i64 %allocation_size)
-  %data_failed = icmp eq ptr %data, null
-  br i1 %data_failed, label %trap, label %allocate_node
-allocate_node:
+  %left_empty = icmp eq i64 %left_length, 0
+  br i1 %left_empty, label %return_right, label %check_right_empty
+return_right:
+  ret { ptr, i64 } %right
+check_right_empty:
+  %right_empty = icmp eq i64 %right_length, 0
+  br i1 %right_empty, label %return_left, label %check_length
+return_left:
+  ret { ptr, i64 } %left
+check_length:
+  %total_pair = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %left_length, i64 %right_length)
+  %total_length = extractvalue { i64, i1 } %total_pair, 0
+  %length_overflow = extractvalue { i64, i1 } %total_pair, 1
+  br i1 %length_overflow, label %trap, label %check_payload_size
+check_payload_size:
+  %payload_pair = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %total_length, i64 1)
+  %payload_size = extractvalue { i64, i1 } %payload_pair, 0
+  %payload_overflow = extractvalue { i64, i1 } %payload_pair, 1
   %node_size_pointer = getelementptr %vex.string.node, ptr null, i32 1
   %node_size = ptrtoint ptr %node_size_pointer to i64
-  %node = call ptr @malloc(i64 %node_size)
-  %node_failed = icmp eq ptr %node, null
-  br i1 %node_failed, label %trap, label %register_allocation
+  %allocation_pair = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %node_size, i64 %payload_size)
+  %allocation_size = extractvalue { i64, i1 } %allocation_pair, 0
+  %allocation_overflow = extractvalue { i64, i1 } %allocation_pair, 1
+  %size_overflow = or i1 %payload_overflow, %allocation_overflow
+  br i1 %size_overflow, label %trap, label %allocate
+allocate:
+  %node = call ptr @malloc(i64 %allocation_size)
+  %allocation_failed = icmp eq ptr %node, null
+  br i1 %allocation_failed, label %trap, label %register_allocation
 register_allocation:
   %next_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 0
   %old_head = load ptr, ptr @vex_string_head
   store ptr %old_head, ptr %next_pointer
-  %data_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 1
-  store ptr %data, ptr %data_pointer
+  %data = getelementptr %vex.string.node, ptr %node, i32 0, i32 1
   store ptr %node, ptr @vex_string_head
   call void @llvm.memcpy.p0.p0.i64(ptr %data, ptr %left_data, i64 %left_length, i1 false)
   %right_destination = getelementptr i8, ptr %data, i64 %left_length
@@ -377,6 +387,9 @@ register_allocation:
   %result_with_data = insertvalue { ptr, i64 } poison, ptr %data, 0
   %result = insertvalue { ptr, i64 } %result_with_data, i64 %total_length, 1
   ret { ptr, i64 } %result
+trap:
+  call void @llvm.trap()
+  unreachable
 }
 
 define internal void @vex_string_cleanup() {
@@ -389,10 +402,7 @@ loop:
 release:
   %next_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 0
   %next = load ptr, ptr %next_pointer
-  %data_pointer = getelementptr %vex.string.node, ptr %node, i32 0, i32 1
-  %data = load ptr, ptr %data_pointer
   store ptr %next, ptr @vex_string_head
-  call void @free(ptr %data)
   call void @free(ptr %node)
   br label %loop
 done:

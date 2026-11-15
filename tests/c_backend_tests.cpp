@@ -54,6 +54,21 @@ void test_c_backend_emits_typed_c(TestContext& tests) {
                 "C backend emits a portable fixed-width integer constant");
     tests.check(result.source.find("vex_say_int(vex_v_1)") != std::string::npos,
                 "C backend maps the say intrinsic to its runtime helper");
+    const auto concat_start = result.source.find("static vex_string vex_string_concat");
+    const auto concat_end = result.source.find("static bool vex_string_equal", concat_start);
+    const bool has_concat_helper = concat_start != std::string::npos &&
+                                   concat_end != std::string::npos;
+    tests.check(has_concat_helper, "C backend emits its string concatenation runtime helper");
+    if (has_concat_helper) {
+        const std::string_view helper{result.source.data() + concat_start, concat_end - concat_start};
+        const auto first_malloc = helper.find("malloc(");
+        tests.check(first_malloc != std::string_view::npos &&
+                    helper.find("malloc(", first_malloc + 1) == std::string_view::npos,
+                    "C string concatenation uses one allocation for metadata and bytes");
+        tests.check(helper.find("if (left.length == 0u) return right;") != std::string_view::npos &&
+                    helper.find("if (right.length == 0u) return left;") != std::string_view::npos,
+                    "C string concatenation returns the non-empty operand without allocating");
+    }
 }
 
 void test_c_backend_rejects_invalid_entry_point(TestContext& tests) {
