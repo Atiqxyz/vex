@@ -1021,7 +1021,7 @@ setup:
   %data = load ptr, ptr %data_ptr
   br label %write_loop
 write_loop:
-  %offset = phi i64 [ 0, %setup ], [ %next_offset, %write_body ]
+  %offset = phi i64 [ 0, %setup ], [ %next_offset, %continue_write ]
   %done = icmp uge i64 %offset, %length
   br i1 %done, label %close_success, label %write_body
 write_body:
