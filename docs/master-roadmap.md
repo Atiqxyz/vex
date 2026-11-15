@@ -185,7 +185,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Byte buffers and byte slices
 - [ ] String formatting and interpolation
 - [x] Byte-preserving string concatenation with `+` and `+=` across C and LLVM backends
-- [ ] Efficient string builder / amortized string construction
+- [x] Efficient chunk-based string building with one-pass join
 - [ ] UTF-8 decoding and validation policy
 - [ ] Unicode scalar iteration, with bytes clearly distinguished
 - [ ] Common string operations: search, split, delimiter join, trim, replace
@@ -218,7 +218,26 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Design guardrails:** Use explicit error results for OS operations. Resource handles must close deterministically. Distinguish monotonic time from wall-clock time. Avoid putting every library function into the compiler as a special intrinsic.
 
-### I. Modules, packages, builds, and interoperability
+### I. Graphics, windows, and interactive applications
+
+**Why it matters:** VEX should eventually be able to build real-time interactive programs, games, visual tools, and scientific visualisations—not only command-line software or static image files. This is a first-class application domain, while remaining outside the minimal language core.
+
+- [ ] Window creation, lifecycle, and cross-platform event loop
+- [ ] Keyboard, pointer, controller, and window input events
+- [ ] 2D drawing primitives, textures, sprites, and text
+- [ ] Frame timing, animation scheduling, and deterministic update loops
+- [ ] GPU resource abstractions for buffers, textures, and pipelines
+- [ ] Shader compilation, loading, and diagnostics
+- [ ] 3D rendering foundations: meshes, cameras, transforms, materials, and lighting
+- [ ] Audio playback and input as an optional multimedia subsystem
+- [ ] Asset loading, resource lifetime, and packaging
+- [ ] Scientific visualisation utilities for plots, fields, trajectories, and simulation state
+- [ ] Headless and software-rendered test paths for CI
+- [ ] Backend strategy for platform graphics APIs and third-party rendering libraries
+
+**Design guardrails:** Keep graphics APIs in libraries and runtime/platform layers rather than making rendering operations language keywords. Separate the portable VEX-facing API from window-system and GPU backend details. Define resource ownership, thread affinity, frame/event-loop behavior, and error handling before exposing handles. Keep a headless path so compiler and simulation tests do not require a physical GPU or display. Do not commit prematurely to one graphics API; compare established cross-platform windowing and rendering options when implementation begins.
+
+### J. Modules, packages, builds, and interoperability
 
 **Why it matters:** Multi-file programs and reuse require a compilation and dependency model, not just import syntax.
 
@@ -395,6 +414,8 @@ A feature is complete only when its behavior is implemented and verified end to 
 
 At the 2026-11-15 verified baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values with capacity inspection and reservation; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation and chunk joining; compound assignment; cross-platform CI; and initial editor integration. The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority.
 
-The next engineering slice is to finish the string/runtime audit without violating immutable string value semantics: reduce allocator overhead now, then design an amortized string builder only after its aliasing and lifetime contract is explicit. In parallel, every major capability must be evaluated against the long-term self-hosting-capability goal: VEX should eventually be able to express its own lexer, parser, type checker, IR, code generators, tests, and build workflow, even if the compiler remains implemented in C++.
+Recent string/runtime work has delivered single-allocation concatenation, byte-counting string length, chunk-based string building through `join`, and dynamic-array capacity reservation. The next engineering slice should audit binary buffers, file I/O, resource lifetimes, and foreign-library interoperability. These are foundational both for a capable self-hosted compiler and for later graphics, audio, and interactive applications.
+
+Graphics is an explicit long-term target, not an immediate diversion from core compiler work. VEX should eventually support cross-platform windows and input, 2D and 3D rendering, real-time event/frame loops, and scientific visualisation through portable libraries and runtime abstractions. In parallel, every major capability must be evaluated against the self-hosting-capability goal: VEX should eventually be able to express its own lexer, parser, type checker, IR, code generators, tests, and build workflow, even if the compiler remains implemented in C++.
 
 The roadmap is intentionally broad. It is a map for making informed choices, not a checklist that must be blindly completed.
