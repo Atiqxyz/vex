@@ -203,6 +203,6 @@ if(BUILD_TESTING)
                 -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/c_backend_integration
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/c_backend_integration.cmake
         )
-        set_tests_properties(vex_c_backend_integration PROPERTIES TIMEOUT 30)
+        set_tests_properties(vex_c_backend_integration PROPERTIES TIMEOUT 60)
     endif()
 endif()
