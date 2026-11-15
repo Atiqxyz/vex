@@ -1148,8 +1148,24 @@ done:
             store_result(instruction, result);
             return;
         }
-        case IROp::LogicalNot: {
+        case IROp::BitwiseAnd:
+        case IROp::BitwiseOr:
+        case IROp::BitwiseXor: {
+            const char* operation = instruction.op == IROp::BitwiseAnd ? "and" :
+                instruction.op == IROp::BitwiseOr ? "or" : "xor";
             const std::string result = next_temp();
+            output_ << "  " << result << " = " << operation << " i64 "
+                    << operands[0] << ", " << operands[1] << "\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::BitwiseNot: {
+            const std::string result = next_temp();
+            output_ << "  " << result << " = xor i64 " << operands[0] << ", -1\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::LogicalNot: {
             output_ << "  " << result << " = xor i1 " << operands[0] << ", true\n";
             store_result(instruction, result);
             return;

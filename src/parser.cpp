@@ -275,7 +275,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
     if (!left) return nullptr;
     while (true) {
         if (allow_newlines) skip_newlines();
-        if (check(TokenKind::LeftBrace) && minimum_precedence <= 12) {
+        if (check(TokenKind::LeftBrace) && minimum_precedence <= 15) {
             // Newlines immediately after the opening brace are allowed in
             // multiline structure literals, so skip them during lookahead too.
             std::size_t field_token = current_ + 1;
@@ -316,7 +316,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
                 }
             }
         }
-        if (check(TokenKind::Dot) && minimum_precedence <= 12) {
+        if (check(TokenKind::Dot) && minimum_precedence <= 15) {
             static_cast<void>(advance());
             const Token member = expect(TokenKind::Identifier,
                                         "expected a field name after '.'");
@@ -325,7 +325,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
                                    MemberExpr{std::move(left), member.span});
             continue;
         }
-        if (check(TokenKind::LeftBracket) && minimum_precedence <= 11) {
+        if (check(TokenKind::LeftBracket) && minimum_precedence <= 14) {
             static_cast<void>(advance());
             skip_newlines();
             ExprPtr index = parse_expression(true);
@@ -337,7 +337,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
                                    IndexExpr{std::move(left), std::move(index)});
             continue;
         }
-        if (check(TokenKind::LeftParen) && minimum_precedence <= 10) {
+        if (check(TokenKind::LeftParen) && minimum_precedence <= 13) {
             static_cast<void>(advance());
             std::vector<ExprPtr> arguments;
             if (allow_newlines) skip_newlines();
@@ -402,9 +402,10 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
     return left;
 }
 ExprPtr Parser::parse_prefix(const bool allow_newlines) {
-    if (match(TokenKind::Minus) || match(TokenKind::Plus) || match(TokenKind::Bang)) {
+    if (match(TokenKind::Minus) || match(TokenKind::Plus) || match(TokenKind::Bang) ||
+        match(TokenKind::BitNot)) {
         const Token op = previous();
-        ExprPtr operand = parse_expression(allow_newlines, 9);
+        ExprPtr operand = parse_expression(allow_newlines, 12);
         if (!operand) {
             report_current("PAR008", "expected an expression after the unary operator");
             return nullptr;
@@ -490,19 +491,22 @@ int Parser::precedence(const TokenKind kind) noexcept {
     case TokenKind::PercentEqual: return 1;
     case TokenKind::OrOr: return 2;
     case TokenKind::AndAnd: return 3;
+    case TokenKind::BitOr: return 4;
+    case TokenKind::BitXor: return 5;
+    case TokenKind::BitAnd: return 6;
     case TokenKind::Range:
-    case TokenKind::RangeInclusive: return 4;
+    case TokenKind::RangeInclusive: return 7;
     case TokenKind::EqualEqual:
-    case TokenKind::BangEqual: return 5;
+    case TokenKind::BangEqual: return 8;
     case TokenKind::Less:
     case TokenKind::LessEqual:
     case TokenKind::Greater:
-    case TokenKind::GreaterEqual: return 6;
+    case TokenKind::GreaterEqual: return 9;
     case TokenKind::Plus:
-    case TokenKind::Minus: return 7;
+    case TokenKind::Minus: return 10;
     case TokenKind::Star:
     case TokenKind::Slash:
-    case TokenKind::Percent: return 8;
+    case TokenKind::Percent: return 11;
     default: return 0;
     }
 }

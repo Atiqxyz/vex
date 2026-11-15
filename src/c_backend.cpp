@@ -482,6 +482,13 @@ private:
             << "        vex_runtime_trap(\"signed integer overflow in negation\");\n"
             << "    return -value;\n"
             << "}\n\n"
+            << "static int64_t vex_i64_from_bits(uint64_t bits) {\n"
+            << "    int64_t value; (void)memcpy(&value, &bits, sizeof(value)); return value;\n"
+            << "}\n"
+            << "static int64_t vex_i64_bit_and(int64_t left, int64_t right) { return vex_i64_from_bits((uint64_t)left & (uint64_t)right); }\n"
+            << "static int64_t vex_i64_bit_or(int64_t left, int64_t right) { return vex_i64_from_bits((uint64_t)left | (uint64_t)right); }\n"
+            << "static int64_t vex_i64_bit_xor(int64_t left, int64_t right) { return vex_i64_from_bits((uint64_t)left ^ (uint64_t)right); }\n"
+            << "static int64_t vex_i64_bit_not(int64_t value) { return vex_i64_from_bits(~(uint64_t)value); }\n\n"
             << "static vex_string vex_string_concat(vex_string left, vex_string right) {\n"
             << "    if (left.length == 0u) return right;\n"
             << "    if (right.length == 0u) return left;\n"
@@ -805,6 +812,18 @@ private:
             output_ << "    " << result << " = " << expression << ";\n";
             return;
         }
+        case IROp::BitwiseAnd:
+        case IROp::BitwiseOr:
+        case IROp::BitwiseXor: {
+            const char* helper = instruction.op == IROp::BitwiseAnd ? "vex_i64_bit_and" :
+                instruction.op == IROp::BitwiseOr ? "vex_i64_bit_or" : "vex_i64_bit_xor";
+            output_ << "    " << result << " = " << helper << "("
+                    << operand(0) << ", " << operand(1) << ");\n";
+            return;
+        }
+        case IROp::BitwiseNot:
+            output_ << "    " << result << " = vex_i64_bit_not(" << operand(0) << ");\n";
+            return;
         case IROp::LogicalNot:
             output_ << "    " << result << " = !" << operand(0) << ";\n";
             return;

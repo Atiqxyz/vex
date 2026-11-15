@@ -784,6 +784,9 @@ private:
         case TokenKind::Star: op = IROp::Multiply; break;
         case TokenKind::Slash: op = IROp::Divide; break;
         case TokenKind::Percent: op = IROp::Remainder; break;
+        case TokenKind::BitAnd: op = IROp::BitwiseAnd; break;
+        case TokenKind::BitOr: op = IROp::BitwiseOr; break;
+        case TokenKind::BitXor: op = IROp::BitwiseXor; break;
         case TokenKind::EqualEqual: op = IROp::Equal; break;
         case TokenKind::BangEqual: op = IROp::NotEqual; break;
         case TokenKind::Less: op = IROp::Less; break;
@@ -1172,7 +1175,8 @@ private:
             const auto type = expression_type(expression);
             if (!type) return std::nullopt;
             const IROp op = unary->op == TokenKind::Bang
-                ? IROp::LogicalNot : IROp::Negate;
+                ? IROp::LogicalNot
+                : unary->op == TokenKind::BitNot ? IROp::BitwiseNot : IROp::Negate;
             return emit_operation(op, *type, {operand->id}, expression.span);
         }
         if (const auto* binary = std::get_if<BinaryExpr>(&expression.data)) {

@@ -137,24 +137,10 @@ void Lexer::scan_token() {
     case '!': add_token(match('=') ? TokenKind::BangEqual : TokenKind::Bang); break;
     case '<': add_token(match('=') ? TokenKind::LessEqual : TokenKind::Less); break;
     case '>': add_token(match('=') ? TokenKind::GreaterEqual : TokenKind::Greater); break;
-    case '&':
-        if (match('&')) {
-            add_token(TokenKind::AndAnd);
-        } else {
-            report("LEX006", "expected '&' after '&'; use '&&' for logical AND",
-                   start_, current_);
-            add_token(TokenKind::Invalid);
-        }
-        break;
-    case '|':
-        if (match('|')) {
-            add_token(TokenKind::OrOr);
-        } else {
-            report("LEX007", "expected '|' after '|'; use '||' for logical OR",
-                   start_, current_);
-            add_token(TokenKind::Invalid);
-        }
-        break;
+    case '&': add_token(match('&') ? TokenKind::AndAnd : TokenKind::BitAnd); break;
+    case '|': add_token(match('|') ? TokenKind::OrOr : TokenKind::BitOr); break;
+    case '^': add_token(TokenKind::BitXor); break;
+    case '~': add_token(TokenKind::BitNot); break;
     case '/':
         if (match('/')) {
             scan_line_comment();

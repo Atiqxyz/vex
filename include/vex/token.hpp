@@ -69,6 +69,10 @@ enum class TokenKind {
     GreaterEqual,
     AndAnd,
     OrOr,
+    BitAnd,
+    BitOr,
+    BitXor,
+    BitNot,
 
     Count
 };

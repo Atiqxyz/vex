@@ -300,6 +300,20 @@ private:
             else if (!instruction.result)
                 report("IR009", "arithmetic instruction must define a result", instruction.span);
             break;
+        case IROp::BitwiseAnd:
+        case IROp::BitwiseOr:
+        case IROp::BitwiseXor:
+            check_arity(instruction, 2);
+            if ((left && *left != IRType::Int) || (right && *right != IRType::Int))
+                report("IR078", "bitwise binary operations require int operands", instruction.span);
+            check_result(instruction, IRType::Int);
+            break;
+        case IROp::BitwiseNot:
+            check_arity(instruction, 1);
+            if (left && *left != IRType::Int)
+                report("IR079", "bitwise NOT requires an int operand", instruction.span);
+            check_result(instruction, IRType::Int);
+            break;
         case IROp::Remainder:
             check_arity(instruction, 2);
             if ((left && *left != IRType::Int) || (right && *right != IRType::Int)) {
@@ -880,6 +894,10 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::LogicalNot: return "not";
     case IROp::LogicalAnd: return "and";
     case IROp::LogicalOr: return "or";
+    case IROp::BitwiseAnd: return "bit_and";
+    case IROp::BitwiseOr: return "bit_or";
+    case IROp::BitwiseXor: return "bit_xor";
+    case IROp::BitwiseNot: return "bit_not";
     case IROp::Equal: return "eq";
     case IROp::NotEqual: return "ne";
     case IROp::Less: return "lt";

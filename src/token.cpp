@@ -67,6 +67,10 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::GreaterEqual: return "GREATER_EQUAL";
     case TokenKind::AndAnd: return "AND_AND";
     case TokenKind::OrOr: return "OR_OR";
+    case TokenKind::BitAnd: return "BIT_AND";
+    case TokenKind::BitOr: return "BIT_OR";
+    case TokenKind::BitXor: return "BIT_XOR";
+    case TokenKind::BitNot: return "BIT_NOT";
     case TokenKind::Count: return "COUNT";
     }
     return "UNKNOWN";

@@ -764,6 +764,14 @@ private:
                 }
                 return Type::Bool;
             }
+            if (unary->op == TokenKind::BitNot) {
+                if (operand != Type::Int) {
+                    report("SEM011", "bitwise NOT requires an int operand; got " +
+                           std::string(type_name(operand)), unary->operand->span);
+                    return Type::Error;
+                }
+                return Type::Int;
+            }
             if (unary->op == TokenKind::Plus || unary->op == TokenKind::Minus) {
                 if (!is_numeric(operand)) {
                     report("SEM011", "unary numeric operators require int or float; got " +
@@ -802,6 +810,15 @@ private:
             case TokenKind::Percent:
                 if (left != Type::Int || right != Type::Int) {
                     report("SEM012", "operator '%' requires two int operands",
+                           expression.span);
+                    return Type::Error;
+                }
+                return Type::Int;
+            case TokenKind::BitAnd:
+            case TokenKind::BitOr:
+            case TokenKind::BitXor:
+                if (left != Type::Int || right != Type::Int) {
+                    report("SEM012", "bitwise operators require two int operands",
                            expression.span);
                     return Type::Error;
                 }
