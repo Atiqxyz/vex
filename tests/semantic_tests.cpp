@@ -513,6 +513,42 @@ void test_dynamic_array_semantics(TestContext& tests) {
                 "empty arrays require an explicit dynamic-array element type");
 }
 
+void test_dynamic_array_capacity_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"dynamic_array_capacity_semantics.vex",
+        "make main() {\n"
+        "    let values: int[] = []\n"
+        "    let initial = capacity(values)\n"
+        "    reserve(values, 16)\n"
+        "    let enough = capacity(values) >= 16\n"
+        "    let count = length(values)\n"
+        "    const locked: int[] = []\n"
+        "    let locked_capacity = capacity(locked)\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "capacity reads immutable dynamic arrays and reserve accepts a mutable dynamic array with an int minimum");
+
+    const vex::SourceFile invalid{"invalid_dynamic_array_capacity.vex",
+        "make main() {\n"
+        "    let fixed = [1, 2]\n"
+        "    capacity(fixed)\n"
+        "    reserve(fixed, 4)\n"
+        "    let values: int[] = []\n"
+        "    reserve(values, 2.5)\n"
+        "    const locked: int[] = []\n"
+        "    reserve(locked, 8)\n"
+        "    capacity(1)\n"
+        "    reserve(values)\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM021"),
+                "capacity and reserve reject fixed arrays, non-arrays, and non-integer capacities");
+    tests.check(has_code(rejected, "SEM017"),
+                "reserve cannot mutate a dynamic array through an immutable binding");
+    tests.check(has_code(rejected, "SEM020"),
+                "reserve enforces its two-argument signature");
+}
+
 void test_integer_range_semantics(TestContext& tests) {
     const vex::SourceFile valid{"range_semantics.vex",
         "make main() {\n"
@@ -715,6 +751,7 @@ void run_semantic_tests(TestContext& tests) {
     test_fixed_arrays_and_index_assignment(tests);
     test_array_function_types_and_shapes(tests);
     test_dynamic_array_semantics(tests);
+    test_dynamic_array_capacity_semantics(tests);
     test_integer_range_semantics(tests);
     test_for_in_rejects_non_array_values(tests);
     test_structure_types_value_semantics_and_diagnostics(tests);

@@ -54,6 +54,8 @@ enum class IROp {
     ArrayGet,
     ArraySet,
     ArrayLength,
+    ArrayCapacity,
+    ArrayReserve,
     ArrayPush,
     ArrayPop,
     StructMake,

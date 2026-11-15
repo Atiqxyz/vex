@@ -179,6 +179,33 @@ if(NOT "${compound_output}" STREQUAL "${compound_expected}")
     message(FATAL_ERROR "Compound assignment behavior mismatch. Expected:${compound_expected}Actual:${compound_output}")
 endif()
 
+# Capacity is an absolute minimum; reservation preserves length, elements and aliases.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${DYNAMIC_ARRAY_CAPACITY_SOURCE_FILE}"
+    RESULT_VARIABLE capacity_result OUTPUT_VARIABLE capacity_output ERROR_VARIABLE capacity_error
+)
+if(NOT capacity_result EQUAL 0)
+    message(FATAL_ERROR "C backend dynamic-array capacity test failed: ${capacity_output}${capacity_error}")
+endif()
+string(REPLACE "\r\n" "\n" capacity_output "${capacity_output}")
+set(capacity_expected "0\ntrue\n0\ntrue\n2\n7\n8\ntrue\n3\n9\ntrue\ntrue\n1.5\n6.5\n")
+if(NOT "${capacity_output}" STREQUAL "${capacity_expected}")
+    message(FATAL_ERROR "Dynamic-array capacity behavior mismatch. Expected:${capacity_expected}Actual:${capacity_output}")
+endif()
+foreach(reserve_failure_source IN ITEMS
+        "${DYNAMIC_ARRAY_NEGATIVE_RESERVE_SOURCE_FILE}"
+        "${DYNAMIC_ARRAY_RESERVE_OVERFLOW_SOURCE_FILE}")
+    execute_process(
+        COMMAND "${VEX_EXECUTABLE}" run-c "${reserve_failure_source}"
+        RESULT_VARIABLE reserve_failure_result
+        OUTPUT_VARIABLE reserve_failure_output
+        ERROR_VARIABLE reserve_failure_error
+    )
+    if("${reserve_failure_result}" STREQUAL "0")
+        message(FATAL_ERROR "C backend did not trap for invalid reservation: ${reserve_failure_source}")
+    endif()
+endforeach()
+
 # Exercise empty strings, embedded NUL bytes, and string +=.
 execute_process(
     COMMAND "${VEX_EXECUTABLE}" run-c "${STRING_CONCAT_SOURCE_FILE}"

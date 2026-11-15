@@ -368,6 +368,24 @@ private:
             << "    if (array == NULL || element_size == 0u || array->element_size != element_size)\n"
             << "        vex_runtime_trap(\"dynamic array element type mismatch\");\n"
             << "}\n\n"
+            << "static int64_t vex_array_capacity(vex_array *array, size_t element_size) {\n"
+            << "    vex_array_check(array, element_size);\n"
+            << "    if ((uint64_t)array->capacity > (uint64_t)INT64_MAX)\n"
+            << "        vex_runtime_trap(\"dynamic array capacity exceeds int range\");\n"
+            << "    return (int64_t)array->capacity;\n"
+            << "}\n\n"
+            << "static void vex_array_reserve(vex_array *array, int64_t requested, size_t element_size) {\n"
+            << "    vex_array_check(array, element_size);\n"
+            << "    if (requested < 0) vex_runtime_trap(\"dynamic array capacity cannot be negative\");\n"
+            << "    const uint64_t requested_count = (uint64_t)requested;\n"
+            << "    if (requested_count <= (uint64_t)array->capacity) return;\n"
+            << "    if (requested_count > (uint64_t)(SIZE_MAX / element_size))\n"
+            << "        vex_runtime_trap(\"dynamic array reservation size overflow\");\n"
+            << "    void *next_data = realloc(array->data, (size_t)requested_count * element_size);\n"
+            << "    if (next_data == NULL) vex_runtime_trap(\"dynamic array reservation failed\");\n"
+            << "    array->data = next_data;\n"
+            << "    array->capacity = (size_t)requested_count;\n"
+            << "}\n\n"
             << "static int64_t vex_array_length(vex_array *array) {\n"
             << "    if (array == NULL || array->length > (size_t)INT64_MAX)\n"
             << "        vex_runtime_trap(\"invalid dynamic array length\");\n"
@@ -933,6 +951,22 @@ private:
         case IROp::ArrayLength:
             output_ << "    " << result << " = vex_array_length(" << operand(0) << ");\n";
             return;
+        case IROp::ArrayCapacity: {
+            const auto array = value_type(function, instruction.operands[0]);
+            if (!array) return;
+            const IRValue element = array_element_value(*array);
+            output_ << "    " << result << " = vex_array_capacity("
+                    << operand(0) << ", sizeof(" << c_type(element) << "));\n";
+            return;
+        }
+        case IROp::ArrayReserve: {
+            const auto array = value_type(function, instruction.operands[0]);
+            if (!array) return;
+            const IRValue element = array_element_value(*array);
+            output_ << "    vex_array_reserve(" << operand(0) << ", "
+                    << operand(1) << ", sizeof(" << c_type(element) << "));\n";
+            return;
+        }
         case IROp::StringLength:
             output_ << "    " << result << " = " << operand(0) << ".length;\n";
             return;

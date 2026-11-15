@@ -574,6 +574,109 @@ void test_fixed_array_lowering_and_backends(TestContext& tests) {
                 "LLVM backend emits aggregate arrays and bounds checks");
 }
 
+void test_dynamic_array_capacity_lowering_and_backends(TestContext& tests) {
+    const vex::SourceFile source{"dynamic_array_capacity_ir.vex",
+        "struct Sample { marker: bool, value: float, samples: float[2] }\n"
+        "make main() {\n"
+        "    let fixed = [1, 2]\n"
+        "    let values: int[] = []\n"
+        "    let label = \"bad\"\n"
+        "    let before = capacity(values)\n"
+        "    reserve(values, 12)\n"
+        "    let records: Sample[] = []\n"
+        "    reserve(records, 4)\n"
+        "    push(records, Sample { marker: true, value: 1.5, samples: [2.5, 3.5] })\n"
+        "    say(before)\n"
+        "}\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "capacity and reserve fixture passes frontend analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(),
+                "capacity and reserve lower into dedicated typed IR operations");
+    if (lowered.has_errors()) return;
+
+    std::size_t capacity_count = 0;
+    std::size_t reserve_count = 0;
+    vex::IRValueId fixed_array_id = 0;
+    vex::IRValueId string_id = 0;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::ArrayCapacity) ++capacity_count;
+                if (instruction.op == vex::IROp::ArrayReserve) ++reserve_count;
+                if (instruction.op == vex::IROp::ArrayMake && instruction.result &&
+                    instruction.result->array_length != 0)
+                    fixed_array_id = instruction.result->id;
+                if (instruction.op == vex::IROp::Constant && instruction.result &&
+                    instruction.result->type == vex::IRType::String)
+                    string_id = instruction.result->id;
+            }
+        }
+    }
+    tests.check(capacity_count == 1 && reserve_count == 2,
+                "capacity and reserve each lower to the expected dedicated IR operations");
+    const auto verified = vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(),
+                "dynamic-array capacity and reservation pass independent IR verification");
+
+    vex::IRModule invalid_capacity = lowered.module;
+    bool changed_capacity = false;
+    for (vex::IRFunction& function : invalid_capacity.functions) {
+        for (vex::IRBlock& block : function.blocks) {
+            for (vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::ArrayCapacity && fixed_array_id != 0) {
+                    instruction.operands[0] = fixed_array_id;
+                    changed_capacity = true;
+                    break;
+                }
+            }
+            if (changed_capacity) break;
+        }
+        if (changed_capacity) break;
+    }
+    const auto rejected_capacity = vex::IRVerifier{}.verify(invalid_capacity);
+    tests.check(changed_capacity && has_code(rejected_capacity, "IR075"),
+                "IR verifier rejects capacity inspection on fixed arrays");
+
+    vex::IRModule invalid_reserve = lowered.module;
+    bool changed_reserve = false;
+    for (vex::IRFunction& function : invalid_reserve.functions) {
+        for (vex::IRBlock& block : function.blocks) {
+            for (vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::ArrayReserve && string_id != 0) {
+                    instruction.operands[1] = string_id;
+                    changed_reserve = true;
+                    break;
+                }
+            }
+            if (changed_reserve) break;
+        }
+        if (changed_reserve) break;
+    }
+    const auto rejected_reserve = vex::IRVerifier{}.verify(invalid_reserve);
+    tests.check(changed_reserve && has_code(rejected_reserve, "IR077"),
+                "IR verifier rejects a non-integer reservation capacity");
+
+    const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() &&
+                c.source.find("vex_array_capacity(") != std::string::npos &&
+                c.source.find("vex_array_reserve(") != std::string::npos,
+                "C backend emits checked dynamic-array capacity and reservation helpers");
+    const vex::BackendResult llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("define internal i64 @vex_array_capacity") != std::string::npos &&
+                llvm.output.find("define internal void @vex_array_reserve") != std::string::npos &&
+                llvm.output.find("call void @vex_array_reserve") != std::string::npos,
+                "LLVM backend emits target-sized dynamic-array capacity and reservation helpers");
+}
+
 void test_string_byte_length_lowering_and_backends(TestContext& tests) {
     const vex::SourceFile source{"string_length_ir.vex",
         "make main() {\n"
@@ -761,6 +864,7 @@ void run_ir_tests(TestContext& tests) {
     test_block_arguments_and_control_flow(tests);
     test_invalid_ir_is_rejected(tests);
     test_dominance_and_call_signatures(tests);
+    test_dynamic_array_capacity_lowering_and_backends(tests);
     test_string_byte_length_lowering_and_backends(tests);
     test_string_join_lowering_and_backends(tests);
 }

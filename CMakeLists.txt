@@ -151,6 +151,9 @@ if(BUILD_TESTING)
                 -DREMAINDER_ZERO_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/remainder_by_zero.vex
                 -DDYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_pop_empty.vex
                 -DDYNAMIC_ARRAY_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_out_of_bounds.vex
+                -DDYNAMIC_ARRAY_CAPACITY_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_capacity.vex
+                -DDYNAMIC_ARRAY_NEGATIVE_RESERVE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_negative_reserve.vex
+                -DDYNAMIC_ARRAY_RESERVE_OVERFLOW_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_reserve_overflow.vex
                 -DSTRUCT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_values.vex
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
                 -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
@@ -172,6 +175,9 @@ if(BUILD_TESTING)
                 -DREMAINDER_ZERO_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/remainder_by_zero.vex
                 -DDYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_pop_empty.vex
                 -DDYNAMIC_ARRAY_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_out_of_bounds.vex
+                -DDYNAMIC_ARRAY_CAPACITY_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_capacity.vex
+                -DDYNAMIC_ARRAY_NEGATIVE_RESERVE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_negative_reserve.vex
+                -DDYNAMIC_ARRAY_RESERVE_OVERFLOW_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_reserve_overflow.vex
                 -DSTRUCT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_values.vex
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
                 -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex

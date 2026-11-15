@@ -1,0 +1,35 @@
+struct Sample {
+    marker: bool,
+    value: float,
+    samples: float[2],
+}
+
+make main() {
+    let values: int[] = []
+    say(capacity(values))
+    reserve(values, 10)
+    say(capacity(values) >= 10)
+    say(length(values))
+    push(values, 7)
+    push(values, 8)
+    let alias = values
+    reserve(alias, 20)
+    say(capacity(values) >= 20)
+    say(length(alias))
+    say(values[0])
+    say(values[1])
+    reserve(values, 4)
+    say(capacity(values) >= 20)
+    push(alias, 9)
+    say(length(values))
+    say(values[2])
+
+    let records: Sample[] = []
+    push(records, Sample { marker: true, value: 1.5, samples: [2.5, 3.5] })
+    reserve(records, 8)
+    push(records, Sample { marker: false, value: 4.5, samples: [5.5, 6.5] })
+    say(capacity(records) >= 8)
+    say(records[0].marker)
+    say(records[0].value)
+    say(records[1].samples[1])
+}

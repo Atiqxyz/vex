@@ -90,7 +90,8 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Union / untagged union | Not implemented | Low-level representation and safety rules needed. |
 | Optional / nullable values | Not implemented | Decide representation and null-safety rules. |
 | Result / error values | Not implemented | Needed for explicit recoverable error handling. |
-| Dynamic arrays / vectors | Implemented | Primitive or structure elements, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Arrays of arrays, slices, per-scope release, and borrowing checks remain absent. |
+| Dynamic arrays / vectors | Implemented | Primitive or structure elements, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `capacity`, absolute-minimum `reserve`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Arrays of arrays, slices, per-scope release, and borrowing checks remain absent. |
+| Dynamic-array capacity and reservation | Implemented | `capacity` reports allocated element slots; `reserve(array, n)` treats `n` as an absolute minimum, preserves contents and length, never shrinks, and updates all shared aliases. |
 | Chunk-based string building | Implemented | A StringBuilder structure can store string[] chunks, append with push, and materialize an immutable snapshot with join; joining validates length overflow and copies each output byte once. |
 | Slices / views | Not implemented | Requires bounds, lifetime and aliasing rules. |
 | Multidimensional arrays | Not implemented | Important for scientific computing; decide contiguous layout and indexing. |
@@ -204,14 +205,14 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Embedded NUL preservation | Implemented | Length-aware backend string representation. |
 | String byte length | Implemented | `length(string)` reads the descriptor byte count; embedded NUL is included. It is not a Unicode character-count API. |
 | String output | Implemented | Via \`say\`. |
-| String concatenation | Implemented | Binary string `+` and string `+=` lower through a dedicated typed-IR operation; C and LLVM allocate one tracked block for each non-empty concatenation, preserve embedded NUL bytes, return the other operand directly for empty-input cases, and release tracked blocks at normal generated-entry return. Repeated dynamic `+=` remains quadratic; an amortized builder is deferred until its alias/lifetime contract is designed. |
+| String concatenation | Implemented | Binary string `+` and string `+=` lower through a dedicated typed-IR operation; C and LLVM allocate one tracked block for each non-empty concatenation, preserve embedded NUL bytes, return the other operand directly for empty-input cases, and release tracked blocks at normal generated-entry return. Repeated dynamic `+=` remains quadratic; a chunk-based builder can be composed from `string[]`, `push`, and `join`, while a built-in mutable string buffer remains deferred. |
 | String equality | Implemented | Primitive equality is supported; test byte/Unicode semantics. |
 | UTF-8 validation policy | Implemented | Strings are length-aware byte sequences; no UTF-8 validation or normalization is performed. Unicode-aware text operations remain future work. |
 | Unicode scalar iteration | Not implemented | Must not confuse bytes with code points or grapheme clusters. |
 | String interpolation | Not implemented | Open design question. |
 | Formatting / interpolation library | Not implemented | Needed for practical diagnostics and scientific output. |
-| String builder / mutable buffer | Not implemented | Depends on allocation and ownership. |
-| Split / join / trim / replace | Not implemented | Standard-library work. |
+| Built-in mutable string builder / buffer | Not implemented | No dedicated mutable string-buffer type or built-in; chunk-based building is already composable from `string[]`, `push`, and `join` as documented above. |
+| Split / delimiter join / trim / replace | Not implemented | The existing `join(string[])` concatenates chunks without a delimiter; text splitting, delimiter-based joining, trimming and replacement remain future standard-library work. |
 | Byte arrays / byte slices | Not implemented | Important for file and network APIs. |
 | Encoding / decoding | Not implemented | Standard-library work. |
 

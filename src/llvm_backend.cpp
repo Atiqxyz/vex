@@ -589,6 +589,57 @@ entry:
   ret i64 %length
 }
 
+define internal i64 @vex_array_capacity(ptr %array, i64 %element_size) {
+entry:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %actual_size = load i64, ptr %size_ptr
+  %size_ok = icmp eq i64 %actual_size, %element_size
+  br i1 %size_ok, label %read_capacity, label %trap
+read_capacity:
+  %capacity_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 2
+  %capacity = load i64, ptr %capacity_ptr
+  ret i64 %capacity
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
+define internal void @vex_array_reserve(ptr %array, i64 %requested, i64 %element_size) {
+entry:
+  %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
+  %actual_size = load i64, ptr %size_ptr
+  %size_ok = icmp eq i64 %actual_size, %element_size
+  br i1 %size_ok, label %check_negative, label %trap
+check_negative:
+  %negative = icmp slt i64 %requested, 0
+  br i1 %negative, label %trap, label %check_capacity
+check_capacity:
+  %capacity_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 2
+  %capacity = load i64, ptr %capacity_ptr
+  %already_enough = icmp uge i64 %capacity, %requested
+  br i1 %already_enough, label %done, label %check_size
+check_size:
+  %size_pair = call { i64, i1 } @llvm.umul.with.overflow.i64(i64 %requested, i64 %element_size)
+  %byte_count = extractvalue { i64, i1 } %size_pair, 0
+  %size_overflow = extractvalue { i64, i1 } %size_pair, 1
+  br i1 %size_overflow, label %trap, label %allocate
+allocate:
+  %data_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 0
+  %old_data = load ptr, ptr %data_ptr
+  %new_data = call ptr @realloc(ptr %old_data, i64 %byte_count)
+  %allocation_failed = icmp eq ptr %new_data, null
+  br i1 %allocation_failed, label %trap, label %update
+update:
+  store ptr %new_data, ptr %data_ptr
+  store i64 %requested, ptr %capacity_ptr
+  br label %done
+done:
+  ret void
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+
 define internal ptr @vex_array_get(ptr %array, i64 %index, i64 %element_size) {
 entry:
   %size_ptr = getelementptr inbounds %vex.array, ptr %array, i32 0, i32 3
@@ -1335,6 +1386,24 @@ done:
             output_ << "  " << result << " = call { ptr, i64 } @vex_string_join(ptr "
                     << operands[0] << ")\n";
             store_result(instruction, result);
+            return;
+        }
+        case IROp::ArrayCapacity: {
+            const IRValue& array = value_types_.at(instruction.operands[0]);
+            const IRValue element = array_element_value(array);
+            const std::string element_size = emit_type_size(element);
+            const std::string result = next_temp();
+            output_ << "  " << result << " = call i64 @vex_array_capacity(ptr "
+                    << operands[0] << ", i64 " << element_size << ")\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::ArrayReserve: {
+            const IRValue& array = value_types_.at(instruction.operands[0]);
+            const IRValue element = array_element_value(array);
+            const std::string element_size = emit_type_size(element);
+            output_ << "  call void @vex_array_reserve(ptr " << operands[0]
+                    << ", i64 " << operands[1] << ", i64 " << element_size << ")\n";
             return;
         }
         case IROp::ArrayPush: {

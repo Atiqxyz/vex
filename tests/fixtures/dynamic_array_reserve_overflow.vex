@@ -1,0 +1,4 @@
+make main() {
+    let values: int[] = []
+    reserve(values, 9223372036854775807)
+}

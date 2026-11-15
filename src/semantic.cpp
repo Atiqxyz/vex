@@ -204,6 +204,14 @@ private:
         length.declaration = {0, 0};
         scopes_.front().emplace("length", std::move(length));
 
+        Symbol capacity;
+        capacity.type = Type::Int;
+        capacity.is_function = true;
+        capacity.parameters = {Type::Array};
+        capacity.parameter_array_types = {SemanticArrayType{Type::Unknown, 0}};
+        capacity.declaration = {0, 0};
+        scopes_.front().emplace("capacity", std::move(capacity));
+
         Symbol join;
         join.type = Type::String;
         join.is_function = true;
@@ -229,6 +237,16 @@ private:
         pop.parameter_array_types = {SemanticArrayType{Type::Unknown, 0}};
         pop.declaration = {0, 0};
         scopes_.front().emplace("pop", std::move(pop));
+
+        Symbol reserve;
+        reserve.type = Type::Void;
+        reserve.is_function = true;
+        reserve.parameters = {Type::Array, Type::Int};
+        reserve.parameter_array_types = {
+            SemanticArrayType{Type::Unknown, 0}, std::nullopt
+        };
+        reserve.declaration = {0, 0};
+        scopes_.front().emplace("reserve", std::move(reserve));
     }
 
     void collect_struct_types() {
@@ -861,7 +879,7 @@ private:
                     const Type operation_type=compound_assignment_result(assignment->op,target_type,actual);
                     if(operation_type==Type::Error&&target_type!=Type::Error&&actual!=Type::Error&&
                        target_type!=Type::Unknown&&actual!=Type::Unknown)
-                        report("SEM012","compound assignment requires compatible numeric operands; '%=' requires two ints",expression.span);
+                        report("SEM012","compound assignment has incompatible operand types; '%=' requires two ints and string concatenation is only supported by '+='",expression.span);
                     else if(operation_type!=Type::Error&&operation_type!=Type::Unknown&&
                             !is_assignable(target_type,operation_type))
                         report("SEM018","compound assignment result cannot be stored in the target type",expression.span);
@@ -909,7 +927,7 @@ private:
                 const Type operation_type=compound_assignment_result(assignment->op,symbol->type,value);
                 if(operation_type==Type::Error&&symbol->type!=Type::Error&&value!=Type::Error&&
                    symbol->type!=Type::Unknown&&value!=Type::Unknown)
-                    report("SEM012","compound assignment requires compatible numeric operands; '%=' requires two ints",expression.span);
+                    report("SEM012","compound assignment has incompatible operand types; '%=' requires two ints and string concatenation is only supported by '+='",expression.span);
                 else if(operation_type!=Type::Error&&operation_type!=Type::Unknown&&!is_assignable(symbol->type,operation_type))
                     report("SEM018","compound assignment result cannot be stored in the target type",expression.span);
                 return symbol->type;
@@ -983,9 +1001,11 @@ private:
             if (name) model_.resolved_calls[call] = spelling(name->name);
 
             const std::string builtin_name = name ? spelling(name->name) : std::string{};
-            if (builtin_name == "length" || builtin_name == "join" ||
-                builtin_name == "push" || builtin_name == "pop") {
-                const std::size_t expected_count = builtin_name == "push" ? 2u : 1u;
+            if (builtin_name == "length" || builtin_name == "capacity" ||
+                builtin_name == "join" || builtin_name == "push" ||
+                builtin_name == "pop" || builtin_name == "reserve") {
+                const std::size_t expected_count =
+                    (builtin_name == "push" || builtin_name == "reserve") ? 2u : 1u;
                 if (argument_types.size() != expected_count) {
                     report("SEM020", builtin_name + " expects " +
                            std::to_string(expected_count) + " argument(s)", expression.span);
@@ -1026,14 +1046,30 @@ private:
                            " requires a dynamic array declared with type []", call->arguments[0]->span);
                     return Type::Error;
                 }
-                if (const NameExpr* array_name =
-                        member_root_name(call->arguments[0].get())) {
-                    Symbol* array_symbol = lookup(spelling(array_name->name));
-                    if (array_symbol && array_symbol->immutable) {
-                        report("SEM017", builtin_name +
-                               " cannot modify an array through immutable binding '" +
-                               spelling(array_name->name) + "'", array_name->name);
+                const bool mutating_array_builtin =
+                    builtin_name == "push" || builtin_name == "pop" ||
+                    builtin_name == "reserve";
+                if (mutating_array_builtin) {
+                    if (const NameExpr* array_name =
+                            member_root_name(call->arguments[0].get())) {
+                        Symbol* array_symbol = lookup(spelling(array_name->name));
+                        if (array_symbol && array_symbol->immutable) {
+                            report("SEM017", builtin_name +
+                                   " cannot modify an array through immutable binding '" +
+                                   spelling(array_name->name) + "'", array_name->name);
+                        }
                     }
+                }
+                if (builtin_name == "capacity") return Type::Int;
+                if (builtin_name == "reserve") {
+                    if (argument_types[1] != Type::Int &&
+                        argument_types[1] != Type::Error &&
+                        argument_types[1] != Type::Unknown) {
+                        report("SEM021", "reserve capacity must have type int",
+                               call->arguments[1]->span);
+                        return Type::Error;
+                    }
+                    return Type::Void;
                 }
                 if (builtin_name == "push") {
                     const std::uint32_t value_struct_type_id = call->arguments[1] &&

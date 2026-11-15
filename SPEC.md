@@ -289,7 +289,7 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 - Values have explicit primitive IR types and unique SSA identifiers.
 - Functions contain ordered basic blocks; each block has one explicit terminator.
 - Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
-- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, byte-preserving string concatenation and byte-length inspection, direct calls, the `say` intrinsic, typed fixed/dynamic array construction, indexing and updates, and structure construction/field access/updates including array-valued fields.
+- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, byte-preserving string concatenation/joining and byte-length inspection, dynamic-array length/capacity/reservation and mutation, direct calls, the `say` intrinsic, typed fixed/dynamic array construction and indexing, and structure construction/field access/updates including array-valued fields.
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
 - `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, fixed-array iteration, integer-range iteration, and loop-control edges lower into explicit control-flow graphs.
 - The verifier checks instruction and call types, array element types, lengths and nominal structure identities, structure field aggregate shapes, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.

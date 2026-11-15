@@ -561,6 +561,25 @@ private:
             check_result(instruction, IRType::Int);
             break;
         }
+        case IROp::ArrayCapacity: {
+            check_arity(instruction, 1);
+            const IRValue* array = operand_value(instruction, 0);
+            if (array && (array->type != IRType::Array || array->array_length != 0))
+                report("IR075", "array capacity requires a dynamic-array operand", instruction.span);
+            check_result(instruction, IRType::Int);
+            break;
+        }
+        case IROp::ArrayReserve: {
+            check_arity(instruction, 2);
+            const IRValue* array = operand_value(instruction, 0);
+            const IRValue* requested = operand_value(instruction, 1);
+            if (array && (array->type != IRType::Array || array->array_length != 0))
+                report("IR076", "array reserve requires a dynamic-array operand", instruction.span);
+            if (requested && requested->type != IRType::Int)
+                report("IR077", "array reserve capacity must be an int", instruction.span);
+            check_no_result(instruction);
+            break;
+        }
         case IROp::ArrayPush: {
             check_arity(instruction, 2);
             const IRValue* array = operand_value(instruction, 0);
@@ -875,6 +894,8 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::ArrayGet: return "array_get";
     case IROp::ArraySet: return "array_set";
     case IROp::ArrayLength: return "array_length";
+    case IROp::ArrayCapacity: return "array_capacity";
+    case IROp::ArrayReserve: return "array_reserve";
     case IROp::ArrayPush: return "array_push";
     case IROp::ArrayPop: return "array_pop";
     case IROp::StructMake: return "struct_make";

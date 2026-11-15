@@ -78,7 +78,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Multidimensional arrays with documented storage order
 - [ ] Slices / non-owning views over arrays and buffers
 - [ ] Array views with explicit shape and stride where useful
-- [ ] Capacity inspection and reservation
+- [x] Capacity inspection and reservation
 - [ ] Resize, insert, remove, clear, and efficient bulk operations
 - [ ] Iterators with defined mutation and invalidation behavior
 - [ ] General iteration protocol, if it provides real composability
@@ -188,7 +188,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Efficient string builder / amortized string construction
 - [ ] UTF-8 decoding and validation policy
 - [ ] Unicode scalar iteration, with bytes clearly distinguished
-- [ ] Common string operations: search, split, join, trim, replace
+- [ ] Common string operations: search, split, delimiter join, trim, replace
 - [ ] Parsing and formatting numeric values
 - [ ] Encoding and decoding APIs
 - [ ] Endian-aware binary readers and writers
@@ -393,7 +393,7 @@ A feature is complete only when its behavior is implemented and verified end to 
 
 ## 7. Current starting point
 
-At the 2026-11-15 verified baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation; compound assignment; cross-platform CI; and initial editor integration. The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority.
+At the 2026-11-15 verified baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values with capacity inspection and reservation; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation and chunk joining; compound assignment; cross-platform CI; and initial editor integration. The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority.
 
 The next engineering slice is to finish the string/runtime audit without violating immutable string value semantics: reduce allocator overhead now, then design an amortized string builder only after its aliasing and lifetime contract is explicit. In parallel, every major capability must be evaluated against the long-term self-hosting-capability goal: VEX should eventually be able to express its own lexer, parser, type checker, IR, code generators, tests, and build workflow, even if the compiler remains implemented in C++.
 

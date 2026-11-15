@@ -855,6 +855,34 @@ private:
             emit(std::move(instruction));
             return result;
         }
+        if (target->second == "capacity") {
+            if (arguments.size() != 1 || arguments[0].type != IRType::Array ||
+                arguments[0].array_length != 0) {
+                report("IR119", "capacity expects exactly one dynamic array", expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::ArrayCapacity;
+            instruction.operands = {arguments[0].id};
+            instruction.result = make_value(IRType::Int, expression.span);
+            instruction.span = expression.span;
+            const IRValue result = *instruction.result;
+            emit(std::move(instruction));
+            return result;
+        }
+        if (target->second == "reserve") {
+            if (arguments.size() != 2 || arguments[0].type != IRType::Array ||
+                arguments[0].array_length != 0 || arguments[1].type != IRType::Int) {
+                report("IR119", "reserve expects a dynamic array and an int capacity", expression.span);
+                return std::nullopt;
+            }
+            IRInstruction instruction;
+            instruction.op = IROp::ArrayReserve;
+            instruction.operands = {arguments[0].id, arguments[1].id};
+            instruction.span = expression.span;
+            emit(std::move(instruction));
+            return std::nullopt;
+        }
         if (target->second == "join") {
             if (arguments.size() != 1 || arguments[0].type != IRType::Array ||
                 arguments[0].array_length != 0 ||
