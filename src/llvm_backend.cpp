@@ -1166,6 +1166,7 @@ done:
             return;
         }
         case IROp::LogicalNot: {
+            const std::string result = next_temp();
             output_ << "  " << result << " = xor i1 " << operands[0] << ", true\n";
             store_result(instruction, result);
             return;
