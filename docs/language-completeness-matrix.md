@@ -114,13 +114,13 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Integer and floating arithmetic | Implemented | Checked signed integer arithmetic. |
 | Comparisons and equality | Implemented | Primitive-compatible comparisons. |
 | Boolean logic | Implemented | Includes short-circuit lowering. |
-| Unary operators | Implemented | Unary plus, minus and logical not. |
+| Unary operators | Implemented | Unary plus, minus, logical not, and integer bitwise NOT. |
 | Assignment | Implemented | Local assignment and nested aggregate field/index updates rooted at named bindings; compound targets resolve each indexed path component exactly once. |
 | Compound assignment | Implemented | `+= -= *= /= %=` work on named bindings and nested structure/array paths; target indices execute once before the right-hand side. `+=` also accepts two strings. |
 | Function-call expressions | Implemented | Direct calls. |
 | Array indexing expressions | Implemented | Checked indexing. |
 | Grouping / multiline expression form | Implemented | Explicit square-bracket grouping behavior is documented. |
-| Bitwise AND / OR / XOR / NOT | Not implemented | Important for systems, cryptography and binary protocols. |
+| Bitwise AND / OR / XOR / NOT | Implemented | `&`, `|`, `^`, and `~` operate on `int`; lexer, precedence, semantic checks, typed IR verification, C/LLVM code generation, and integration execution tests cover the operations. |
 | Bit shifts and rotates | Not implemented | Need defined behavior for negative counts and overflow. |
 | Modulo semantics for negative operands | Implemented | Truncating signed remainder; non-zero result follows the dividend's sign; `INT64_MIN % -1` is defined as zero. |
 | Increment / decrement | Deferred | Avoid duplicating \`+= 1\` and \`-= 1\` unless a concrete need appears. |

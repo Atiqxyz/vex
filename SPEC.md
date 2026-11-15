@@ -194,14 +194,18 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 1 | assignment `=`, `+=`, `-=`, `*=`, `/=`, `%=` | right |
 | 2 | logical OR `||` | left |
 | 3 | logical AND `&&` | left |
-| 4 | ranges `..`, `..=` | non-associative |
-| 5 | equality `==`, `!=` | left |
-| 6 | comparison `<`, `<=`, `>`, `>=` | left |
-| 7 | addition `+`, `-` | left |
-| 8 | multiplication `*`, `/`, `%` | left |
-| 9 | unary `+`, `-`, `!` | prefix |
-| 10 | function call `(...)` | postfix |
-| 11 | array indexing `[...]` | postfix |
+| 4 | bitwise OR `|` | left |
+| 5 | bitwise XOR `^` | left |
+| 6 | bitwise AND `&` | left |
+| 7 | ranges `..`, `..=` | non-associative |
+| 8 | equality `==`, `!=` | left |
+| 9 | comparison `<`, `<=`, `>`, `>=` | left |
+| 10 | addition `+`, `-` | left |
+| 11 | multiplication `*`, `/`, `%` | left |
+| 12 | unary `+`, `-`, `!`, `~` | prefix |
+| 13 | function call `(...)` | postfix |
+| 14 | array indexing `[...]` | postfix |
+| 15 | structure member access and construction | postfix |
 
 The parser and semantic analyzer accept assignment to a named binding and nested aggregate paths rooted at a named structure or array, including `values[index] = value`, `points[index].x = value`, and compound forms such as `scene.points[index].x += amount`. The compiler evaluates the target path from the named root outward and evaluates each index expression exactly once. For compound assignment, it reads the old target value after resolving the path, then evaluates the right-hand side, applies the operator, and rebuilds the updated aggregate back to the root binding. For plain assignment, the replacement expression is evaluated after the full target path has been resolved.
 
@@ -221,7 +225,7 @@ Dynamic-array allocations are registered in a program-lifetime runtime list and 
 | fixed array | One-dimensional, fixed-length sequence of primitive or structure values; may be inferred or annotated as `Point[3]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
-The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer. Dynamic-array elements are copied as typed values, including whole structures; any dynamic-array fields inside those structures retain their shared references.
+The implemented numeric representation is signed 64-bit integers and 64-bit floating-point values. Bitwise operations act on the full 64-bit integer representation. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer. Dynamic-array elements are copied as typed values, including whole structures; any dynamic-array fields inside those structures retain their shared references.
 
 - Local `let` and `const` types are inferred from their initializers when no annotation is present.
 - Explicit local annotations are checked against initializer types.
@@ -229,6 +233,7 @@ The implemented numeric representation is signed 64-bit integers and 64-bit floa
 - Addition `+` accepts either two numeric operands or two strings. String concatenation preserves byte lengths, including embedded NUL bytes; it does not decode or normalize UTF-8. Subtraction, multiplication, division, and remainder require numeric operands. The remainder operator `%` requires two `int` operands and uses truncating signed-remainder semantics: the quotient is truncated toward zero and any non-zero remainder has the sign of the left operand (for example, `-7 % 3 == -1`, `7 % -3 == 1`, and `-7 % -3 == -1`). A zero divisor traps. The defined edge case `INT64_MIN % -1` returns `0`; `INT64_MIN / -1` remains a checked division overflow.
 - Relational comparisons require numeric operands. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
+- Bitwise `&`, `|`, and `^` operate on two signed 64-bit `int` bit patterns and return `int`; unary `~` inverts all 64 bits. They are distinct from short-circuit logical `&&` and `||`. Bit shifts and rotations are not yet implemented.
 - `repeat` counts require `int`.
 - `for-in` accepts fixed arrays and dynamic arrays of primitives or structures, plus integer ranges. Fixed-array lengths are known at compile time; dynamic-array lengths are re-read at each loop header, so appending or removing elements during iteration can change the number of iterations. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
 - `break` and `continue` are only valid inside loops and target the innermost enclosing loop.

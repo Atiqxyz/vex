@@ -50,6 +50,34 @@ void test_operator_precedence(TestContext& tests) {
                 "multiplication binds more tightly than addition");
 }
 
+void test_bitwise_precedence(TestContext& tests) {
+    const vex::SourceFile source{"bitwise_precedence.vex",
+        "let result = a | b ^ c & d == e && ready\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(), "bitwise expression precedence parses");
+    const auto* variable = first_variable(parsed.program);
+    if (!variable || !variable->initializer) return;
+    const auto* logical = std::get_if<vex::BinaryExpr>(&variable->initializer->data);
+    tests.check(logical && logical->op == vex::TokenKind::AndAnd,
+                "logical AND remains lower precedence than bitwise and equality");
+    if (!logical || !logical->left) return;
+    const auto* equality = std::get_if<vex::BinaryExpr>(&logical->left->data);
+    tests.check(equality && equality->op == vex::TokenKind::EqualEqual,
+                "equality binds more tightly than bitwise operators");
+    if (!equality || !equality->left) return;
+    const auto* bit_or = std::get_if<vex::BinaryExpr>(&equality->left->data);
+    tests.check(bit_or && bit_or->op == vex::TokenKind::BitOr,
+                "bitwise OR has the lowest bitwise precedence");
+    if (!bit_or || !bit_or->right) return;
+    const auto* bit_xor = std::get_if<vex::BinaryExpr>(&bit_or->right->data);
+    tests.check(bit_xor && bit_xor->op == vex::TokenKind::BitXor,
+                "bitwise XOR binds more tightly than OR");
+    if (!bit_xor || !bit_xor->right) return;
+    const auto* bit_and = std::get_if<vex::BinaryExpr>(&bit_xor->right->data);
+    tests.check(bit_and && bit_and->op == vex::TokenKind::BitAnd,
+                "bitwise AND binds more tightly than XOR");
+}
+
 void test_functions_and_calls(TestContext& tests) {
     const vex::SourceFile source{"functions.vex",
         "make calculate_force(mass: float, acceleration: float) -> float {\n"
@@ -310,6 +338,7 @@ void test_invalid_syntax_and_newline_rules(TestContext& tests) {
 
 void run_parser_tests(TestContext& tests) {
     test_operator_precedence(tests);
+    test_bitwise_precedence(tests);
     test_functions_and_calls(tests);
     test_unary_expression_in_call_argument(tests);
     test_multiline_expression(tests);

@@ -709,6 +709,30 @@ void test_string_byte_length_semantics(TestContext& tests) {
                 "length rejects values that are neither strings nor arrays");
 }
 
+void test_bitwise_operator_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"bitwise_valid.vex",
+        "make main() {\n"
+        "    let a = 12 & 10\n"
+        "    let b = 12 | 10\n"
+        "    let c = 12 ^ 10\n"
+        "    let d = ~5\n"
+        "    say(a + b + c + d)\n"
+        "}\n"};
+    const auto accepted = analyze(valid);
+    tests.check(!accepted.has_errors(), "bitwise operators accept int operands");
+
+    const vex::SourceFile invalid{"bitwise_invalid.vex",
+        "make main() {\n"
+        "    let a = true & false\n"
+        "    let b = ~1.5\n"
+        "}\n"};
+    const auto rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM012"),
+                "binary bitwise operators reject non-integer operands");
+    tests.check(has_code(rejected, "SEM011"),
+                "bitwise NOT rejects non-integer operands");
+}
+
 void test_string_join_semantics(TestContext& tests) {
     const vex::SourceFile valid{"string_join.vex",
         "make main() {\n"
@@ -757,4 +781,5 @@ void run_semantic_tests(TestContext& tests) {
     test_structure_types_value_semantics_and_diagnostics(tests);
     test_string_byte_length_semantics(tests);
     test_string_join_semantics(tests);
+    test_bitwise_operator_semantics(tests);
 }

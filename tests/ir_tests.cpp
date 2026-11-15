@@ -852,6 +852,50 @@ void test_string_join_lowering_and_backends(TestContext& tests) {
                 "LLVM string join allocates once and returns empty output before allocation");
 }
 
+void test_bitwise_ir_lowering_and_backends(TestContext& tests) {
+    const vex::SourceFile source{"bitwise_ir.vex",
+        "make main() {\n"
+        "    let a = 12 & 10\n"
+        "    let b = 12 | 10\n"
+        "    let c = 12 ^ 10\n"
+        "    let d = ~5\n"
+        "    say(a + b + c + d)\n"
+        "}\n"};
+    const auto lexed = vex::Lexer(source).scan();
+    const auto parsed = vex::Parser(source, lexed.tokens).parse();
+    const auto semantic = vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "bitwise source passes lexing, parsing, and semantic analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+    const auto lowered = vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(), "bitwise operators lower into typed IR");
+    if (lowered.has_errors()) return;
+    std::size_t and_count = 0, or_count = 0, xor_count = 0, not_count = 0;
+    for (const auto& function : lowered.module.functions)
+        for (const auto& block : function.blocks)
+            for (const auto& instruction : block.instructions) {
+                and_count += instruction.op == vex::IROp::BitwiseAnd ? 1u : 0u;
+                or_count += instruction.op == vex::IROp::BitwiseOr ? 1u : 0u;
+                xor_count += instruction.op == vex::IROp::BitwiseXor ? 1u : 0u;
+                not_count += instruction.op == vex::IROp::BitwiseNot ? 1u : 0u;
+            }
+    tests.check(and_count == 1 && or_count == 1 && xor_count == 1 && not_count == 1,
+                "IR contains each of the four bitwise operations exactly once");
+    tests.check(!vex::IRVerifier{}.verify(lowered.module).has_errors(),
+                "bitwise operations pass independent IR verification");
+    const auto c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() &&
+                c.source.find("vex_i64_bit_and(") != std::string::npos &&
+                c.source.find("vex_i64_bit_not(") != std::string::npos,
+                "C backend emits defined 64-bit bit-pattern helpers");
+    const auto llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find(" = and i64 ") != std::string::npos &&
+                llvm.output.find(" = or i64 ") != std::string::npos &&
+                llvm.output.find(" = xor i64 ") != std::string::npos,
+                "LLVM backend emits native i64 bitwise instructions");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -867,4 +911,5 @@ void run_ir_tests(TestContext& tests) {
     test_dynamic_array_capacity_lowering_and_backends(tests);
     test_string_byte_length_lowering_and_backends(tests);
     test_string_join_lowering_and_backends(tests);
+    test_bitwise_ir_lowering_and_backends(tests);
 }

@@ -140,11 +140,17 @@ void test_strings_and_invalid_input(TestContext& tests) {
     tests.check(has_diagnostic(newline_result, "LEX004"),
                 "raw newline inside a string is diagnosed");
 
-    const vex::SourceFile lone_operator{"operator.vex", "a & b | c"};
-    const vex::LexResult operator_result = vex::Lexer{lone_operator}.scan();
-    tests.check(has_diagnostic(operator_result, "LEX006") &&
-                has_diagnostic(operator_result, "LEX007"),
-                "single ampersand and vertical bar are diagnosed");
+    const vex::SourceFile bitwise{"bitwise.vex", "a & b | c ^ ~d && e || f"};
+    const vex::LexResult bitwise_result = vex::Lexer{bitwise}.scan();
+    tests.check(count_kind(bitwise_result, vex::TokenKind::BitAnd) == 1 &&
+                count_kind(bitwise_result, vex::TokenKind::BitOr) == 1 &&
+                count_kind(bitwise_result, vex::TokenKind::BitXor) == 1 &&
+                count_kind(bitwise_result, vex::TokenKind::BitNot) == 1,
+                "single-character bitwise operators are recognized");
+    tests.check(count_kind(bitwise_result, vex::TokenKind::AndAnd) == 1 &&
+                count_kind(bitwise_result, vex::TokenKind::OrOr) == 1 &&
+                !bitwise_result.has_errors(),
+                "bitwise and logical operators tokenize distinctly");
 
     const vex::SourceFile unexpected{"unexpected.vex", "@"};
     const vex::LexResult unexpected_result = vex::Lexer{unexpected}.scan();

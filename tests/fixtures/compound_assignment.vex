@@ -40,4 +40,10 @@ make main() {
     say(calls[1])
     say(values[1])
     say(ratio)
+    say(12 & 10)
+    say(12 | 10)
+    say(12 ^ 10)
+    say(~0)
+    say(~5)
+    say(12 | 10 ^ 3 & 1)
 }
