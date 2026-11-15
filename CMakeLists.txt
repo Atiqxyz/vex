@@ -158,6 +158,7 @@ if(BUILD_TESTING)
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
                 -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
                 -DSTRING_CONCAT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/string_concat.vex
+                -DBITWISE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/bitwise.vex
                 "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm backend integration"
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/llvm_backend_integration.cmake
         )
@@ -182,6 +183,7 @@ if(BUILD_TESTING)
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
                 -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
                 -DSTRING_CONCAT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/string_concat.vex
+                -DBITWISE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/bitwise.vex
                 -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/c_backend_integration
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/c_backend_integration.cmake
         )

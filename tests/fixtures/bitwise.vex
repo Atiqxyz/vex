@@ -1,0 +1,23 @@
+make main() {
+    let anded = 12 & 10
+    let ored = 12 | 10
+    let xored = 12 ^ 10
+    let inverted = ~5
+    let low_mask = -1 & 15
+    let all_ones = ~0
+    let high_bit = ~9223372036854775807
+    let high_mix = high_bit | 3
+    let precedence = 1 | 2 ^ 3 & 1
+    let logical = true && false
+
+    say(anded)
+    say(ored)
+    say(xored)
+    say(inverted)
+    say(low_mask)
+    say(all_ones)
+    say(high_bit)
+    say(high_mix)
+    say(precedence)
+    say(logical)
+}

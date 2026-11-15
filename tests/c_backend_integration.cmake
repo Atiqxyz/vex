@@ -5,7 +5,8 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
    NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR
-   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED STRING_CONCAT_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED STRING_CONCAT_SOURCE_FILE OR
+   NOT DEFINED BITWISE_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -258,4 +259,22 @@ execute_process(
 )
 if("${dynamic_bounds_result}" STREQUAL "0")
     message(FATAL_ERROR "C backend did not trap on dynamic-array out-of-bounds indexing")
+endif()
+
+
+# Execute bitwise operators through the complete C backend path, including
+# negative and high-bit values where signed/unsigned representation matters.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${BITWISE_SOURCE_FILE}"
+    RESULT_VARIABLE bitwise_result
+    OUTPUT_VARIABLE bitwise_output
+    ERROR_VARIABLE bitwise_error
+)
+if(NOT bitwise_result EQUAL 0)
+    message(FATAL_ERROR "C backend bitwise program failed: ${bitwise_output}${bitwise_error}")
+endif()
+string(REPLACE "\r\n" "\n" bitwise_output "${bitwise_output}")
+set(bitwise_expected "8\n14\n6\n-6\n15\n-1\n-9223372036854775808\n-9223372036854775805\n3\nfalse\n")
+if(NOT "${bitwise_output}" STREQUAL "${bitwise_expected}")
+    message(FATAL_ERROR "C backend bitwise behavior mismatch. Expected:${bitwise_expected}Actual:${bitwise_output}")
 endif()
