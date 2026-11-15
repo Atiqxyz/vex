@@ -51,12 +51,15 @@ Dynamic arrays hold primitive or nominal structure values and are declared with 
 | `length(value)` | `string -> int`; `T[] -> int` (also accepts fixed arrays) | Returns a string's byte count or an array's element count; fixed-array length is emitted as a constant |
 | `push(array, value)` | `(T[], T) -> void` | Appends an element, growing capacity geometrically when needed |
 | `pop(array)` | `T[] -> T` | Removes and returns the final element; traps when the array is empty |
+| `capacity(array)` | `T[] -> int` | Returns the number of allocated element slots |
+| `reserve(array, n)` | `(T[], int) -> void` | Ensures capacity is at least `n` elements without changing length or contents; never shrinks |
 
-Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive and nominal structure elements; nested arrays, slices, manual capacity control, and per-scope deallocation are not implemented.
+Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive and nominal structure elements; nested arrays, slices, and per-scope deallocation are not implemented. Use `reserve` when the expected element count is known to avoid geometric growth reallocations; `capacity` reports allocated element slots.
 
 ```vex
 make main() {
     let values: int[] = []
+    reserve(values, 2)
     push(values, 10)
     push(values, 20)
 

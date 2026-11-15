@@ -65,6 +65,7 @@ make main() {
     say(length(binary_joined))
 
     let large_builder = StringBuilder { chunks: [] }
+    reserve(large_builder.chunks, 100000)
     repeat 100000 times {
         builder_append(large_builder, "x")
     }
