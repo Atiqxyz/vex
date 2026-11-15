@@ -396,7 +396,9 @@ define internal { ptr, i64 } @vex_string_join(ptr %parts) {
 entry:
   %size_ptr = getelementptr inbounds %vex.array, ptr %parts, i32 0, i32 3
   %element_size = load i64, ptr %size_ptr
-  %size_ok = icmp eq i64 %element_size, 16
+  %string_element_end = getelementptr { ptr, i64 }, ptr null, i32 1
+  %string_element_size = ptrtoint ptr %string_element_end to i64
+  %size_ok = icmp eq i64 %element_size, %string_element_size
   br i1 %size_ok, label %read_array, label %trap
 read_array:
   %length_ptr = getelementptr inbounds %vex.array, ptr %parts, i32 0, i32 1
@@ -413,7 +415,7 @@ sum_loop:
   %sum_done = icmp uge i64 %sum_index, %count
   br i1 %sum_done, label %check_empty, label %sum_item
 sum_item:
-  %sum_offset = mul i64 %sum_index, 16
+  %sum_offset = mul i64 %sum_index, %string_element_size
   %sum_item_ptr = getelementptr inbounds i8, ptr %items, i64 %sum_offset
   %sum_item_length_ptr = getelementptr inbounds { ptr, i64 }, ptr %sum_item_ptr, i32 0, i32 1
   %sum_item_length = load i64, ptr %sum_item_length_ptr
@@ -466,7 +468,7 @@ copy_loop:
   %copy_done = icmp uge i64 %copy_index, %count
   br i1 %copy_done, label %finish, label %copy_item
 copy_item:
-  %copy_offset = mul i64 %copy_index, 16
+  %copy_offset = mul i64 %copy_index, %string_element_size
   %copy_item_ptr = getelementptr inbounds i8, ptr %items, i64 %copy_offset
   %copy_item_data = load ptr, ptr %copy_item_ptr
   %copy_item_length_ptr = getelementptr inbounds { ptr, i64 }, ptr %copy_item_ptr, i32 0, i32 1
