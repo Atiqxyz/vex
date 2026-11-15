@@ -678,16 +678,11 @@ void test_string_join_semantics(TestContext& tests) {
         "make main() {\n"
         "    let chunks: string[] = [\"VEX\", \"\"]\n"
         "    let result = join(chunks)\n"
-        "    const immutable: string[] = [\"safe\"]\n"
+        "    const immutable: string[] = [\"safe\",]\n"
         "    say(join(immutable))\n"
         "    say(result)\n"
         "}\n"};
     const vex::SemanticResult accepted = analyze(valid);
-    if (accepted.has_errors()) {
-        for (const vex::Diagnostic& diagnostic : accepted.diagnostics)
-            std::cerr << "JOIN DIAGNOSTIC [" << diagnostic.code << "] "
-                      << diagnostic.message << '\\n';
-    }
     tests.check(!accepted.has_errors(),
                 "join accepts mutable and immutable dynamic string arrays");
 
