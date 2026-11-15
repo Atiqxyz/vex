@@ -18,6 +18,7 @@
 6. **Portable behavior.** C and LLVM backends must implement the same VEX semantics. Platform differences belong behind explicit, documented boundaries.
 7. **A coherent language, not a feature collection.** A feature is not automatically desirable because Rust, C++, Zig, Go, Python, or another language has it.
 8. **Useful defaults with an escape hatch.** Safe and convenient defaults should not prevent expert users from controlling allocation, layout, precision, or execution when needed.
+9. **Self-hosting capability, not a self-hosting mandate.** The language, runtime, and toolchain should eventually be expressive enough to implement VEX's own compiler. The compiler itself may remain written in C++; self-hosting is an architectural capability test, not a release requirement.
 
 ## 2. How to use other languages as references
 
@@ -192,7 +193,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Encoding and decoding APIs
 - [ ] Endian-aware binary readers and writers
 
-**Design guardrails:** Define whether indexing counts bytes, Unicode scalar values, or something else. Do not silently treat grapheme clusters as single bytes. Keep arbitrary binary buffers separate from text strings.
+**Design guardrails:** Define whether indexing counts bytes, Unicode scalar values, or something else. Do not silently treat grapheme clusters as single bytes. Keep arbitrary binary buffers separate from text strings. Do not expose mutable string storage until aliasing, lifetime, and ownership are explicit; an efficient builder should have its own predictable mutation and snapshot semantics.
 
 ### H. Runtime, operating system, and standard library
 
@@ -392,8 +393,8 @@ A feature is complete only when its behavior is implemented and verified end to 
 
 ## 7. Current starting point
 
-At the current documented baseline, VEX has primitive static types, local inference, functions, control flow, fixed arrays, dynamic primitive arrays, checked indexing/arithmetic, math intrinsics, typed SSA IR, a C11 backend, an LLVM backend, native build/run support, cross-platform CI, and initial editor integration.
+At the 2026-11-15 verified baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation; compound assignment; cross-platform CI; and initial editor integration. The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority.
 
-The next major language capability to investigate is **user-defined structures / records**. This is a recommendation, not an already-approved syntax design. Before coding it, inspect the current parser, semantic model, IR, both backends, and completeness matrix; then compare established record/layout approaches and write down VEX's own rules.
+The next engineering slice is to finish the string/runtime audit without violating immutable string value semantics: reduce allocator overhead now, then design an amortized string builder only after its aliasing and lifetime contract is explicit. In parallel, every major capability must be evaluated against the long-term self-hosting-capability goal: VEX should eventually be able to express its own lexer, parser, type checker, IR, code generators, tests, and build workflow, even if the compiler remains implemented in C++.
 
 The roadmap is intentionally broad. It is a map for making informed choices, not a checklist that must be blindly completed.

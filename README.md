@@ -24,7 +24,7 @@ The current C++20 development build has:
 
 The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
 
-VEX is still an early language implementation. Dynamic arrays are now implemented for primitive elements, but nested collections, structures, modules, and a general-purpose ownership/borrowing system remain unfinished. Fixed arrays are value aggregates. Dynamic arrays are heap-backed shared references: aliases and function parameters/returns refer to the same collection. Their allocations are tracked by the generated program and reclaimed when its entry function returns.
+VEX is an early language implementation. It supports nominal structures, fixed and dynamic one-dimensional arrays of primitive and structure values, nested aggregate updates, functions, control flow, and length-aware byte strings. Nested collections, modules, and a general-purpose ownership/borrowing system remain unfinished. Fixed arrays and structures have value semantics; dynamic arrays are heap-backed shared references whose aliases and function parameters/returns refer to the same collection. Dynamic-array and concatenated-string allocations are tracked by the generated program and reclaimed when its entry function returns. This program-lifetime strategy is an initial runtime contract, not the final memory model.
 
 ## Design direction
 
@@ -32,7 +32,8 @@ VEX is still an early language implementation. Dynamic arrays are now implemente
 - Newlines separate statements; semicolons are not used.
 - Curly braces delimit blocks; indentation is not semantic.
 - Function calls use parentheses.
-- The wider memory model is still under design. Dynamic arrays currently use program-lifetime allocation tracking: aliases share one heap object, and generated entry-point completion releases all dynamic-array allocations. There is no per-scope deallocation or borrowing checker yet.
+- The wider memory model is still under design. Dynamic arrays use shared heap references and dynamic arrays plus concatenated strings currently use program-lifetime allocation tracking. There is no per-scope deallocation, ownership/borrowing checker, or public allocator API yet.
+- VEX is not required to be self-hosted, but its long-term language, runtime, and tooling design must make it feasible to implement the entire compiler in VEX.
 - The C backend remains an optional bootstrap target; the IR and frontend are independent of it. LLVM is the default native compilation path.
 
 These are design goals, not claims that every feature is already implemented.
@@ -93,7 +94,7 @@ On Linux or macOS:
 - `build-llvm` and `run-llvm` are explicit aliases for the default LLVM path.
 - `build-c` and `run-c` use the optional C11 bootstrap backend.
 
-The compiler itself remains implemented in C++. VEX does not need to be self-hosted to become a general-purpose language.
+The compiler remains implemented in C++. Self-hosting is not a release requirement, but VEX is being designed so its language, runtime, and tooling can eventually support implementing the complete compiler in VEX.
 
 ## Example syntax direction
 
@@ -104,7 +105,7 @@ make main() {
 }
 ```
 
-The current compiler supports a small set of primitive types, functions, control flow, strings, output, arithmetic, comparisons, array iteration, integer-range iteration, and math intrinsics. The runtime and language features are still under active development.
+The current compiler supports primitive types, nominal structures, fixed and dynamic arrays, functions, control flow, strings, arithmetic, comparisons, iteration, compound assignment, basic math intrinsics, and both C and LLVM execution paths. The language, runtime, and standard library remain under active development.
 
 ## Project documents
 

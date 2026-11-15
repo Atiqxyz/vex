@@ -10,12 +10,13 @@ This document distinguishes current project decisions from provisional syntax an
 ## 1. Decisions already made
 
 - **Typing:** statically typed, with type inference for local bindings when the compiler can determine a type.
-- **Memory-management direction:** hybrid. Dynamic arrays currently use shared heap references tracked for the lifetime of a generated program; the wider ownership, borrowing, and per-scope lifetime model remains unfinished.
+- **Memory-management direction:** hybrid. Dynamic arrays currently use shared heap references tracked for the lifetime of a generated program; concatenated string buffers use the same program-lifetime cleanup boundary. The wider ownership, borrowing, and per-scope lifetime model remains unfinished.
 - **Statement separation:** newlines separate statements. Semicolons are not part of VEX syntax.
 - **Blocks:** curly braces delimit blocks. Indentation is for readability and has no structural meaning.
 - **Calls:** function calls use parentheses, including standard-library calls such as `say("Hello")`.
 - **Square brackets:** comma-separated values form fixed-size array literals; a single expression without a comma remains the existing multiline/grouping form. Postfix brackets index an array.
 - **Compiler implementation:** the initial compiler is written in C++20. This does not constrain the language implementation forever.
+- **Self-hosting capability:** VEX is not required to be self-hosted, but its language, runtime, and build tooling should eventually be capable of implementing the full compiler in VEX.
 - **Backend direction:** the IR is backend-independent; the first implemented source-generation target is portable C11. C is a bootstrap backend, not the language definition.
 
 ## 2. Provisional syntax

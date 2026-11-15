@@ -15,6 +15,7 @@ VEX should aim to support:
 - Scientific and engineering computing: numerics, complex values, linear algebra, statistics, units, simulation, data processing, and reproducible computation.
 - Portability: documented behavior across supported operating systems and architectures.
 - A usable ecosystem: good diagnostics, documentation, formatter, package tooling, and stable APIs.
+- Self-hosting capability: the language, runtime, and build tooling should eventually be sufficient to implement the complete VEX compiler in VEX. The compiler does not have to be rewritten in VEX; this is a capability target, not a release mandate.
 
 The language should not force every scientific feature into the compiler. Keep the language core relatively small; put most domain functionality in well-designed libraries, with optional specialized packages where appropriate.
 
@@ -222,7 +223,7 @@ These are library and ecosystem goals, not promises that every domain solver bel
 - Maintain conformance tests and cross-platform CI.
 - Establish semantic-versioning and compatibility policies as the project matures.
 - Build real projects as acceptance tests: CLI tool, file processor, numerical simulation, and networked application.
-- Explore self-hosting only after the language, runtime, and tooling are mature enough to make it a useful engineering goal.
+- Treat self-hosting as optional, but preserve and periodically test the capability target: a VEX implementation of the lexer, parser, semantic analyzer, IR, backends, and build/test workflow must be feasible without adding fundamental language features solely for that project.
 
 ## Recommended repository organization (future target)
 
@@ -272,12 +273,12 @@ This is a conceptual target layout. Adopt it incrementally when the code justifi
 
 ## Immediate next steps
 
-1. Broaden the executable language core: ranges, complete iteration semantics, and the control-flow features now being added.
-2. Design the type and memory contracts before adding arrays, slices, structs, enums, and pointers.
-3. Add foundational library capabilities for numerics, text, bytes, files, random numbers, and time.
-4. Add error handling and deterministic resource cleanup.
-5. Design modules/imports after enough stable language and library functionality exists to organize.
-6. Add scientific foundations in layers, beginning with complex numbers, unit-aware quantities, vectors/matrices, statistics, and numerical methods.
-7. Validate the language with end-to-end computational programs and cross-platform tests.
+1. Finish the string/runtime audit and establish the ownership, aliasing, and lifetime contract before adding a public mutable string builder.
+2. Define recoverable error values and deterministic resource cleanup; make OS-facing APIs return explicit errors and close resources predictably.
+3. Add byte buffers, file and directory access, process arguments, and environment access—the foundations needed for real tools and a future compiler written in VEX.
+4. Complete the core data model with enums/tagged unions, option/result types, richer numeric widths, bitwise operations, slices, maps, and generics in dependency-aware slices.
+5. Add multi-file compilation, modules/imports, visibility, separate compilation, linking, and a reproducible build workflow once public API boundaries are stable.
+6. Expand scientific foundations through complex numbers, unit-aware quantities, multidimensional arrays, vectors/matrices, statistics, and numerical methods.
+7. Validate with substantial end-to-end programs, benchmarks, sanitizer/fuzz testing, and the full cross-platform CI matrix.
 
 The roadmap is intentionally ambitious. It is a long-term direction, not a requirement to implement every module before the first usable VEX release.
