@@ -1245,21 +1245,17 @@ done:
         case IROp::Greater:
         case IROp::GreaterEqual: {
             const IRType type = value_types_.at(instruction.operands.front()).type;
-            const std::string result = next_temp();
             if (type == IRType::Float) {
+                const std::string result = next_temp();
                 const char* predicate = instruction.op == IROp::Less ? "olt" :
                     instruction.op == IROp::LessEqual ? "ole" :
                     instruction.op == IROp::Greater ? "ogt" : "oge";
                 output_ << "  " << result << " = fcmp " << predicate
                         << " double " << operands[0] << ", " << operands[1] << "\n";
+                store_result(instruction, result);
             } else {
-                const char* predicate = instruction.op == IROp::Less ? "slt" :
-                    instruction.op == IROp::LessEqual ? "sle" :
-                    instruction.op == IROp::Greater ? "sgt" : "sge";
-                output_ << "  " << result << " = icmp " << predicate
-                        << " i64 " << operands[0] << ", " << operands[1] << "\n";
+                emit_integer_comparison(instruction, operands[0], operands[1], type);
             }
-            store_result(instruction, result);
             return;
         }
         case IROp::IntToFloat: {
