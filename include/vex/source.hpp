@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace vex {
@@ -33,6 +34,9 @@ struct SourceSpan {
 class SourceFile {
 public:
     SourceFile(std::string path, std::string contents);
+    // Concatenates files into one translation unit while retaining each file's
+    // origin for diagnostics. File order is declaration order.
+    explicit SourceFile(std::vector<std::pair<std::string, std::string>> files);
 
     [[nodiscard]] const std::string& path() const noexcept;
     [[nodiscard]] std::string_view contents() const noexcept;
@@ -41,14 +45,26 @@ public:
     // Offsets and columns are byte-based. Lines and columns are one-based.
     [[nodiscard]] SourcePosition position(std::size_t offset) const noexcept;
     [[nodiscard]] std::string_view line_text(std::size_t one_based_line) const noexcept;
+    [[nodiscard]] const std::string& path_at(std::size_t offset) const noexcept;
+    [[nodiscard]] SourcePosition origin_position(std::size_t offset) const noexcept;
+    [[nodiscard]] std::string_view origin_line_text(std::size_t offset) const noexcept;
     [[nodiscard]] std::string_view slice(SourceSpan span) const noexcept;
 
 private:
+    struct Origin {
+        std::string path;
+        std::string contents;
+        std::size_t combined_offset{0};
+        std::vector<std::size_t> line_starts;
+    };
+
     void index_lines();
+    void index_origin(Origin& origin);
 
     std::string path_;
     std::string contents_;
     std::vector<std::size_t> line_starts_;
+    std::vector<Origin> origins_;
 };
 
 } // namespace vex

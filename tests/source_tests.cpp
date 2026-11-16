@@ -2,6 +2,25 @@
 
 #include "vex/source.hpp"
 
+void test_combined_source_preserves_file_origins(TestContext& tests) {
+    const vex::SourceFile source({
+        {"main.vex", "make main() {\n    helper()\n}\n"},
+        {"math.vex", "make helper() {\n    let value: int = \"wrong\"\n}\n"}
+    });
+    const std::size_t offset = source.contents().find("wrong");
+    const vex::SourcePosition position = source.origin_position(offset);
+    tests.check(source.path_at(offset) == "math.vex",
+                "combined translation units retain the physical source path");
+    tests.check(position.line == 2u && position.column == 26u,
+                "combined translation units retain local line and column positions");
+    tests.check(source.origin_line_text(offset) == "    let value: int = \"wrong\"",
+                "combined translation units resolve lines from the originating file");
+    tests.check(source.slice({offset, offset + 5u}) == "wrong",
+                "combined translation-unit spans slice the shared parser buffer");
+}
+
+
+
 void run_source_tests(TestContext& tests) {
     const vex::SourceFile source{"sample.vex", "alpha\r\nbeta\ngamma"};
 
@@ -21,4 +40,5 @@ void run_source_tests(TestContext& tests) {
 
     tests.check(source.slice({0, 5}) == "alpha", "source spans slice without copying");
     tests.check(source.slice({4, 3}).empty(), "invalid reversed source span is rejected");
+    test_combined_source_preserves_file_origins(tests);
 }

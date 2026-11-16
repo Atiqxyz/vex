@@ -51,14 +51,14 @@ const char* diagnostic_severity_name(const DiagnosticSeverity severity) noexcept
 void print_diagnostics(std::ostream& output, const SourceFile& source,
                        const std::vector<Diagnostic>& diagnostics) {
     for (const Diagnostic& diagnostic : diagnostics) {
-        const SourcePosition position = source.position(diagnostic.span.begin);
-        const std::string& path = source.path();
+        const SourcePosition position = source.origin_position(diagnostic.span.begin);
+        const std::string& path = source.path_at(diagnostic.span.begin);
         output << (path.empty() ? "<source>" : path) << ':'
                << position.line << ':' << position.column << ": "
                << diagnostic_severity_name(diagnostic.severity)
                << '[' << diagnostic.code << "]: " << diagnostic.message << '\n';
 
-        const std::string_view line = source.line_text(position.line);
+        const std::string_view line = source.origin_line_text(diagnostic.span.begin);
         output << "  " << position.line << " | " << line << '\n';
         output << "    | " << std::string(position.column > 0 ? position.column - 1 : 0, ' ');
 
