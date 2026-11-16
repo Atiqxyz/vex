@@ -153,6 +153,12 @@ This deliberately retains the existing limitation: allocations are not released 
 
 Allocation-size multiplication, capacity growth, and target-native element-size calculations must remain overflow-checked. Allocation failure traps consistently in both backends.
 
+### Fixed aggregate size gate
+
+Nested fixed dimensions multiply inline object size. The existing 65,536-element limit applies per dimension and does not bound the total byte size of a multi-layer fixed aggregate. Before enabling arbitrary all-fixed nesting, the compiler must calculate the complete target-native aggregate size with checked multiplication and alignment, not merely multiply source-level element counts.
+
+The roadmap still leaves the stack-allocation policy undecided. A representable object size is not automatically safe for a process stack. Do not silently heap-allocate a fixed array to avoid this issue: that would change its established value representation and copy behavior. The implementation must resolve a documented target-aware size/stack policy before claiming full support for deeply nested all-fixed arrays. If that policy is not ready, the first implementation slice should be explicit about which dynamic and mixed fixed/dynamic shapes it supports, rather than implying every combination works.
+
 ## 9. Type metadata required by the compiler
 
 The current semantic and IR metadata describes only one array layer: a base element kind, one length, and optionally one nominal structure ID. That representation is the main architectural blocker.
