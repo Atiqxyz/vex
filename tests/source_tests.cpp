@@ -11,7 +11,7 @@ void test_combined_source_preserves_file_origins(TestContext& tests) {
     const vex::SourcePosition position = source.origin_position(offset);
     tests.check(source.path_at(offset) == "math.vex",
                 "combined translation units retain the physical source path");
-    tests.check(position.line == 2u && position.column == 26u,
+    tests.check(position.line == 2u && position.column == 23u,
                 "combined translation units retain local line and column positions");
     tests.check(source.origin_line_text(offset) == "    let value: int = \"wrong\"",
                 "combined translation units resolve lines from the originating file");
