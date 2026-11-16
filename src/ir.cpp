@@ -300,7 +300,7 @@ private:
         case IROp::StringJoin: {
             check_arity(instruction, 1);
             const IRValue* array = operand_value(instruction, 0);
-            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+            if (array && (!is_simple_dynamic_array(*array) ||
                           array->element_type != IRType::String ||
                           array->element_struct_type_id != 0)) {
                 report("IR074", "string join requires a dynamic array of strings", instruction.span);
@@ -313,7 +313,7 @@ private:
             const IRValue* array = operand_value(instruction, 0);
             const IRValue* start = operand_value(instruction, 1);
             const IRValue* count = operand_value(instruction, 2);
-            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+            if (array && (!is_simple_dynamic_array(*array) ||
                           array->element_type != IRType::Byte ||
                           array->element_struct_type_id != 0))
                 report("IR080", "byte_slice requires a dynamic byte array", instruction.span);
@@ -322,10 +322,7 @@ private:
             if (count && count->type != IRType::Int)
                 report("IR082", "byte_slice length must be an int", instruction.span);
             check_result(instruction, IRType::Array);
-            if (instruction.result &&
-                (instruction.result->array_length != 0 ||
-                 instruction.result->element_type != IRType::Byte ||
-                 instruction.result->element_struct_type_id != 0))
+            if (instruction.result && !is_simple_dynamic_array(*instruction.result))
                 report("IR083", "byte_slice result must be a dynamic byte array", instruction.span);
             break;
         }
@@ -336,7 +333,7 @@ private:
             const IRValue* array = operand_value(instruction, 0);
             const IRValue* offset = operand_value(instruction, 1);
             const IRValue* value = writing ? operand_value(instruction, 2) : nullptr;
-            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+            if (array && (!is_simple_dynamic_array(*array) ||
                           array->element_type != IRType::Byte ||
                           array->element_struct_type_id != 0))
                 report("IR084", "binary integer operations require a dynamic byte array", instruction.span);
@@ -358,7 +355,7 @@ private:
             const IRValue* array = operand_value(instruction, 1);
             if (path && path->type != IRType::String)
                 report("IR088", "file path must be a string", instruction.span);
-            if (array && (array->type != IRType::Array || array->array_length != 0 ||
+            if (array && (!is_simple_dynamic_array(*array) ||
                           array->element_type != IRType::Byte ||
                           array->element_struct_type_id != 0))
                 report("IR089", "binary file operations require a dynamic byte array", instruction.span);
@@ -515,10 +512,12 @@ private:
                 check_result(instruction, found->second.return_type);
                 if (found->second.return_type == IRType::Array &&
                     instruction.result &&
-                    (instruction.result->element_type != found->second.return_element_type ||
-                     instruction.result->array_length != found->second.return_array_length ||
-                     instruction.result->element_struct_type_id !=
-                         found->second.return_element_struct_type_id)) {
+                    !same_array_shape(*instruction.result, ir_make_array_value(
+                        found->second.return_element_type,
+                        found->second.return_array_dimensions.empty()
+                            ? std::vector<std::uint32_t>{found->second.return_array_length}
+                            : found->second.return_array_dimensions,
+                        found->second.return_element_struct_type_id))) {
                     report("IR055", "call result does not match the callee's fixed-array return shape",
                            instruction.span);
                 }
@@ -545,22 +544,14 @@ private:
                 break;
             }
             const IRValue& result = *instruction.result;
-            if (result.element_type == IRType::Void || result.element_type == IRType::Array ||
-                result.array_length > 65536u ||
-                (result.element_type == IRType::Struct &&
-                 (result.element_struct_type_id == 0 ||
-                  result.element_struct_type_id > struct_types_.size())) ||
-                (result.element_type != IRType::Struct &&
-                 result.element_struct_type_id != 0))
-                report("IR042", "array result has an invalid element type or nominal identity", result.span);
+            if (!valid_array_descriptor(result, struct_types_.size()))
+                report("IR042", "array result has an invalid element type, dimension vector, or nominal identity", result.span);
             if (result.array_length != 0 &&
                 instruction.operands.size() != result.array_length)
                 report("IR043", "array construction operand count does not match its fixed length", instruction.span);
             for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
                 const IRValue* actual = operand_value(instruction, index);
-                IRValue expected;
-                expected.type = result.element_type;
-                expected.struct_type_id = result.element_struct_type_id;
+                const IRValue expected = array_element_value(result);
                 if (actual && !same_value_shape(*actual, expected))
                     report("IR044", "array element operand has the wrong type or structure identity", instruction.span);
             }
@@ -629,10 +620,8 @@ private:
                 report("IR046", "array index operand must have type int", instruction.span);
             if (array) {
                 if (!instruction.result ||
-                    instruction.result->type != array->element_type ||
-                    (array->element_type == IRType::Struct &&
-                     instruction.result->struct_type_id != array->element_struct_type_id))
-                    report("IR009", "array indexing result has the wrong element type or structure identity",
+                    !same_value_shape(*instruction.result, array_element_value(*array)))
+                    report("IR009", "array indexing result has the wrong immediate element type or aggregate shape",
                            instruction.span);
             } else if (!instruction.result) {
                 report("IR009", "array indexing must define a result", instruction.span);
@@ -649,10 +638,8 @@ private:
             if (index_type && *index_type != IRType::Int)
                 report("IR046", "array index operand must have type int", instruction.span);
             if (array && value &&
-                (value->type != array->element_type ||
-                 (array->element_type == IRType::Struct &&
-                  value->struct_type_id != array->element_struct_type_id)))
-                report("IR048", "array update value has the wrong element type or structure identity", instruction.span);
+                !same_value_shape(*value, array_element_value(*array)))
+                report("IR048", "array update value has the wrong immediate element type or aggregate shape", instruction.span);
             if (array && instruction.result && !same_array_shape(*array, *instruction.result))
                 report("IR049", "array update result must preserve the source array shape", instruction.span);
             else if (array && !instruction.result)
@@ -662,7 +649,7 @@ private:
         case IROp::ArrayLength: {
             check_arity(instruction, 1);
             const IRValue* array = operand_value(instruction, 0);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
+            if (array && (!has_dynamic_outer_dimension(*array)))
                 report("IR056", "dynamic array length requires a dynamic-array operand", instruction.span);
             check_result(instruction, IRType::Int);
             break;
@@ -670,7 +657,7 @@ private:
         case IROp::ArrayCapacity: {
             check_arity(instruction, 1);
             const IRValue* array = operand_value(instruction, 0);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
+            if (array && (!has_dynamic_outer_dimension(*array)))
                 report("IR075", "array capacity requires a dynamic-array operand", instruction.span);
             check_result(instruction, IRType::Int);
             break;
@@ -679,7 +666,7 @@ private:
             check_arity(instruction, 2);
             const IRValue* array = operand_value(instruction, 0);
             const IRValue* requested = operand_value(instruction, 1);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
+            if (array && (!has_dynamic_outer_dimension(*array)))
                 report("IR076", "array reserve requires a dynamic-array operand", instruction.span);
             if (requested && requested->type != IRType::Int)
                 report("IR077", "array reserve capacity must be an int", instruction.span);
@@ -690,27 +677,23 @@ private:
             check_arity(instruction, 2);
             const IRValue* array = operand_value(instruction, 0);
             const IRValue* value = operand_value(instruction, 1);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
+            if (array && (!has_dynamic_outer_dimension(*array)))
                 report("IR057", "array push requires a dynamic array operand", instruction.span);
             if (array && value &&
-                (value->type != array->element_type ||
-                 (array->element_type == IRType::Struct &&
-                  value->struct_type_id != array->element_struct_type_id)))
-                report("IR058", "array push value has the wrong element type or structure identity", instruction.span);
+                !same_value_shape(*value, array_element_value(*array)))
+                report("IR058", "array push value has the wrong immediate element type or aggregate shape", instruction.span);
             check_no_result(instruction);
             break;
         }
         case IROp::ArrayPop: {
             check_arity(instruction, 1);
             const IRValue* array = operand_value(instruction, 0);
-            if (array && (array->type != IRType::Array || array->array_length != 0))
+            if (array && (!has_dynamic_outer_dimension(*array)))
                 report("IR059", "array pop requires a dynamic array operand", instruction.span);
             if (array) {
                 if (!instruction.result ||
-                    instruction.result->type != array->element_type ||
-                    (array->element_type == IRType::Struct &&
-                     instruction.result->struct_type_id != array->element_struct_type_id))
-                    report("IR009", "array pop result has the wrong element type or structure identity",
+                    !same_value_shape(*instruction.result, array_element_value(*array)))
+                    report("IR009", "array pop result has the wrong immediate element type or aggregate shape",
                            instruction.span);
             } else if (!instruction.result) {
                 report("IR009", "array pop must define a result", instruction.span);
@@ -766,10 +749,7 @@ private:
                         const IRValue& returned = value->second.value;
                         if (returned.type != function_.return_type ||
                             (function_.return_type == IRType::Array &&
-                             (returned.element_type != function_.return_element_type ||
-                              returned.array_length != function_.return_array_length ||
-                              returned.element_struct_type_id !=
-                                  function_.return_element_struct_type_id)) ||
+                             !same_array_shape(returned, function_array_return_value(function_))) ||
                             (function_.return_type == IRType::Struct &&
                              returned.struct_type_id != function_.return_struct_type_id)) {
                             report("IR031", "returned value has the wrong type or fixed-array shape",
