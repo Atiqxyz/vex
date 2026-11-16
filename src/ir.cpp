@@ -27,7 +27,42 @@ struct FunctionSignature {
     std::uint32_t return_array_length{0};
     std::uint32_t return_struct_type_id{0};
     std::uint32_t return_element_struct_type_id{0};
+    std::vector<std::uint32_t> return_array_dimensions;
 };
+
+bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count) {
+    if (value.type != IRType::Array || value.struct_type_id != 0 ||
+        value.element_type == IRType::Void || value.element_type == IRType::Array) {
+        return false;
+    }
+    const auto dimensions = ir_array_dimensions(value);
+    if (dimensions.empty() || dimensions.size() > 64u ||
+        value.array_length != dimensions.front()) return false;
+    for (const std::uint32_t dimension : dimensions)
+        if (dimension > 65536u) return false;
+    if (value.element_type == IRType::Struct)
+        return value.element_struct_type_id != 0 &&
+               value.element_struct_type_id <= struct_count;
+    return value.element_struct_type_id == 0;
+}
+
+bool has_dynamic_outer_dimension(const IRValue& value) {
+    const auto dimensions = ir_array_dimensions(value);
+    return value.type == IRType::Array && !dimensions.empty() &&
+           dimensions.front() == 0u;
+}
+
+bool is_simple_dynamic_array(const IRValue& value) {
+    return has_dynamic_outer_dimension(value) &&
+           ir_array_dimensions(value).size() == 1u;
+}
+
+IRValue function_array_return_value(const IRFunction& function) {
+    auto dimensions = function.return_array_dimensions;
+    if (dimensions.empty()) dimensions.push_back(function.return_array_length);
+    return ir_make_array_value(function.return_element_type, std::move(dimensions),
+                               function.return_element_struct_type_id, function.span);
+}
 
 struct Definition {
     IRValue value{};
@@ -72,14 +107,8 @@ private:
                    function_.span);
         }
         if (function_.return_type == IRType::Array) {
-            if (function_.return_element_type == IRType::Void ||
-                function_.return_element_type == IRType::Array ||
-                function_.return_array_length > 65536u ||
-                (function_.return_element_type == IRType::Struct &&
-                 (function_.return_element_struct_type_id == 0 ||
-                  function_.return_element_struct_type_id > struct_types_.size())) ||
-                (function_.return_element_type != IRType::Struct &&
-                 function_.return_element_struct_type_id != 0)) {
+            if (!valid_array_descriptor(function_array_return_value(function_),
+                                        struct_types_.size())) {
                 report("IR053", "function has an invalid array return shape", function_.span);
             }
         } else if (function_.return_type == IRType::Struct) {
@@ -119,14 +148,7 @@ private:
             report("IR006", "SSA values cannot have type void", value.span);
         }
         if (value.type == IRType::Array &&
-            (value.element_type == IRType::Void || value.element_type == IRType::Array ||
-             value.array_length > 65536u ||
-             (value.element_type == IRType::Struct &&
-              (value.element_struct_type_id == 0 ||
-               value.element_struct_type_id > struct_types_.size())) ||
-             (value.element_type != IRType::Struct &&
-              value.element_struct_type_id != 0) ||
-             value.struct_type_id != 0)) {
+            !valid_array_descriptor(value, struct_types_.size())) {
             report("IR050", "SSA array value has an invalid element type or aggregate identity",
                    value.span);
         } else if (value.type == IRType::Struct) {
@@ -182,20 +204,15 @@ private:
     }
 
     static bool same_array_shape(const IRValue& left, const IRValue& right) {
-        return left.type == IRType::Array && right.type == IRType::Array &&
-               left.element_type == right.element_type &&
-               left.array_length == right.array_length &&
-               left.element_struct_type_id == right.element_struct_type_id;
+        return ir_same_array_shape(left, right);
     }
 
     static IRValue field_value(const IRStructField& field) {
-        IRValue value;
-        value.type = field.type;
-        value.struct_type_id = field.struct_type_id;
-        value.element_type = field.element_type;
-        value.array_length = field.array_length;
-        value.element_struct_type_id = field.element_struct_type_id;
-        return value;
+        return ir_struct_field_value(field);
+    }
+
+    static IRValue array_element_value(const IRValue& array) {
+        return ir_array_element_value(array);
     }
 
     static bool same_value_shape(const IRValue& left, const IRValue& right) {
