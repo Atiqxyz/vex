@@ -117,7 +117,8 @@ private:
                 report("IR060", "function has an invalid structure return type", function_.span);
             if (function_.return_element_type != IRType::Void ||
                 function_.return_array_length != 0 ||
-                function_.return_element_struct_type_id != 0)
+                function_.return_element_struct_type_id != 0 ||
+                !function_.return_array_dimensions.empty())
                 report("IR054", "structure function return cannot carry array shape metadata", function_.span);
         } else if (function_.return_type == IRType::Void ||
                    function_.return_type == IRType::Int ||
@@ -127,7 +128,8 @@ private:
                    function_.return_type == IRType::String) {
             if (function_.return_element_type != IRType::Void ||
                 function_.return_array_length != 0 ||
-                function_.return_element_struct_type_id != 0) {
+                function_.return_element_struct_type_id != 0 ||
+                !function_.return_array_dimensions.empty()) {
                 report("IR054", "primitive function return cannot carry array shape metadata",
                        function_.span);
             }
@@ -155,11 +157,12 @@ private:
             if (value.struct_type_id == 0 || value.struct_type_id > struct_types_.size())
                 report("IR060", "SSA value has an invalid structure type", value.span);
             if (value.element_type != IRType::Void || value.array_length != 0 ||
-                value.element_struct_type_id != 0)
+                value.element_struct_type_id != 0 || !value.array_dimensions.empty())
                 report("IR051", "structure SSA value cannot carry array shape metadata", value.span);
         } else if (value.type != IRType::Array &&
                    (value.element_type != IRType::Void || value.array_length != 0 ||
-                    value.struct_type_id != 0 || value.element_struct_type_id != 0)) {
+                    value.struct_type_id != 0 || value.element_struct_type_id != 0 ||
+                     !value.array_dimensions.empty())) {
             report("IR051", "primitive SSA value cannot carry aggregate shape metadata", value.span);
         }
         const auto inserted = definitions_.emplace(
@@ -1047,23 +1050,24 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
             result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR069",
                 "structure types must contain at least one field", {}});
         for (const IRStructField& field : structure.fields) {
+            const IRValue field_type = ir_struct_field_value(field);
+            const std::vector<std::uint32_t> field_dimensions =
+                field.type == IRType::Array ? ir_array_dimensions(field_type)
+                                            : std::vector<std::uint32_t>{};
+            const bool field_has_dynamic_dimension =
+                std::find(field_dimensions.begin(), field_dimensions.end(), 0u) !=
+                field_dimensions.end();
             const bool invalid_array =
                 field.type == IRType::Array &&
-                (field.element_type == IRType::Void || field.element_type == IRType::Array ||
-                 field.array_length > 65536u ||
+                (!valid_array_descriptor(field_type, module.struct_types.size()) ||
                  (field.element_type == IRType::Struct &&
-                  (field.element_struct_type_id == 0 ||
-                   field.element_struct_type_id > module.struct_types.size() ||
-                   ((field.array_length == 0 &&
-                     field.element_struct_type_id > structure.id) ||
-                    (field.array_length != 0 &&
-                     field.element_struct_type_id >= structure.id)))) ||
-                 (field.element_type != IRType::Struct &&
-                  field.element_struct_type_id != 0));
+                  (field.element_struct_type_id > structure.id ||
+                   (!field_has_dynamic_dimension &&
+                    field.element_struct_type_id >= structure.id))));
             const bool invalid_non_array_shape =
                 field.type != IRType::Array &&
                 (field.element_type != IRType::Void || field.array_length != 0 ||
-                 field.element_struct_type_id != 0);
+                 field.element_struct_type_id != 0 || !field.array_dimensions.empty());
             if (field.name.empty() || !fields.emplace(field.name, true).second ||
                 field.type == IRType::Void ||
                 (field.type == IRType::Struct &&
@@ -1090,6 +1094,7 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
         signature.return_struct_type_id = function.return_struct_type_id;
         signature.return_element_struct_type_id =
             function.return_element_struct_type_id;
+        signature.return_array_dimensions = function.return_array_dimensions;
         for (const IRFunctionParameter& parameter : function.parameters) {
             signature.parameters.push_back(parameter.value);
         }
