@@ -78,7 +78,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Array iteration | Implemented | for-in over fixed and dynamic arrays of primitive or structure values. Dynamic length is checked at each loop header. |
 | Array function parameters | Implemented | Fixed arrays of primitives or structures are passed by value; dynamic arrays are shared references. Element type, nominal structure identity, and shape are checked. |
 | Array function returns | Implemented | Fixed arrays of primitives or structures are returned by value; dynamic arrays return a shared reference. IR verifies element identity and shape. |
-| Nested arrays | Not implemented | Arrays of arrays remain unsupported; arrays of structures and array-valued structure fields are implemented. The proposed dimension ordering, jagged semantics, aliasing, memory model, and recursive IR requirements are recorded in the [design proposal](nested-array-design.md). |
+| Nested arrays | Partial | Dynamic and mixed fixed/dynamic jagged shapes are accepted by semantic analysis, typed IR, and both backend type mappers; all-fixed multidimensional aggregates remain rejected pending a target-aware size/stack policy. Native runtime integration tests are pending. See the [design proposal](nested-array-design.md). |
 | Integer ranges | Implemented | \`start..end\` exclusive and \`start..=end\` inclusive, directly in \`for-in\`. |
 | Unsigned integer types | Partial | `byte` is an unsigned 8-bit scalar; broader unsigned integer types are not yet language types. |
 | Smaller/larger integer widths | Partial | `byte` provides 8-bit storage and `int` is signed 64-bit; independent 16/32/unsigned integer scalar types remain absent. |
