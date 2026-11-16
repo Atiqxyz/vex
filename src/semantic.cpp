@@ -400,7 +400,7 @@ private:
                     field_type == Type::Void || field_type == Type::Unknown ||
                     field_type == Type::Any ||
                     (field_type == Type::Array && !field_array_type)) {
-                    report("SEM048", "structure fields require a primitive, a previously declared structure, or a one-dimensional array of either",
+                    report("SEM048", "structure fields require a primitive, a previously declared structure, or an array of either",
                            field.type_annotation.value_or(field.name));
                     continue;
                 }
@@ -413,11 +413,11 @@ private:
                 const bool contains_structure =
                     field_type == Type::Struct ||
                     (field_type == Type::Array && field_array_type &&
-                     field_array_type->length != 0 &&
+                     field_array_type->is_fully_fixed() &&
                      field_array_type->element_type == Type::Struct);
                 const bool forward_dynamic_structure =
                     field_type == Type::Array && field_array_type &&
-                    field_array_type->length == 0 &&
+                    field_array_type->has_dynamic_dimension() &&
                     field_array_type->element_type == Type::Struct &&
                     contained_struct_id > structure.id;
                 if (forward_dynamic_structure) {
@@ -744,10 +744,7 @@ private:
                     : model_.array_expression_types.end();
                 const bool array_shape_matches = expected->type != Type::Array ||
                     (expected->array_type && actual_array != model_.array_expression_types.end() &&
-                     expected->array_type->element_type == actual_array->second.element_type &&
-                     expected->array_type->length == actual_array->second.length &&
-                     expected->array_type->element_struct_type_id ==
-                         actual_array->second.element_struct_type_id);
+                     expected->array_type->same_shape(actual_array->second));
                 if (!is_assignable(expected->type, actual) ||
                     (expected->type == Type::Struct && expected->struct_type_id != actual_struct) ||
                     !array_shape_matches) {
@@ -1013,9 +1010,7 @@ private:
                     :model_.array_expression_types.end();
                 const bool array_shape_matches=target_type!=Type::Array||
                     (expected_array!=model_.array_expression_types.end()&&actual_array!=model_.array_expression_types.end()&&
-                     expected_array->second.element_type==actual_array->second.element_type&&
-                     expected_array->second.length==actual_array->second.length&&
-                     expected_array->second.element_struct_type_id==actual_array->second.element_struct_type_id);
+                     expected_array->second.same_shape(actual_array->second));
                 if(!is_assignable(target_type,actual)||(target_type==Type::Struct&&target_struct!=actual_struct)||!array_shape_matches)
                     report("SEM018","cannot assign an incompatible value to an aggregate field or element",expression.span);
                 if(target_type==Type::Struct&&target_struct!=0)model_.struct_expression_types[&expression]=target_struct;
@@ -1055,9 +1050,7 @@ private:
             if(symbol->type==Type::Array&&assignment->value) {
                 const auto shape=model_.array_expression_types.find(assignment->value.get());
                 if(symbol->array_type&&shape!=model_.array_expression_types.end()&&
-                   (symbol->array_type->element_type!=shape->second.element_type||
-                    symbol->array_type->length!=shape->second.length||
-                    symbol->array_type->element_struct_type_id!=shape->second.element_struct_type_id))
+                   (!symbol->array_type->same_shape(shape->second)))
                     report("SEM045","array assignment requires the same element type and length",assignment->value->span);
             }
             const std::uint32_t assigned_struct=assignment->value&&model_.struct_expression_types.count(assignment->value.get())
@@ -1336,9 +1329,7 @@ private:
                     const SemanticArrayType& expected =
                         *function->parameter_array_types[index];
                     if (actual_shape == model_.array_expression_types.end() ||
-                        actual_shape->second.element_type != expected.element_type ||
-                        actual_shape->second.length != expected.length ||
-                        actual_shape->second.element_struct_type_id != expected.element_struct_type_id) {
+                        !actual_shape->second.same_shape(expected)) {
                         report("SEM021", "array argument " +
                                std::to_string(index + 1) +
                                " does not match the required element type and fixed length",
@@ -1376,26 +1367,45 @@ private:
         }
         const auto* array_initializer = variable.initializer
             ? std::get_if<ArrayLiteralExpr>(&variable.initializer->data) : nullptr;
-        if (array_initializer && declared == Type::Array && declared_array_type) {
-            model_.array_expression_types[variable.initializer.get()] =
-                *declared_array_type;
-        }
-        const Type inferred = variable.initializer
-            ? analyze_expression(*variable.initializer) : Type::Error;
-        if (!variable.type_annotation) declared = inferred;
-        else {
-            require_type(inferred, declared,
-                         variable.initializer ? variable.initializer->span : variable.name,
+        if (array_initializer && declared == Type::Array && declared_array_type)
+            model_.array_expression_types[variable.initializer.get()] = *declared_array_type;
+
+        const bool has_initializer = static_cast<bool>(variable.initializer);
+        const Type inferred = has_initializer
+            ? analyze_expression(*variable.initializer) : declared;
+        if (!variable.type_annotation) {
+            declared = inferred;
+            if (!has_initializer)
+                report("SEM059",
+                       "a variable without an initializer requires an explicit type annotation",
+                       variable.name);
+        } else if (has_initializer) {
+            require_type(inferred, declared, variable.initializer->span,
                          "SEM022", "initializer type does not match variable annotation");
-            const std::uint32_t inferred_struct = variable.initializer &&
-                model_.struct_expression_types.find(variable.initializer.get()) !=
-                    model_.struct_expression_types.end()
-                ? model_.struct_expression_types.at(variable.initializer.get()) : 0u;
+            const std::uint32_t inferred_struct =
+                model_.struct_expression_types.count(variable.initializer.get())
+                    ? model_.struct_expression_types.at(variable.initializer.get()) : 0u;
             if (declared == Type::Struct && inferred == Type::Struct &&
-                declared_struct_type_id != inferred_struct)
+                declared_struct_type_id != inferred_struct) {
                 report("SEM022", "initializer structure type does not match variable annotation",
-                       variable.initializer ? variable.initializer->span : variable.name);
+                       variable.initializer->span);
+            }
         }
+
+        if (!has_initializer) {
+            if (variable.immutable) {
+                report("SEM058", "const declarations require an explicit initializer",
+                       variable.name);
+            } else if (declared != Type::Error && declared != Type::Unknown &&
+                       declared != Type::Int && declared != Type::Byte &&
+                       declared != Type::Float && declared != Type::Bool &&
+                       declared != Type::String) {
+                report("SEM057",
+                       "default initialization is currently supported only for scalar primitive types; arrays and structures require an explicit initializer",
+                       variable.name);
+            }
+        }
+
         if (declared == Type::Void) {
             report("SEM023", "variables cannot have type void", variable.name);
             declared = Type::Error;
@@ -1414,18 +1424,14 @@ private:
         if (variable.initializer && inferred == Type::Array) {
             const auto shape = model_.array_expression_types.find(variable.initializer.get());
             if (shape != model_.array_expression_types.end()) {
-                if (declared_array_type &&
-                    (declared_array_type->element_type != shape->second.element_type ||
-                     declared_array_type->length != shape->second.length ||
-                     declared_array_type->element_struct_type_id != shape->second.element_struct_type_id)) {
+                if (declared_array_type && !declared_array_type->same_shape(shape->second)) {
                     report("SEM045",
-                           "array initializer does not match the annotated element type and fixed length",
+                           "array initializer does not match the annotated element type and complete dimension shape",
                            variable.initializer->span);
                 }
                 if (declared_array_type && declared_array_type->length == 0 &&
                     shape->second.element_type != Type::Unknown) {
-                    model_.array_expression_types[variable.initializer.get()] =
-                        *declared_array_type;
+                    model_.array_expression_types[variable.initializer.get()] = *declared_array_type;
                     symbol.array_type = *declared_array_type;
                 } else if (!symbol.array_type) {
                     symbol.array_type = shape->second;
@@ -1435,10 +1441,8 @@ private:
         symbol.immutable = variable.immutable;
         symbol.declaration = variable.name;
         SemanticBindingId binding_id = 0;
-        if (define(spelling(variable.name), std::move(symbol),
-                   variable.name, &binding_id)) {
+        if (define(spelling(variable.name), std::move(symbol), variable.name, &binding_id))
             model_.variable_bindings[&variable] = binding_id;
-        }
     }
 
     void analyze_function(const FunctionDeclStmt& function,
@@ -1738,10 +1742,7 @@ private:
                         const auto actual_shape =
                             model_.array_expression_types.find(returned->value.get());
                         if (actual_shape == model_.array_expression_types.end() ||
-                            actual_shape->second.element_type != current_return_array_type_->element_type ||
-                            actual_shape->second.length != current_return_array_type_->length ||
-                            actual_shape->second.element_struct_type_id !=
-                                current_return_array_type_->element_struct_type_id) {
+                            !actual_shape->second.same_shape(*current_return_array_type_)) {
                             report("SEM028",
                                    "returned array does not match the function's annotated element type and fixed length",
                                    returned->value->span);

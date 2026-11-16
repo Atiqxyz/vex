@@ -3,6 +3,7 @@
 #include "vex/ast.hpp"
 #include "vex/diagnostic.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -51,6 +52,20 @@ struct SemanticArrayType {
 
     [[nodiscard]] bool is_nested() const noexcept {
         return dimensions.size() > 1u;
+    }
+
+    [[nodiscard]] bool same_shape(const SemanticArrayType& other) const noexcept {
+        return element_type == other.element_type &&
+               element_struct_type_id == other.element_struct_type_id &&
+               dimensions == other.dimensions;
+    }
+
+    [[nodiscard]] bool has_dynamic_dimension() const noexcept {
+        return std::find(dimensions.begin(), dimensions.end(), 0u) != dimensions.end();
+    }
+
+    [[nodiscard]] bool is_fully_fixed() const noexcept {
+        return !dimensions.empty() && !has_dynamic_dimension();
     }
 };
 

@@ -40,6 +40,8 @@ make main() {
 - `let` introduces a mutable binding.
 - `const` introduces an immutable binding.
 - Type annotations use `name: type` syntax and may be omitted on local bindings when inference is possible.
+- A mutable, explicitly typed scalar binding may omit its initializer: `int` and `byte` default to zero, `float` to 0.0, `bool` to false, and `string` to the empty string. Array and structure declarations still require explicit initializers.
+- `const` declarations and declarations relying on type inference require explicit initializers. These defaults are defined language values, not uninitialized storage.
 - Function parameters require explicit type annotations in the current semantic checker.
 - A function without a return type annotation is treated as returning `void`; value-returning functions must declare a return type.
 - If `make main()` is present, it is the program entry point and top-level executable statements are rejected. If it is absent, top-level statements execute in source order through a compiler-generated entry function. File-scope function declarations remain declarations in either mode. File-scope values belong to implicit-entry execution and are not captured by ordinary functions; pass values as parameters instead.

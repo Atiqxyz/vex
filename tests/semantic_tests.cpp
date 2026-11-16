@@ -467,6 +467,38 @@ void test_nested_array_annotations_fail_closed(TestContext& tests) {
                 "nested array annotations are rejected explicitly until recursive semantics and both backends are implemented");
 }
 
+void test_default_initialization_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"default_initialization.vex",
+        "make main() {\n"
+        "    let count: int\n"
+        "    let ratio: float\n"
+        "    let enabled: bool\n"
+        "    let marker: byte\n"
+        "    let title: string\n"
+        "    say(count)\n"
+        "    say(ratio)\n"
+        "    say(enabled)\n"
+        "    say(marker)\n"
+        "    say(title)\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "explicitly typed mutable scalar bindings may use deterministic defaults");
+
+    const vex::SourceFile rejected{"unsupported_default_initialization.vex",
+        "struct Point { x: int }\n"
+        "make main() {\n"
+        "    let values: int[]\n"
+        "    let point: Point\n"
+        "    const fixed: int\n"
+        "    let unknown\n"
+        "}\n"};
+    const vex::SemanticResult invalid = analyze(rejected);
+    tests.check(has_code(invalid, "SEM057"), "arrays and structures still require explicit initialization");
+    tests.check(has_code(invalid, "SEM058"), "immutable const declarations require explicit initialization");
+    tests.check(has_code(invalid, "SEM059"), "uninitialized declarations require an explicit type annotation");
+}
+
 void test_dynamic_array_semantics(TestContext& tests) {
     const vex::SourceFile valid{"dynamic_arrays.vex",
         "make empty_values() -> int[] { return [] }\n"
@@ -822,6 +854,7 @@ void run_semantic_tests(TestContext& tests) {
     test_fixed_arrays_and_index_assignment(tests);
     test_array_function_types_and_shapes(tests);
     test_nested_array_annotations_fail_closed(tests);
+    test_default_initialization_semantics(tests);
     test_dynamic_array_semantics(tests);
     test_dynamic_array_capacity_semantics(tests);
     test_integer_range_semantics(tests);

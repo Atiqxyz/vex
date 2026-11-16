@@ -163,9 +163,17 @@ StmtPtr Parser::parse_variable(const Token& start, const bool immutable) {
                               "expected a variable name after declaration keyword");
     std::optional<SourceSpan> type_annotation;
     if (match(TokenKind::Colon)) type_annotation = parse_type_annotation();
-    static_cast<void>(expect(TokenKind::Equal, "expected '=' before the variable initializer"));
-    ExprPtr initializer = parse_expression();
-    const std::size_t end = initializer ? initializer->span.end : previous().span.end;
+    ExprPtr initializer;
+    if (match(TokenKind::Equal)) {
+        initializer = parse_expression();
+    } else if (!check(TokenKind::Newline) && !check(TokenKind::RightBrace) &&
+               !check(TokenKind::EndOfFile)) {
+        report_current("PAR014",
+                       "expected '=' before the variable initializer or the end of the declaration");
+        initializer = parse_expression();
+    }
+    const std::size_t end = initializer ? initializer->span.end
+        : type_annotation ? type_annotation->end : name.span.end;
     return std::make_unique<Statement>(Statement{
         SourceSpan{start.span.begin, end},
         VariableDeclStmt{name.span, immutable, type_annotation, std::move(initializer)}});

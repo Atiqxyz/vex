@@ -896,6 +896,59 @@ void test_bitwise_ir_lowering_and_backends(TestContext& tests) {
                 "LLVM backend emits native i64 bitwise instructions");
 }
 
+void test_default_initialized_scalar_lowering_and_backends(TestContext& tests) {
+    const vex::SourceFile source{"default_initialized_scalars_ir.vex",
+        "make main() {\n"
+        "    let count: int\n"
+        "    let ratio: float\n"
+        "    let enabled: bool\n"
+        "    let marker: byte\n"
+        "    let title: string\n"
+        "    say(count)\n"
+        "    say(ratio)\n"
+        "    say(enabled)\n"
+        "    say(marker)\n"
+        "    say(title)\n"
+        "}\n"};
+    const auto lexed = vex::Lexer(source).scan();
+    const auto parsed = vex::Parser(source, lexed.tokens).parse();
+    const auto semantic = vex::SemanticAnalyzer(source, parsed.program).analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "default-initialized scalar declarations pass front-end analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+    const auto lowered = vex::IRLowerer(source, parsed.program, semantic.model).lower();
+    tests.check(!lowered.has_errors(), "default scalar values lower to explicit typed IR constants");
+    if (lowered.has_errors()) return;
+    tests.check(!vex::IRVerifier{}.verify(lowered.module).has_errors(),
+                "default-initialization IR passes independent verification");
+
+    std::size_t default_constants = 0;
+    for (const auto& function : lowered.module.functions)
+        for (const auto& block : function.blocks)
+            for (const auto& instruction : block.instructions)
+                if (instruction.op == vex::IROp::Constant && instruction.result &&
+                    (instruction.result->type == vex::IRType::Int ||
+                     instruction.result->type == vex::IRType::Byte ||
+                     instruction.result->type == vex::IRType::Float ||
+                     instruction.result->type == vex::IRType::Bool ||
+                     instruction.result->type == vex::IRType::String))
+                    ++default_constants;
+    tests.check(default_constants == 5u,
+                "IR contains deterministic defaults for int, float, bool, byte, and string");
+
+    const auto c = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() && c.source.find("INT64_C(0)") != std::string::npos &&
+                c.source.find("0.0") != std::string::npos &&
+                c.source.find("false") != std::string::npos &&
+                c.source.find("(uint8_t)0u") != std::string::npos,
+                "C backend emits deterministic native scalar defaults");
+    const auto llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() && llvm.output.find("add i64 0, 0") != std::string::npos &&
+                llvm.output.find("fadd double 0.0, 0.0") != std::string::npos &&
+                llvm.output.find("xor i1 false, false") != std::string::npos,
+                "LLVM backend emits matching deterministic scalar defaults");
+}
+
 void test_byte_lowering_and_backends(TestContext& tests) {
     const vex::SourceFile source{"byte_ir.vex",
         "make flip(value: byte) -> byte { return ~value }\n"
@@ -973,5 +1026,6 @@ void run_ir_tests(TestContext& tests) {
     test_string_byte_length_lowering_and_backends(tests);
     test_string_join_lowering_and_backends(tests);
     test_bitwise_ir_lowering_and_backends(tests);
+    test_default_initialized_scalar_lowering_and_backends(tests);
     test_byte_lowering_and_backends(tests);
 }

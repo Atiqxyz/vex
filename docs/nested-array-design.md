@@ -2,7 +2,7 @@
 
 **Status:** implementation groundwork in progress. The parser now consumes and preserves repeated array-dimension suffixes in type annotations. Semantic analysis deliberately rejects annotations with more than one dimension until recursive semantic typing, lowering, IR verification, and both backends are implemented. Nested-array programs are **not yet supported**.
 
-**Audited baseline:** branch **dev** at **0fdc5712a9398a0a95517d7c57baeab075e1fa90**. The four-platform CI run associated with this baseline passed on Ubuntu, Windows, macOS ARM, and macOS Intel: [run #43744348963](https://github.com/Atiqxyz/vex/actions/runs/43744348963).
+**Current baseline:** branch **dev** at **cca44d2b49fc69bf66c7393b95925acac27b7ab0**. Its CI run #276 was still in progress when this design note was refreshed; the most recent fully completed four-platform green baseline remains [run #43744348963](https://github.com/Atiqxyz/vex/actions/runs/43744348963) at commit **0fdc5712a9398a0a95517d7c57baeab075e1fa90**.
 
 This note records the semantic contract for the feature and tracks implementation boundaries. Parsing repeated dimensions is now supported, but nested arrays do not compile today.
 

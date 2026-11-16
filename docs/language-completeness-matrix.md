@@ -52,7 +52,8 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 |---|---|---|
 | Mutable local bindings | Implemented | \`let\`. |
 | Immutable local bindings | Implemented | \`const\` prevents reassignment. |
-| Local type inference | Implemented | Inferred from initializer. |
+| Local type inference | Implemented | Inferred from initializer; a declaration without an initializer requires an explicit type. |
+| Typed scalar default initialization | Implemented | Mutable explicitly typed scalar bindings default to 0, 0.0, false, or the empty string; arrays, structures, and const bindings still require explicit initializers. |
 | Explicit local type annotations | Implemented | Primitive, nominal structure, fixed-array, and dynamic-array annotations such as `Point`, `Point[3]`, and `Point[]`. |
 | Lexical block scopes | Implemented | Nested scopes and shadowing. |
 | Duplicate declaration diagnostics | Implemented | Same-scope duplicates rejected. |

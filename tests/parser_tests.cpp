@@ -347,6 +347,30 @@ void test_multidimensional_type_annotation_spans(TestContext& tests) {
                 "local variable annotations preserve repeated fixed dimensions");
 }
 
+void test_typed_declarations_may_omit_initializer(TestContext& tests) {
+    const vex::SourceFile source{"default_initialized_declaration.vex",
+        "make main() {\n"
+        "    let count: int\n"
+        "    let title: string\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(), "typed mutable declarations may omit an initializer");
+    if (parsed.has_errors() || parsed.program.statements.empty()) return;
+    const auto* function =
+        std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements.front()->data);
+    const auto* body = function && function->body
+        ? std::get_if<vex::BlockStmt>(&function->body->data) : nullptr;
+    tests.check(body && body->statements.size() == 2u,
+                "uninitialized declarations remain ordinary statement nodes");
+    if (!body || body->statements.size() != 2u) return;
+    const auto* first = std::get_if<vex::VariableDeclStmt>(&body->statements[0]->data);
+    const auto* second = std::get_if<vex::VariableDeclStmt>(&body->statements[1]->data);
+    tests.check(first && first->type_annotation && !first->initializer,
+                "uninitialized typed binding preserves its annotation and absent initializer");
+    tests.check(second && second->type_annotation && !second->initializer,
+                "string declarations can also omit their initializer");
+}
+
 void test_invalid_syntax_and_newline_rules(TestContext& tests) {
     const vex::SourceFile missing_expression{"missing.vex", "let value =\n"};
     const vex::LexResult missing_lex = vex::Lexer(missing_expression).scan();
@@ -386,6 +410,7 @@ void run_parser_tests(TestContext& tests) {
     test_structure_declarations_literals_and_members(tests);
     test_multiline_structure_literal_with_array_fields(tests);
     test_multidimensional_type_annotation_spans(tests);
+    test_typed_declarations_may_omit_initializer(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }

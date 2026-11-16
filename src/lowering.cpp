@@ -1372,31 +1372,41 @@ private:
     void lower_variable(const VariableDeclStmt& variable) {
         const auto binding = semantic_model_.variable_bindings.find(&variable);
         if (binding == semantic_model_.variable_bindings.end()) {
-            report("IR130", "variable declaration has no resolved binding",
-                   variable.name);
+            report("IR130", "variable declaration has no resolved binding", variable.name);
             return;
         }
         const SemanticBinding* info = get_binding(binding->second);
         if (!info) {
-            report("IR131", "variable declaration binding metadata is missing",
-                   variable.name);
-            return;
-        }
-        if (!variable.initializer) {
-            report("IR132", "variable declaration has no initializer",
-                   variable.name);
-            return;
-        }
-        const auto value = lower_expression(*variable.initializer);
-        if (!value) {
-            report("IR133", "variable initializer did not produce a value",
-                   variable.initializer->span);
+            report("IR131", "variable declaration binding metadata is missing", variable.name);
             return;
         }
         const auto target_type = to_ir_type(info->type);
         if (!target_type || *target_type == IRType::Void) {
-            report("IR134", "variable type cannot be represented in the initial IR",
-                   variable.name);
+            report("IR134", "variable type cannot be represented in the initial IR", variable.name);
+            return;
+        }
+
+        std::optional<IRValue> value;
+        if (variable.initializer) {
+            value = lower_expression(*variable.initializer);
+        } else {
+            switch (*target_type) {
+            case IRType::Int: value = emit_constant(IRType::Int, "0", variable.name); break;
+            case IRType::Byte: value = emit_constant(IRType::Byte, "0", variable.name); break;
+            case IRType::Float: value = emit_constant(IRType::Float, "0.0", variable.name); break;
+            case IRType::Bool: value = emit_constant(IRType::Bool, "false", variable.name); break;
+            case IRType::String: value = emit_constant(IRType::String, "\"\"", variable.name); break;
+            case IRType::Void:
+            case IRType::Array:
+            case IRType::Struct:
+                report("IR151", "this type does not have a supported default initializer",
+                       variable.name);
+                return;
+            }
+        }
+        if (!value) {
+            report("IR133", "variable initializer did not produce a value",
+                   variable.initializer ? variable.initializer->span : variable.name);
             return;
         }
         const auto converted = convert(*value, *target_type, variable.name);
