@@ -949,6 +949,102 @@ void test_default_initialized_scalar_lowering_and_backends(TestContext& tests) {
                 "LLVM backend emits matching deterministic scalar defaults");
 }
 
+void test_recursive_array_ir_shapes_and_backends(TestContext& tests) {
+    vex::IRModule module;
+
+    const auto make_array = [](const vex::IRValue& result,
+                               const std::vector<vex::IRValueId>& elements) {
+        vex::IRInstruction instruction;
+        instruction.op = vex::IROp::ArrayMake;
+        instruction.result = result;
+        instruction.operands = elements;
+        return instruction;
+    };
+
+    vex::IRBlock fixed_entry;
+    fixed_entry.id = 0;
+    fixed_entry.name = "entry";
+    for (std::uint32_t index = 1; index <= 6; ++index) {
+        const std::string spelling = std::to_string(index);
+        fixed_entry.instructions.push_back(
+            constant(index, vex::IRType::Int, spelling.c_str()));
+    }
+    vex::IRValue fixed_row_a = vex::ir_make_array_value(
+        vex::IRType::Int, {3u});
+    fixed_row_a.id = 7;
+    vex::IRValue fixed_row_b = vex::ir_make_array_value(
+        vex::IRType::Int, {3u});
+    fixed_row_b.id = 8;
+    vex::IRValue fixed_grid = vex::ir_make_array_value(
+        vex::IRType::Int, {2u, 3u});
+    fixed_grid.id = 9;
+    fixed_entry.instructions.push_back(make_array(fixed_row_a, {1, 2, 3}));
+    fixed_entry.instructions.push_back(make_array(fixed_row_b, {4, 5, 6}));
+    fixed_entry.instructions.push_back(make_array(fixed_grid, {7, 8}));
+    fixed_entry.terminator = vex::IRTerminator{vex::IRReturn{9}, {}};
+
+    vex::IRFunction fixed_function;
+    fixed_function.name = "fixed_grid";
+    fixed_function.return_type = vex::IRType::Array;
+    fixed_function.return_element_type = vex::IRType::Int;
+    fixed_function.return_array_length = 2u;
+    fixed_function.return_array_dimensions = {2u, 3u};
+    fixed_function.entry_block = 0;
+    fixed_function.blocks.push_back(std::move(fixed_entry));
+    module.functions.push_back(std::move(fixed_function));
+
+    vex::IRBlock dynamic_entry;
+    dynamic_entry.id = 0;
+    dynamic_entry.name = "entry";
+    for (std::uint32_t index = 1; index <= 6; ++index) {
+        const std::string spelling = std::to_string(index + 10u);
+        dynamic_entry.instructions.push_back(
+            constant(index, vex::IRType::Int, spelling.c_str()));
+    }
+    vex::IRValue dynamic_row_a = vex::ir_make_array_value(
+        vex::IRType::Int, {3u});
+    dynamic_row_a.id = 7;
+    vex::IRValue dynamic_row_b = vex::ir_make_array_value(
+        vex::IRType::Int, {3u});
+    dynamic_row_b.id = 8;
+    vex::IRValue dynamic_rows = vex::ir_make_array_value(
+        vex::IRType::Int, {0u, 3u});
+    dynamic_rows.id = 9;
+    dynamic_entry.instructions.push_back(make_array(dynamic_row_a, {1, 2, 3}));
+    dynamic_entry.instructions.push_back(make_array(dynamic_row_b, {4, 5, 6}));
+    dynamic_entry.instructions.push_back(make_array(dynamic_rows, {7, 8}));
+    dynamic_entry.terminator = vex::IRTerminator{vex::IRReturn{9}, {}};
+
+    vex::IRFunction dynamic_function;
+    dynamic_function.name = "dynamic_rows";
+    dynamic_function.return_type = vex::IRType::Array;
+    dynamic_function.return_element_type = vex::IRType::Int;
+    dynamic_function.return_array_length = 0u;
+    dynamic_function.return_array_dimensions = {0u, 3u};
+    dynamic_function.entry_block = 0;
+    dynamic_function.blocks.push_back(std::move(dynamic_entry));
+    module.functions.push_back(std::move(dynamic_function));
+
+    const auto verified = vex::IRVerifier{}.verify(module);
+    tests.check(!verified.has_errors(),
+                "IR verifier accepts fixed nested arrays and dynamic outer arrays of fixed rows");
+    if (verified.has_errors()) return;
+
+    const auto c = vex::CBackend{}.generate(module);
+    tests.check(!c.has_errors() &&
+                c.source.find("vex_array_int_3") != std::string::npos &&
+                c.source.find("vex_array_int_2_3") != std::string::npos &&
+                c.source.find("vex_array * vex_fn_dynamic_rows") != std::string::npos,
+                "C backend emits recursive fixed wrappers and pointer-backed dynamic outer arrays");
+
+    const auto llvm = vex::LLVMBackend{}.emit(module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("[2 x [3 x i64]]") != std::string::npos &&
+                llvm.output.find("define internal ptr @vex_fn_dynamic_rows") != std::string::npos &&
+                llvm.output.find("[3 x i64]") != std::string::npos,
+                "LLVM backend emits nested fixed aggregates and dynamic outer pointer representation");
+}
+
 void test_byte_lowering_and_backends(TestContext& tests) {
     const vex::SourceFile source{"byte_ir.vex",
         "make flip(value: byte) -> byte { return ~value }\n"
@@ -1027,5 +1123,6 @@ void run_ir_tests(TestContext& tests) {
     test_string_join_lowering_and_backends(tests);
     test_bitwise_ir_lowering_and_backends(tests);
     test_default_initialized_scalar_lowering_and_backends(tests);
+    test_recursive_array_ir_shapes_and_backends(tests);
     test_byte_lowering_and_backends(tests);
 }
