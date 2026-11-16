@@ -41,29 +41,19 @@ std::string llvm_struct_type_name(const std::uint32_t id) {
 std::string llvm_type(const IRValue& value) {
     if (value.type == IRType::Struct) return llvm_struct_type_name(value.struct_type_id);
     if (value.type != IRType::Array) return llvm_type(value.type);
-    if (value.array_length == 0) return "ptr";
-    IRValue element;
-    element.type = value.element_type;
-    element.struct_type_id = value.element_struct_type_id;
-    return "[" + std::to_string(value.array_length) + " x " +
+    const std::vector<std::uint32_t> dimensions = ir_array_dimensions(value);
+    if (dimensions.front() == 0u) return "ptr";
+    const IRValue element = ir_array_element_value(value);
+    return "[" + std::to_string(dimensions.front()) + " x " +
            llvm_type(element) + "]";
 }
 
 IRValue array_element_value(const IRValue& array) {
-    IRValue value;
-    value.type = array.element_type;
-    value.struct_type_id = array.element_struct_type_id;
-    return value;
+    return ir_array_element_value(array);
 }
 
 IRValue array_field_value(const IRStructField& field) {
-    IRValue value;
-    value.type = field.type;
-    value.struct_type_id = field.struct_type_id;
-    value.element_type = field.element_type;
-    value.array_length = field.array_length;
-    value.element_struct_type_id = field.element_struct_type_id;
-    return value;
+    return ir_struct_field_value(field);
 }
 
 std::string llvm_return_type(const IRFunction& function) {
@@ -71,12 +61,10 @@ std::string llvm_return_type(const IRFunction& function) {
         return llvm_struct_type_name(function.return_struct_type_id);
     if (function.return_type != IRType::Array)
         return llvm_type(function.return_type);
-    if (function.return_array_length == 0) return "ptr";
-    IRValue element;
-    element.type = function.return_element_type;
-    element.struct_type_id = function.return_element_struct_type_id;
-    return "[" + std::to_string(function.return_array_length) + " x " +
-           llvm_type(element) + "]";
+    std::vector<std::uint32_t> dimensions = function.return_array_dimensions;
+    if (dimensions.empty()) dimensions.push_back(function.return_array_length);
+    return llvm_type(ir_make_array_value(function.return_element_type,
+        std::move(dimensions), function.return_element_struct_type_id, function.span));
 }
 
 std::string value_slot(const IRValueId id) {
