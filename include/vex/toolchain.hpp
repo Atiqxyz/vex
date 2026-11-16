@@ -1,8 +1,17 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace vex {
+
+[[nodiscard]] int build_program(const std::vector<std::string>& source_paths,
+                                 const std::string& output_path = {});
+[[nodiscard]] int run_program(const std::vector<std::string>& source_paths);
+[[nodiscard]] int build_llvm_program(const std::vector<std::string>& source_paths,
+                                     const std::string& output_path = {});
+[[nodiscard]] int run_llvm_program(const std::vector<std::string>& source_paths);
+
 
 // Compiles a VEX source file to a native executable using an installed C11
 // compiler. An empty output path selects a name based on the source file.

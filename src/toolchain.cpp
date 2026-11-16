@@ -137,21 +137,31 @@ bool make_temporary_directory(TemporaryDirectory& temporary) {
     return false;
 }
 
-bool generate_with_backend(const std::string& path, const BackendKind backend_kind,
+bool generate_with_backend(const std::vector<std::string>& paths,
+                           const BackendKind backend_kind,
                            std::string& generated_source) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        std::cerr << "error: could not open source file: " << path << '\n';
+    if (paths.empty()) {
+        std::cerr << "error: at least one VEX source file is required\n";
         return false;
     }
-    std::string contents{
-        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-    if (input.bad()) {
-        std::cerr << "error: failed while reading source file: " << path << '\n';
-        return false;
+    std::vector<std::pair<std::string, std::string>> files;
+    files.reserve(paths.size());
+    for (const std::string& path : paths) {
+        std::ifstream input(path, std::ios::binary);
+        if (!input) {
+            std::cerr << "error: could not open source file: " << path << '\n';
+            return false;
+        }
+        std::string contents{
+            std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        if (input.bad()) {
+            std::cerr << "error: failed while reading source file: " << path << '\n';
+            return false;
+        }
+        files.emplace_back(path, std::move(contents));
     }
 
-    const SourceFile source(path, std::move(contents));
+    const SourceFile source(std::move(files));
     const LexResult lexed = Lexer(source).scan();
     if (lexed.has_errors()) {
         print_diagnostics(std::cerr, source, lexed.diagnostics);
@@ -323,12 +333,12 @@ ProcessResult compile_with_msvc(
 }
 
 int build_to_output(
-    const std::string& source_path,
+    const std::vector<std::string>& source_paths,
     const fs::path& output_path,
     const fs::path& temporary_directory,
     const bool announce = true) {
     std::string generated_source;
-    if (!generate_with_backend(source_path, BackendKind::C, generated_source)) return 1;
+    if (!generate_with_backend(source_paths, BackendKind::C, generated_source)) return 1;
 
     const fs::path generated_c = temporary_directory / "program.c";
     if (!write_text_file(generated_c, generated_source)) return 1;
@@ -405,12 +415,12 @@ fs::path default_output_path(const std::string& source_path) {
 
 
 int build_llvm_to_output(
-    const std::string& source_path,
+    const std::vector<std::string>& source_paths,
     const fs::path& output_path,
     const fs::path& temporary_directory,
     const bool announce = true) {
     std::string generated_ir;
-    if (!generate_with_backend(source_path, BackendKind::LLVM, generated_ir)) return 1;
+    if (!generate_with_backend(source_paths, BackendKind::LLVM, generated_ir)) return 1;
 
     const fs::path generated_llvm = temporary_directory / "program.ll";
     if (!write_text_file(generated_llvm, generated_ir)) return 1;
@@ -529,28 +539,37 @@ int build_llvm_to_output(
 
 } // namespace
 
-int build_program(
-    const std::string& source_path,
-    const std::string& output_path) {
+int build_program(const std::string& source_path, const std::string& output_path) {
+    return build_program(std::vector<std::string>{source_path}, output_path);
+}
+
+int build_program(const std::vector<std::string>& source_paths,
+                  const std::string& output_path) {
+    if (source_paths.empty()) {
+        std::cerr << "error: at least one VEX source file is required\n";
+        return 2;
+    }
     TemporaryDirectory temporary;
     if (!make_temporary_directory(temporary)) return 1;
     const fs::path output = output_path.empty()
-        ? default_output_path(source_path)
-        : fs::path(output_path);
-    return build_to_output(source_path, output, temporary.path);
+        ? default_output_path(source_paths.front()) : fs::path(output_path);
+    return build_to_output(source_paths, output, temporary.path);
 }
 
 int run_program(const std::string& source_path) {
+    return run_program(std::vector<std::string>{source_path});
+}
+
+int run_program(const std::vector<std::string>& source_paths) {
+    if (source_paths.empty()) return 2;
     TemporaryDirectory temporary;
     if (!make_temporary_directory(temporary)) return 1;
     fs::path executable = temporary.path / "vex-program";
 #ifdef _WIN32
     executable += ".exe";
 #endif
-    const int build_status =
-        build_to_output(source_path, executable, temporary.path, false);
+    const int build_status = build_to_output(source_paths, executable, temporary.path, false);
     if (build_status != 0) return build_status;
-
     const ProcessResult result = run_process(executable.string(), {});
     if (!result.started) {
         std::cerr << "error: could not start compiled VEX program: "
@@ -560,19 +579,29 @@ int run_program(const std::string& source_path) {
     return result.exit_code;
 }
 
+int build_llvm_program(const std::string& source_path, const std::string& output_path) {
+    return build_llvm_program(std::vector<std::string>{source_path}, output_path);
+}
 
-int build_llvm_program(
-    const std::string& source_path,
-    const std::string& output_path) {
+int build_llvm_program(const std::vector<std::string>& source_paths,
+                       const std::string& output_path) {
+    if (source_paths.empty()) {
+        std::cerr << "error: at least one VEX source file is required\n";
+        return 2;
+    }
     TemporaryDirectory temporary;
     if (!make_temporary_directory(temporary)) return 1;
     const fs::path output = output_path.empty()
-        ? default_output_path(source_path)
-        : fs::path(output_path);
-    return build_llvm_to_output(source_path, output, temporary.path);
+        ? default_output_path(source_paths.front()) : fs::path(output_path);
+    return build_llvm_to_output(source_paths, output, temporary.path);
 }
 
 int run_llvm_program(const std::string& source_path) {
+    return run_llvm_program(std::vector<std::string>{source_path});
+}
+
+int run_llvm_program(const std::vector<std::string>& source_paths) {
+    if (source_paths.empty()) return 2;
     TemporaryDirectory temporary;
     if (!make_temporary_directory(temporary)) return 1;
     fs::path executable = temporary.path / "vex-llvm-program";
@@ -580,9 +609,8 @@ int run_llvm_program(const std::string& source_path) {
     executable += ".exe";
 #endif
     const int build_status =
-        build_llvm_to_output(source_path, executable, temporary.path, false);
+        build_llvm_to_output(source_paths, executable, temporary.path, false);
     if (build_status != 0) return build_status;
-
     const ProcessResult result = run_process(executable.string(), {});
     if (!result.started) {
         std::cerr << "error: could not start compiled VEX LLVM program: "
