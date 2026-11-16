@@ -81,11 +81,63 @@ struct IRValue {
     IRValueId id{0};
     IRType type{IRType::Void};
     SourceSpan span{};
+    // Arrays store their scalar/nominal leaf type plus every outermost-first
+    // dimension. A zero dimension is dynamic; fixed dimensions are positive.
     IRType element_type{IRType::Void};
-    std::uint32_t array_length{0};
+    std::uint32_t array_length{0}; // compatibility mirror of the outer dimension
     std::uint32_t struct_type_id{0};
     std::uint32_t element_struct_type_id{0};
+    std::vector<std::uint32_t> array_dimensions;
 };
+
+// Older IR construction sites may only populate array_length. Treat that as
+// a one-dimensional descriptor; new code should always retain the full vector.
+[[nodiscard]] inline std::vector<std::uint32_t> ir_array_dimensions(
+    const IRValue& value) {
+    return value.array_dimensions.empty()
+        ? std::vector<std::uint32_t>{value.array_length}
+        : value.array_dimensions;
+}
+
+[[nodiscard]] inline IRValue ir_make_array_value(
+    const IRType leaf_type, std::vector<std::uint32_t> dimensions,
+    const std::uint32_t leaf_struct_type_id = 0, const SourceSpan span = {}) {
+    IRValue value;
+    value.type = IRType::Array;
+    value.span = span;
+    value.element_type = leaf_type;
+    value.array_length = dimensions.empty() ? 0u : dimensions.front();
+    value.element_struct_type_id = leaf_struct_type_id;
+    value.array_dimensions = std::move(dimensions);
+    return value;
+}
+
+// Produces the immediate element type. For T[a][b], this is T[b]; for T[a],
+// it is T. The fixed/dynamic representation of the remaining dimensions is
+// preserved exactly.
+[[nodiscard]] inline IRValue ir_array_element_value(
+    const IRValue& array, const SourceSpan span = {}) {
+    const std::vector<std::uint32_t> dimensions = ir_array_dimensions(array);
+    if (dimensions.size() > 1u) {
+        return ir_make_array_value(
+            array.element_type,
+            std::vector<std::uint32_t>(dimensions.begin() + 1, dimensions.end()),
+            array.element_struct_type_id, span);
+    }
+    IRValue value;
+    value.type = array.element_type;
+    value.span = span;
+    value.struct_type_id = array.element_struct_type_id;
+    return value;
+}
+
+[[nodiscard]] inline bool ir_same_array_shape(
+    const IRValue& left, const IRValue& right) {
+    return left.type == IRType::Array && right.type == IRType::Array &&
+           left.element_type == right.element_type &&
+           left.element_struct_type_id == right.element_struct_type_id &&
+           ir_array_dimensions(left) == ir_array_dimensions(right);
+}
 
 struct IRStructField {
     std::string name;
@@ -94,7 +146,19 @@ struct IRStructField {
     IRType element_type{IRType::Void};
     std::uint32_t array_length{0};
     std::uint32_t element_struct_type_id{0};
+    std::vector<std::uint32_t> array_dimensions;
 };
+
+[[nodiscard]] inline IRValue ir_struct_field_value(const IRStructField& field) {
+    IRValue value;
+    value.type = field.type;
+    value.struct_type_id = field.struct_type_id;
+    value.element_type = field.element_type;
+    value.array_length = field.array_length;
+    value.element_struct_type_id = field.element_struct_type_id;
+    value.array_dimensions = field.array_dimensions;
+    return value;
+}
 
 struct IRStructType {
     std::uint32_t id{0};
@@ -161,6 +225,7 @@ struct IRFunction {
     std::uint32_t return_array_length{0};
     std::uint32_t return_struct_type_id{0};
     std::uint32_t return_element_struct_type_id{0};
+    std::vector<std::uint32_t> return_array_dimensions;
     std::vector<IRBlock> blocks;
     IRBlockId entry_block{0};
     SourceSpan span{};
