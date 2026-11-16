@@ -1051,7 +1051,7 @@ private:
                 const auto shape=model_.array_expression_types.find(assignment->value.get());
                 if(symbol->array_type&&shape!=model_.array_expression_types.end()&&
                    (!symbol->array_type->same_shape(shape->second)))
-                    report("SEM045","array assignment requires the same element type and length",assignment->value->span);
+                    report("SEM045","array assignment requires the same element type and complete dimension shape",assignment->value->span);
             }
             const std::uint32_t assigned_struct=assignment->value&&model_.struct_expression_types.count(assignment->value.get())
                 ?model_.struct_expression_types.at(assignment->value.get()):0u;
@@ -1332,7 +1332,7 @@ private:
                         !actual_shape->second.same_shape(expected)) {
                         report("SEM021", "array argument " +
                                std::to_string(index + 1) +
-                               " does not match the required element type and fixed length",
+                               " does not match the required element type and complete dimension shape",
                                call->arguments[index]->span);
                     }
                 }
@@ -1744,7 +1744,7 @@ private:
                         if (actual_shape == model_.array_expression_types.end() ||
                             !actual_shape->second.same_shape(*current_return_array_type_)) {
                             report("SEM028",
-                                   "returned array does not match the function's annotated element type and fixed length",
+                                   "returned array does not match the function's annotated element type and complete dimension shape",
                                    returned->value->span);
                         }
                     }

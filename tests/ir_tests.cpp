@@ -944,7 +944,7 @@ void test_default_initialized_scalar_lowering_and_backends(TestContext& tests) {
                 "C backend emits deterministic native scalar defaults");
     const auto llvm = vex::LLVMBackend{}.emit(lowered.module);
     tests.check(!llvm.has_errors() && llvm.output.find("add i64 0, 0") != std::string::npos &&
-                llvm.output.find("fadd double 0.0, 0.0") != std::string::npos &&
+                llvm.output.find("fadd double 0.0, 0x0000000000000000") != std::string::npos &&
                 llvm.output.find("xor i1 false, false") != std::string::npos,
                 "LLVM backend emits matching deterministic scalar defaults");
 }
