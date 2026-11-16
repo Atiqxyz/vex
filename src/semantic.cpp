@@ -707,6 +707,15 @@ private:
                                element->span);
                         return Type::Error;
                     }
+                    if (has_context && expected.dimensions.size() > 1u &&
+                        !std::holds_alternative<ArrayLiteralExpr>(element->data) &&
+                        !nested_shape->second.same_shape(
+                            expected.immediate_array_element_shape())) {
+                        report("SEM041",
+                               "a nested array value must match the declared immediate element shape",
+                               element->span);
+                        return Type::Error;
+                    }
                     if (!nested_element_shape) nested_element_shape = nested_shape->second;
                     continue;
                 }
@@ -1126,9 +1135,11 @@ private:
                 return Type::Error;
             }
             model_.assignment_targets[assignment]=symbol->id;
-            if(assignment->value&&symbol->type==Type::Array&&symbol->array_type&&symbol->array_type->length==0&&
-               std::holds_alternative<ArrayLiteralExpr>(assignment->value->data))
-                model_.array_expression_types[assignment->value.get()]=*symbol->array_type;
+            if (assignment->value && symbol->type == Type::Array &&
+                symbol->array_type &&
+                std::holds_alternative<ArrayLiteralExpr>(assignment->value->data)) {
+                model_.array_expression_types[assignment->value.get()] = *symbol->array_type;
+            }
             const Type value=assignment->value?analyze_expression(*assignment->value):Type::Error;
             if(symbol->immutable)report("SEM017","cannot assign to immutable binding '"+identifier+"'",target->name);
             if(compound) {
