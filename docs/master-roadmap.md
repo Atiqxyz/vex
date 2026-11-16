@@ -75,7 +75,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 - [x] Fixed-size one-dimensional primitive and structure arrays
 - [x] Dynamic one-dimensional primitive and structure arrays
-- [ ] Nested arrays and collections of collections
+- [ ] Nested arrays and collections of collections ([design proposal](nested-array-design.md); implementation pending)
 - [ ] Multidimensional arrays with documented storage order
 - [x] Checked owning byte-range copies through `byte_slice`
 - [ ] Slices / non-owning views over arrays and buffers (requires lifetimes and aliasing rules)
@@ -334,7 +334,7 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 6. Tuples and destructuring if they simplify multiple returns and data flow.
 
 ### Milestone 2 — Complete the core type and expression model
-1. Nested and multidimensional arrays, with explicit layout decisions.
+1. [Nested-array design recorded](nested-array-design.md); implement recursive nested collections first, then design contiguous multidimensional arrays separately.
 2. Borrowed slices and views, after lifetime/aliasing rules are established (owning byte copies already exist).
 3. Additional integer widths and floating-point variants (the 8-bit `byte` type already exists).
 4. [x] Bitwise operators for `int` and `byte`; complete numeric conversion rules remain.
@@ -418,7 +418,7 @@ A feature is complete only when its behavior is implemented and verified end to 
 
 ## 7. Current starting point
 
-At the 2026-11-15 audited baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values with capacity inspection and reservation; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation and chunk joining; compound assignment; a first-class unsigned `byte`; dynamic `byte[]` buffers; checked owning byte slices; 16-/32-bit endian-aware binary access; whole-file binary read/write; cross-platform CI; and initial editor integration. The binary-buffer and whole-file I/O milestone passed four-platform CI run [#271](https://github.com/Atiqxyz/vex/actions/runs/43743633949) at commit `e6286e1` (Ubuntu, Windows, macOS ARM, macOS Intel). The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority.
+At the 2026-11-16 audited baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures; fixed and dynamic one-dimensional arrays of primitive and structure values with capacity inspection and reservation; nested aggregate reads and writes; typed SSA IR and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation and chunk joining; compound assignment; a first-class unsigned `byte`; dynamic `byte[]` buffers; checked owning byte slices; 16-/32-bit endian-aware binary access; whole-file binary read/write; cross-platform CI; and initial editor integration. The binary-buffer and whole-file I/O milestone passed four-platform CI run [#271](https://github.com/Atiqxyz/vex/actions/runs/43743633949) at commit `e6286e1` (Ubuntu, Windows, macOS ARM, macOS Intel). The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority. Nested-array semantics are recorded in the [design proposal](nested-array-design.md), but the current compiler still supports only one-dimensional arrays.
 
 The binary layer deliberately uses owned byte slices rather than borrowed views: the latter must wait for a sound lifetime and aliasing model. Whole-file I/O opens in binary mode, closes before returning, and reports ordinary I/O failures with `-1`; a general `Result` type, streaming handles, directories, paths, networking, and FFI remain future work. These foundations matter for a capable self-hosted compiler and later graphics, audio, and interactive applications.
 
