@@ -39,6 +39,7 @@ struct FunctionDeclStmt {
 };
 struct StructFieldDecl { SourceSpan name{}; std::optional<SourceSpan> type_annotation; };
 struct StructDeclStmt { SourceSpan name{}; std::vector<StructFieldDecl> fields; };
+struct ImportDeclStmt { SourceSpan path_literal{}; };
 struct VariableDeclStmt {
     SourceSpan name{};
     bool immutable{false};
@@ -56,7 +57,7 @@ struct RepeatStmt { ExprPtr count; StmtPtr body; };
 struct ForStmt { SourceSpan variable{}; ExprPtr iterable; StmtPtr body; };
 struct Statement {
     SourceSpan span{};
-    std::variant<FunctionDeclStmt, StructDeclStmt, VariableDeclStmt, ReturnStmt,
+    std::variant<FunctionDeclStmt, StructDeclStmt, ImportDeclStmt, VariableDeclStmt, ReturnStmt,
                  ExpressionStmt, BlockStmt, IfStmt, WhileStmt, BreakStmt,
                  ContinueStmt, RepeatStmt, ForStmt> data;
 };

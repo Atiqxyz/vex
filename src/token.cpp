@@ -36,6 +36,7 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::KwFloat: return "TYPE_FLOAT";
     case TokenKind::KwBool: return "TYPE_BOOL";
     case TokenKind::KwString: return "TYPE_STRING";
+    case TokenKind::KwImport: return "IMPORT";
     case TokenKind::LeftParen: return "LEFT_PAREN";
     case TokenKind::RightParen: return "RIGHT_PAREN";
     case TokenKind::LeftBrace: return "LEFT_BRACE";

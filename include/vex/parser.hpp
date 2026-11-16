@@ -30,6 +30,7 @@ private:
     [[nodiscard]] StmtPtr parse_statement(bool top_level);
     [[nodiscard]] StmtPtr parse_function(const Token& start);
     [[nodiscard]] StmtPtr parse_struct(const Token& start);
+    [[nodiscard]] StmtPtr parse_import(const Token& start);
     [[nodiscard]] StmtPtr parse_variable(const Token& start, bool immutable);
     [[nodiscard]] StmtPtr parse_return(const Token& start);
     [[nodiscard]] StmtPtr parse_if(const Token& start);

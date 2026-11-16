@@ -81,6 +81,14 @@ StmtPtr Parser::parse_statement(const bool top_level) {
     }
     if (match(TokenKind::KwRepeat)) return parse_repeat(previous());
     if (match(TokenKind::KwFor)) return parse_for(previous());
+    if (match(TokenKind::KwImport)) {
+        if (!top_level) {
+            report_current("PAR015", "import declarations are only allowed at file scope");
+            synchronize();
+            return nullptr;
+        }
+        return parse_import(previous());
+    }
     if (match(TokenKind::KwStruct)) {
         if (!top_level) {
             report_current("PAR012", "structure declarations are only allowed at file scope");
@@ -130,6 +138,14 @@ StmtPtr Parser::parse_function(const Token& start) {
         SourceSpan{start.span.begin, body->span.end},
         FunctionDeclStmt{name.span, std::move(parameters), return_type, std::move(body)}});
 }
+StmtPtr Parser::parse_import(const Token& start) {
+    const Token path = expect(TokenKind::String,
+                              "expected a quoted relative source path after 'import'");
+    return std::make_unique<Statement>(Statement{
+        SourceSpan{start.span.begin, path.span.end},
+        ImportDeclStmt{path.span}});
+}
+
 StmtPtr Parser::parse_struct(const Token& start) {
     const Token name = expect(TokenKind::Identifier, "expected a structure name after 'struct'");
     static_cast<void>(expect(TokenKind::LeftBrace, "expected '{' after structure name"));

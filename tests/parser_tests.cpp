@@ -371,6 +371,25 @@ void test_typed_declarations_may_omit_initializer(TestContext& tests) {
                 "string declarations can also omit their initializer");
 }
 
+void test_import_declarations(TestContext& tests) {
+    const vex::SourceFile source{"imports.vex",
+        "import \"math.vex\"\n"
+        "make main() { say(1) }\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(), "a quoted import path parses at file scope");
+    if (parsed.has_errors() || parsed.program.statements.empty()) return;
+    const auto* import =
+        std::get_if<vex::ImportDeclStmt>(&parsed.program.statements.front()->data);
+    tests.check(import && source.slice(import->path_literal) == "\"math.vex\"",
+                "the import node preserves its quoted path literal span");
+
+    const vex::SourceFile nested{"nested_import.vex",
+        "make main() {\n    import \"math.vex\"\n}\n"};
+    const vex::ParseResult rejected = parse(nested);
+    tests.check(rejected.has_errors(),
+                "import declarations are rejected inside function bodies");
+}
+
 void test_invalid_syntax_and_newline_rules(TestContext& tests) {
     const vex::SourceFile missing_expression{"missing.vex", "let value =\n"};
     const vex::LexResult missing_lex = vex::Lexer(missing_expression).scan();
@@ -411,6 +430,7 @@ void run_parser_tests(TestContext& tests) {
     test_multiline_structure_literal_with_array_fields(tests);
     test_multidimensional_type_annotation_spans(tests);
     test_typed_declarations_may_omit_initializer(tests);
+    test_import_declarations(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }

@@ -87,6 +87,8 @@ void print_statement(std::ostream& output, const SourceFile& source,
                 if (field.type_annotation) output << ": " << source.slice(*field.type_annotation);
                 output << '\n';
             }
+        } else if constexpr (std::is_same_v<Node, ImportDeclStmt>) {
+            output << "Import " << source.slice(node.path_literal) << '\\n';
         } else if constexpr (std::is_same_v<Node, VariableDeclStmt>) {
             output << (node.immutable ? "Const " : "Let ") << source.slice(node.name);
             if (node.type_annotation) output << ": " << source.slice(*node.type_annotation);

@@ -2061,7 +2061,8 @@ public:
             const auto* function =
                 std::get_if<FunctionDeclStmt>(&statement->data);
             if (!function) {
-                if (!std::holds_alternative<StructDeclStmt>(statement->data))
+                if (!std::holds_alternative<StructDeclStmt>(statement->data) &&
+                    !std::holds_alternative<ImportDeclStmt>(statement->data))
                     top_level_statements.push_back(statement.get());
                 continue;
             }

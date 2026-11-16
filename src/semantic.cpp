@@ -102,7 +102,8 @@ public:
         collect_struct_types();
         collect_function_signatures();
         for (const StmtPtr& statement : program_.statements) {
-            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data))
+            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data) &&
+                !std::holds_alternative<ImportDeclStmt>(statement->data))
                 analyze_statement(*statement);
         }
         return SemanticResult{std::move(diagnostics_), std::move(model_)};
@@ -1833,7 +1834,8 @@ private:
             analyze_variable(*variable);
             return;
         }
-        if (std::holds_alternative<StructDeclStmt>(statement.data)) return;
+        if (std::holds_alternative<StructDeclStmt>(statement.data) ||
+            std::holds_alternative<ImportDeclStmt>(statement.data)) return;
         if (std::holds_alternative<BlockStmt>(statement.data)) {
             analyze_block(statement, true);
             return;
