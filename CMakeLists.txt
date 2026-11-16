@@ -148,6 +148,15 @@ if(BUILD_TESTING)
 
     find_program(VEX_LLVM_CLANG_EXECUTABLE NAMES clang clang-21 clang-20 clang-19 clang-18 clang-17 clang-16 clang-15)
     if(VEX_LLVM_CLANG_EXECUTABLE)
+        add_test(NAME vex_nested_array_llvm_runtime
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=llvm
+                -DLLVM_CLANG=${VEX_LLVM_CLANG_EXECUTABLE}
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/nested_arrays.vex
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested_array_runtime_integration.cmake
+        )
+        set_tests_properties(vex_nested_array_llvm_runtime PROPERTIES TIMEOUT 60)
         add_test(NAME vex_llvm_backend_integration
             COMMAND ${CMAKE_COMMAND}
                 -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
@@ -180,6 +189,14 @@ if(BUILD_TESTING)
     endif()
 
     if(CMAKE_C_COMPILER)
+        add_test(NAME vex_nested_array_c_runtime
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=c
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/nested_arrays.vex
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested_array_runtime_integration.cmake
+        )
+        set_tests_properties(vex_nested_array_c_runtime PROPERTIES TIMEOUT 60)
         add_test(NAME vex_c_backend_integration
             COMMAND ${CMAKE_COMMAND}
                 -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
