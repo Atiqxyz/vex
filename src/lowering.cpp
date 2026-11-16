@@ -88,6 +88,8 @@ public:
                                     signature->second.return_array_type->length;
                                 function_.return_element_struct_type_id =
                                     signature->second.return_array_type->element_struct_type_id;
+                                function_.return_array_dimensions =
+                                    signature->second.return_array_type->dimensions;
                             }
                         }
                     }
@@ -133,9 +135,9 @@ public:
                            parameter.name);
                     continue;
                 }
-                value = make_array_value(*element_type, info->array_type->length,
-                                         parameter.name,
-                                         info->array_type->element_struct_type_id);
+                value = make_array_value(*element_type, info->array_type->dimensions,
+                                          parameter.name,
+                                          info->array_type->element_struct_type_id);
             }
             function_.parameters.push_back(IRFunctionParameter{
                 std::string(source_.slice(parameter.name)), value
@@ -218,18 +220,25 @@ private:
                                            const std::uint32_t length,
                                            const SourceSpan span,
                                            const std::uint32_t element_struct_type_id = 0) {
+        return make_array_value(element_type, std::vector<std::uint32_t>{length},
+                                span, element_struct_type_id);
+    }
+
+    [[nodiscard]] IRValue make_array_value(
+        const IRType element_type, std::vector<std::uint32_t> dimensions,
+        const SourceSpan span, const std::uint32_t element_struct_type_id = 0) {
         IRValue value = make_value(IRType::Array, span);
         value.element_type = element_type;
-        value.array_length = length;
+        value.array_length = dimensions.empty() ? 0u : dimensions.front();
         value.element_struct_type_id = element_struct_type_id;
+        value.array_dimensions = std::move(dimensions);
         return value;
     }
 
     [[nodiscard]] IRValue array_element_value(const IRValue& array,
                                                const SourceSpan span) {
-        IRValue value = make_value(array.element_type, span);
-        if (array.element_type == IRType::Struct)
-            value.struct_type_id = array.element_struct_type_id;
+        IRValue value = ir_array_element_value(array, span);
+        value.id = next_value_id_++;
         return value;
     }
 
@@ -247,6 +256,7 @@ private:
         value.array_length = source.array_length;
         value.struct_type_id = source.struct_type_id;
         value.element_struct_type_id = source.element_struct_type_id;
+        value.array_dimensions = source.array_dimensions;
         return value;
     }
 
@@ -374,6 +384,7 @@ private:
             result.element_type = field.element_type;
             result.array_length = field.array_length;
             result.element_struct_type_id = field.element_struct_type_id;
+            result.array_dimensions = field.array_dimensions;
         }
         IRInstruction instruction;
         instruction.op = IROp::StructGet;
@@ -396,9 +407,7 @@ private:
         }
         const IRStructField& field = structure->fields[field_index];
         const bool array_shape_matches = field.type != IRType::Array ||
-            (replacement.element_type == field.element_type &&
-             replacement.array_length == field.array_length &&
-             replacement.element_struct_type_id == field.element_struct_type_id);
+            ir_same_array_shape(replacement, ir_struct_field_value(field));
         if (replacement.type != field.type ||
             (field.type == IRType::Struct &&
              replacement.struct_type_id != field.struct_type_id) ||
@@ -845,6 +854,7 @@ private:
         }
         if (target->second == "byte_slice") {
             if (arguments.size() != 3 || arguments[0].type != IRType::Array ||
+                ir_array_dimensions(arguments[0]).size() != 1u ||
                 arguments[0].array_length != 0 || arguments[0].element_type != IRType::Byte ||
                 arguments[1].type != IRType::Int || arguments[2].type != IRType::Int) {
                 report("IR119", "byte_slice expects byte[], int start, and int length",
@@ -862,8 +872,9 @@ private:
         }
         if (target->second == "read_file" || target->second == "write_file") {
             if (arguments.size() != 2 || arguments[0].type != IRType::String ||
-                arguments[1].type != IRType::Array || arguments[1].array_length != 0 ||
-                arguments[1].element_type != IRType::Byte) {
+                arguments[1].type != IRType::Array ||
+                ir_array_dimensions(arguments[1]).size() != 1u ||
+                arguments[1].array_length != 0 || arguments[1].element_type != IRType::Byte) {
                 report("IR119", target->second +
                        " expects a string path and a dynamic byte array", expression.span);
                 return std::nullopt;
@@ -1113,10 +1124,11 @@ private:
                 const SemanticArrayType& expected =
                     *signature->second.parameter_array_types[index];
                 const auto expected_element = to_ir_type(expected.element_type);
+                const IRValue expected_array = make_array_value(
+                    expected_element.value_or(IRType::Void), expected.dimensions,
+                    call.arguments[index]->span, expected.element_struct_type_id);
                 if (!expected_element || arguments[index].type != IRType::Array ||
-                    arguments[index].element_type != *expected_element ||
-                    arguments[index].array_length != expected.length ||
-                    arguments[index].element_struct_type_id != expected.element_struct_type_id) {
+                    !ir_same_array_shape(arguments[index], expected_array)) {
                     report("IR122", "array argument does not match the parameter's fixed shape",
                            call.arguments[index]->span);
                     return std::nullopt;
@@ -1155,7 +1167,7 @@ private:
                     return std::nullopt;
                 }
                 instruction.result = make_array_value(
-                    *element_type, signature->second.return_array_type->length,
+                    *element_type, signature->second.return_array_type->dimensions,
                     expression.span,
                     signature->second.return_array_type->element_struct_type_id);
             } else if (*return_type == IRType::Struct) {
@@ -1220,25 +1232,33 @@ private:
                 return std::nullopt;
             }
             const auto element_type = to_ir_type(shape->second.element_type);
-            if (!element_type || *element_type == IRType::Void || *element_type == IRType::Array) {
-                report("IR142", "array element type cannot be represented in IR", expression.span);
+            if (!element_type || *element_type == IRType::Void) {
+                report("IR142", "array leaf type cannot be represented in IR", expression.span);
                 return std::nullopt;
             }
             IRInstruction instruction;
             instruction.op = IROp::ArrayMake;
             instruction.span = expression.span;
-            instruction.result = make_array_value(*element_type, shape->second.length, expression.span,
+            instruction.result = make_array_value(*element_type, shape->second.dimensions,
+                                                   expression.span,
                                                    shape->second.element_struct_type_id);
+            const IRValue expected_element =
+                ir_array_element_value(*instruction.result, expression.span);
             instruction.operands.reserve(array->elements.size());
             // Array elements are evaluated from first to last.
             for (const ExprPtr& element : array->elements) {
                 if (!element) return std::nullopt;
                 const auto value = lower_expression(*element);
                 if (!value) return std::nullopt;
-                const auto converted = convert(*value, *element_type, element->span);
+                const auto converted = convert(*value, expected_element.type, element->span);
                 if (!converted) return std::nullopt;
-                if (shape->second.element_type == SemanticType::Struct &&
-                    converted->struct_type_id != shape->second.element_struct_type_id) {
+                if (expected_element.type == IRType::Array &&
+                    !ir_same_array_shape(*converted, expected_element)) {
+                    report("IR142", "array element has the wrong nested array shape", element->span);
+                    return std::nullopt;
+                }
+                if (expected_element.type == IRType::Struct &&
+                    converted->struct_type_id != expected_element.struct_type_id) {
                     report("IR142", "array element has the wrong structure type", element->span);
                     return std::nullopt;
                 }
@@ -2009,6 +2029,7 @@ public:
                     ir_field.array_length = field.array_type->length;
                     ir_field.element_struct_type_id =
                         field.array_type->element_struct_type_id;
+                    ir_field.array_dimensions = field.array_type->dimensions;
                 }
                 converted.fields.push_back(std::move(ir_field));
             }
