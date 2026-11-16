@@ -259,15 +259,35 @@ std::optional<SourceSpan> Parser::parse_type_annotation() {
         report_current("PAR005", "expected a type name");
         return std::nullopt;
     }
+
     const Token type = advance();
-    if (!match(TokenKind::LeftBracket)) return type.span;
-    if (match(TokenKind::RightBracket))
-        return SourceSpan{type.span.begin, previous().span.end};
-    static_cast<void>(expect(TokenKind::Integer,
-                             "expected a positive fixed-array length or ']' after '['"));
-    const Token closing = expect(TokenKind::RightBracket,
-                                 "expected ']' after fixed-array length");
-    return SourceSpan{type.span.begin, closing.span.end};
+    std::size_t end = type.span.end;
+    bool saw_array_dimension = false;
+    while (match(TokenKind::LeftBracket)) {
+        saw_array_dimension = true;
+        if (match(TokenKind::RightBracket)) {
+            end = previous().span.end;
+            continue;
+        }
+        if (!check(TokenKind::Integer)) {
+            report_current("PAR005",
+                "expected a positive fixed-array length or ']' after '['");
+            while (!check(TokenKind::EndOfFile) && !check(TokenKind::Newline) &&
+                   !check(TokenKind::RightBrace) && !check(TokenKind::RightBracket)) {
+                static_cast<void>(advance());
+            }
+            if (match(TokenKind::RightBracket)) end = previous().span.end;
+            break;
+        }
+        static_cast<void>(advance());
+        const Token closing = expect(TokenKind::RightBracket,
+                                     "expected ']' after fixed-array length");
+        end = closing.span.end;
+    }
+
+    return saw_array_dimension
+        ? std::optional<SourceSpan>{SourceSpan{type.span.begin, end}}
+        : std::optional<SourceSpan>{type.span};
 }
 ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_precedence) {
     if (allow_newlines) skip_newlines();

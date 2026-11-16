@@ -108,20 +108,17 @@ private:
         const std::string name = spelling(span);
         const std::size_t open = name.find('[');
         if (open != std::string::npos) {
-            const std::size_t close = name.find(']', open + 1);
-            if (close == std::string::npos || close + 1 != name.size()) {
-                report("SEM003", "malformed fixed-array type annotation", span);
-                return Type::Error;
-            }
             std::string element_name = name.substr(0, open);
             const auto trim = [](std::string& value) {
                 const auto whitespace = [](const char character) {
-                    return character == ' ' || character == '\t' || character == '\r' || character == '\n';
+                    return character == ' ' || character == '\t' ||
+                           character == '\r' || character == '\n';
                 };
                 while (!value.empty() && whitespace(value.front())) value.erase(value.begin());
                 while (!value.empty() && whitespace(value.back())) value.pop_back();
             };
             trim(element_name);
+
             Type element_type = Type::Error;
             std::uint32_t element_struct_type_id = 0;
             if (element_name == "int") element_type = Type::Int;
@@ -139,24 +136,59 @@ private:
                     return Type::Error;
                 }
             }
-            std::string length_text = name.substr(open + 1, close - open - 1);
-            trim(length_text);
-            std::uint32_t length = 0;
-            const auto parsed = std::from_chars(length_text.data(),
-                length_text.data() + length_text.size(), length);
-            if (length_text.empty()) {
-                if (array_shape)
-                    *array_shape = SemanticArrayType{element_type, 0, element_struct_type_id};
-                return Type::Array;
+
+            std::vector<std::uint32_t> dimensions;
+            std::size_t cursor = open;
+            while (cursor < name.size()) {
+                while (cursor < name.size() &&
+                       (name[cursor] == ' ' || name[cursor] == '\t' ||
+                        name[cursor] == '\r' || name[cursor] == '\n')) {
+                    ++cursor;
+                }
+                if (cursor >= name.size() || name[cursor] != '[') {
+                    report("SEM003", "malformed array type annotation", span);
+                    return Type::Error;
+                }
+                const std::size_t close = name.find(']', cursor + 1u);
+                if (close == std::string::npos) {
+                    report("SEM003", "malformed array type annotation", span);
+                    return Type::Error;
+                }
+                std::string length_text = name.substr(cursor + 1u, close - cursor - 1u);
+                trim(length_text);
+                if (length_text.empty()) {
+                    dimensions.push_back(0u);
+                } else {
+                    std::uint32_t length = 0;
+                    const auto parsed = std::from_chars(length_text.data(),
+                        length_text.data() + length_text.size(), length);
+                    if (parsed.ec != std::errc{} ||
+                        parsed.ptr != length_text.data() + length_text.size() ||
+                        length == 0u || length > 65536u) {
+                        report("SEM041",
+                            "fixed-array lengths must be between 1 and 65,536; use [] for a dynamic array",
+                            span);
+                        return Type::Error;
+                    }
+                    dimensions.push_back(length);
+                }
+                cursor = close + 1u;
             }
-            if (parsed.ec != std::errc{} ||
-                parsed.ptr != length_text.data() + length_text.size() ||
-                length == 0 || length > 65536u) {
-                report("SEM041", "fixed-array lengths must be between 1 and 65,536; use [] for a dynamic array", span);
+            if (dimensions.empty()) {
+                report("SEM003", "malformed array type annotation", span);
                 return Type::Error;
             }
-            if (array_shape)
-                *array_shape = SemanticArrayType{element_type, length, element_struct_type_id};
+            if (dimensions.size() > 1u) {
+                report("SEM055",
+                    "nested array types are not enabled yet; the parser preserves the complete shape, but semantic analysis and both backends still require the recursive type implementation",
+                    span);
+                return Type::Error;
+            }
+            if (array_shape) {
+                *array_shape = SemanticArrayType{
+                    element_type, std::move(dimensions), element_struct_type_id
+                };
+            }
             return Type::Array;
         }
         if (name == "int") return Type::Int;
@@ -173,7 +205,6 @@ private:
         report("SEM003", "unknown or unsupported type name '" + name + "'", span);
         return Type::Error;
     }
-
     void install_builtins() {
         Symbol say;
         say.type = Type::Void;

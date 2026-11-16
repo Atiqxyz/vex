@@ -458,6 +458,15 @@ void test_array_function_types_and_shapes(TestContext& tests) {
                 "fixed-array annotations reject zero and over-limit lengths");
 }
 
+void test_nested_array_annotations_fail_closed(TestContext& tests) {
+    const vex::SourceFile source{"nested_array_annotations_not_yet_enabled.vex",
+        "make inspect(rows: int[][]) -> int { return 0 }\n"
+        "make main() { let grid: float[2][3] = [] }\n"};
+    const vex::SemanticResult result = analyze(source);
+    tests.check(has_code(result, "SEM055"),
+                "nested array annotations are rejected explicitly until recursive semantics and both backends are implemented");
+}
+
 void test_dynamic_array_semantics(TestContext& tests) {
     const vex::SourceFile valid{"dynamic_arrays.vex",
         "make empty_values() -> int[] { return [] }\n"
@@ -812,6 +821,7 @@ void run_semantic_tests(TestContext& tests) {
     test_top_level_execution_scope(tests);
     test_fixed_arrays_and_index_assignment(tests);
     test_array_function_types_and_shapes(tests);
+    test_nested_array_annotations_fail_closed(tests);
     test_dynamic_array_semantics(tests);
     test_dynamic_array_capacity_semantics(tests);
     test_integer_range_semantics(tests);

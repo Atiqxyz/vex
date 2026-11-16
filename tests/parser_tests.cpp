@@ -309,6 +309,44 @@ void test_multiline_structure_literal_with_array_fields(TestContext& tests) {
                 "multiline structure literals accept a newline after '{' and array-valued fields");
 }
 
+void test_multidimensional_type_annotation_spans(TestContext& tests) {
+    const vex::SourceFile source{"nested_array_annotations.vex",
+        "struct Matrix { values: float[2][3] }\n"
+        "make reshape(rows: int[][4]) -> byte[2][] { return rows[0][0] }\n"
+        "make main() { let values: bool[3][5] = [] }\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(),
+                "type annotations consume every consecutive array dimension");
+    if (parsed.has_errors() || parsed.program.statements.size() < 3u) return;
+
+    const auto* structure =
+        std::get_if<vex::StructDeclStmt>(&parsed.program.statements[0]->data);
+    tests.check(structure && structure->fields.size() == 1u &&
+                structure->fields[0].type_annotation &&
+                source.slice(*structure->fields[0].type_annotation) == "float[2][3]",
+                "structure field annotations preserve both fixed dimensions");
+
+    const auto* function =
+        std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements[1]->data);
+    tests.check(function && function->parameters.size() == 1u &&
+                function->parameters[0].type_annotation &&
+                source.slice(*function->parameters[0].type_annotation) == "int[][4]",
+                "parameter annotations preserve mixed dynamic and fixed dimensions");
+    tests.check(function && function->return_type &&
+                source.slice(*function->return_type) == "byte[2][]",
+                "return annotations preserve fixed and dynamic dimensions");
+
+    const auto* main_function =
+        std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements[2]->data);
+    const auto* body = main_function && main_function->body
+        ? std::get_if<vex::BlockStmt>(&main_function->body->data) : nullptr;
+    const auto* variable = body && !body->statements.empty()
+        ? std::get_if<vex::VariableDeclStmt>(&body->statements[0]->data) : nullptr;
+    tests.check(variable && variable->type_annotation &&
+                source.slice(*variable->type_annotation) == "bool[3][5]",
+                "local variable annotations preserve repeated fixed dimensions");
+}
+
 void test_invalid_syntax_and_newline_rules(TestContext& tests) {
     const vex::SourceFile missing_expression{"missing.vex", "let value =\n"};
     const vex::LexResult missing_lex = vex::Lexer(missing_expression).scan();
@@ -347,6 +385,7 @@ void run_parser_tests(TestContext& tests) {
     test_integer_range_expressions(tests);
     test_structure_declarations_literals_and_members(tests);
     test_multiline_structure_literal_with_array_fields(tests);
+    test_multidimensional_type_annotation_spans(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);
 }

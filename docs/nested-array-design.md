@@ -1,10 +1,10 @@
 # Nested arrays and collections of collections
 
-**Status:** design proposal recorded; implementation is not present in the current compiler.
+**Status:** implementation groundwork in progress. The parser now consumes and preserves repeated array-dimension suffixes in type annotations. Semantic analysis deliberately rejects annotations with more than one dimension until recursive semantic typing, lowering, IR verification, and both backends are implemented. Nested-array programs are **not yet supported**.
 
 **Audited baseline:** branch **dev** at **0fdc5712a9398a0a95517d7c57baeab075e1fa90**. The four-platform CI run associated with this baseline passed on Ubuntu, Windows, macOS ARM, and macOS Intel: [run #43744348963](https://github.com/Atiqxyz/vex/actions/runs/43744348963).
 
-This note closes the semantic design questions that should be answered before changing the parser, semantic model, IR, or either backend. It is not a claim that nested arrays compile today.
+This note records the semantic contract for the feature and tracks implementation boundaries. Parsing repeated dimensions is now supported, but nested arrays do not compile today.
 
 ## 1. Problem and intended use
 

@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace vex {
@@ -28,9 +29,29 @@ enum class SemanticType {
 
 struct SemanticArrayType {
     SemanticType element_type{SemanticType::Error};
+    // Compatibility mirror of the outermost dimension. Zero means dynamic.
     std::uint32_t length{0};
     // Nonzero only when element_type is Struct. Structure identity is nominal.
     std::uint32_t element_struct_type_id{0};
+    // Ordered outermost-first. A zero entry denotes a dynamic dimension.
+    std::vector<std::uint32_t> dimensions;
+
+    SemanticArrayType() = default;
+    SemanticArrayType(const SemanticType element, const std::uint32_t outer_length,
+                      const std::uint32_t struct_type_id = 0)
+        : element_type(element), length(outer_length),
+          element_struct_type_id(struct_type_id), dimensions{outer_length} {}
+    SemanticArrayType(const SemanticType element,
+                      std::vector<std::uint32_t> dimension_lengths,
+                      const std::uint32_t struct_type_id = 0)
+        : element_type(element),
+          length(dimension_lengths.empty() ? 0u : dimension_lengths.front()),
+          element_struct_type_id(struct_type_id),
+          dimensions(std::move(dimension_lengths)) {}
+
+    [[nodiscard]] bool is_nested() const noexcept {
+        return dimensions.size() > 1u;
+    }
 };
 
 [[nodiscard]] const char* semantic_type_name(SemanticType type) noexcept;
