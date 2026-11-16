@@ -327,7 +327,7 @@ private:
                         emit_array_typedef(*instruction.result);
             }
         }
-        if (emitted_array_shapes_.size() != before) output_ << '\\n';
+        if (emitted_array_shapes_.size() != before) output_ << '\n';
     }
 
     void emit_runtime() {
