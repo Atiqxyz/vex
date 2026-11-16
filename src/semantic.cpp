@@ -55,6 +55,24 @@ Type compound_assignment_result(const TokenKind assignment,const Type left,const
     }
 }
 
+bool compatible_array_literal_context(
+    const SemanticArrayType& expected, const SemanticArrayType& actual) {
+    if (expected.element_type != actual.element_type &&
+        !(expected.element_type == Type::Float && actual.element_type == Type::Int)) {
+        return false;
+    }
+    if (expected.element_type == Type::Struct &&
+        expected.element_struct_type_id != actual.element_struct_type_id) {
+        return false;
+    }
+    if (expected.dimensions.size() != actual.dimensions.size()) return false;
+    for (std::size_t index = 0; index < expected.dimensions.size(); ++index) {
+        if (expected.dimensions[index] != 0u &&
+            expected.dimensions[index] != actual.dimensions[index]) return false;
+    }
+    return true;
+}
+
 struct Symbol {
     SemanticBindingId id{0};
     Type type{Type::Unknown};
@@ -178,9 +196,14 @@ private:
                 report("SEM003", "malformed array type annotation", span);
                 return Type::Error;
             }
-            if (dimensions.size() > 1u) {
-                report("SEM055",
-                    "nested array types are not enabled yet; the parser preserves the complete shape, but semantic analysis and both backends still require the recursive type implementation",
+            if (dimensions.size() > 64u) {
+                report("SEM060", "array types may contain at most 64 dimensions", span);
+                return Type::Error;
+            }
+            if (dimensions.size() > 1u &&
+                std::find(dimensions.begin(), dimensions.end(), 0u) == dimensions.end()) {
+                report("SEM060",
+                    "all-fixed nested arrays are deferred until VEX defines a target-aware aggregate and stack-size limit; include a dynamic dimension for nested collections",
                     span);
                 return Type::Error;
             }
@@ -621,21 +644,76 @@ private:
             const auto contextual_shape = model_.array_expression_types.find(&expression);
             const bool has_context =
                 contextual_shape != model_.array_expression_types.end() &&
-                contextual_shape->second.element_type != Type::Unknown;
+                contextual_shape->second.element_type != Type::Unknown &&
+                !contextual_shape->second.dimensions.empty();
+            const SemanticArrayType expected = has_context
+                ? contextual_shape->second : SemanticArrayType{};
+
+            if (has_context && expected.dimensions.size() > 1u) {
+                const SemanticArrayType nested_expected =
+                    expected.immediate_array_element_shape();
+                for (const ExprPtr& element : array->elements) {
+                    if (element && std::holds_alternative<ArrayLiteralExpr>(element->data))
+                        model_.array_expression_types[element.get()] = nested_expected;
+                }
+            }
+
             if (array->elements.empty()) {
-                if (has_context && contextual_shape->second.length == 0)
+                if (has_context && expected.dimensions.front() == 0u)
                     return Type::Array;
-                report("SEM041", "empty array literals require an explicit dynamic-array type such as int[]",
+                report("SEM041",
+                       "empty array literals require a contextual dynamic-array type such as int[]",
                        expression.span);
                 return Type::Error;
             }
+            if (array->elements.size() > 65536u) {
+                report("SEM041", "array literals are limited to 65,536 elements per dimension",
+                       expression.span);
+                return Type::Error;
+            }
+
+            bool saw_nested_elements = false;
+            bool saw_scalar_elements = false;
+            std::optional<SemanticArrayType> nested_element_shape;
             Type element_type = Type::Unknown;
             std::uint32_t element_struct_type_id = 0;
+
             for (const ExprPtr& element : array->elements) {
                 const Type actual = element ? analyze_expression(*element) : Type::Error;
-                if (actual == Type::Error || actual == Type::Void ||
-                    actual == Type::Array || actual == Type::Any) {
-                    report("SEM041", "array elements must use one supported primitive or structure type",
+                if (actual == Type::Error || actual == Type::Void || actual == Type::Any) {
+                    report("SEM041",
+                           "array elements must use one supported primitive, structure, or nested-array type",
+                           element ? element->span : expression.span);
+                    return Type::Error;
+                }
+
+                if (actual == Type::Array) {
+                    saw_nested_elements = true;
+                    if (saw_scalar_elements || !element) {
+                        report("SEM041", "an array cannot mix nested-array and scalar elements",
+                               element ? element->span : expression.span);
+                        return Type::Error;
+                    }
+                    const auto nested_shape = model_.array_expression_types.find(element.get());
+                    if (nested_shape == model_.array_expression_types.end()) {
+                        report("SEM041", "nested array element is missing its complete dimension shape",
+                               element->span);
+                        return Type::Error;
+                    }
+                    if (nested_element_shape &&
+                        !nested_element_shape->same_shape(nested_shape->second)) {
+                        report("SEM041",
+                               "nested array elements must have the same element type and remaining dimensions",
+                               element->span);
+                        return Type::Error;
+                    }
+                    if (!nested_element_shape) nested_element_shape = nested_shape->second;
+                    continue;
+                }
+
+                saw_scalar_elements = true;
+                if (saw_nested_elements) {
+                    report("SEM041", "an array cannot mix scalar and nested-array elements",
                            element ? element->span : expression.span);
                     return Type::Error;
                 }
@@ -664,34 +742,44 @@ private:
                     return Type::Error;
                 }
             }
-            if (array->elements.size() > 65536u) {
-                report("SEM041", "fixed arrays are limited to 65,536 elements",
-                       expression.span);
-                return Type::Error;
+
+            SemanticArrayType inferred_shape;
+            if (saw_nested_elements) {
+                if (!nested_element_shape) return Type::Error;
+                std::vector<std::uint32_t> dimensions;
+                dimensions.reserve(nested_element_shape->dimensions.size() + 1u);
+                dimensions.push_back(static_cast<std::uint32_t>(array->elements.size()));
+                dimensions.insert(dimensions.end(),
+                                  nested_element_shape->dimensions.begin(),
+                                  nested_element_shape->dimensions.end());
+                inferred_shape = SemanticArrayType{
+                    nested_element_shape->element_type, std::move(dimensions),
+                    nested_element_shape->element_struct_type_id};
+            } else {
+                inferred_shape = SemanticArrayType{
+                    element_type, static_cast<std::uint32_t>(array->elements.size()),
+                    element_struct_type_id};
             }
-            const SemanticArrayType inferred_shape{
-                element_type, static_cast<std::uint32_t>(array->elements.size()),
-                element_struct_type_id};
+
             if (has_context) {
-                const SemanticArrayType expected = contextual_shape->second;
-                const bool compatible_element =
-                    expected.element_type == element_type ||
-                    (expected.element_type == Type::Float && element_type == Type::Int);
-                const bool compatible_struct =
-                    expected.element_type != Type::Struct ||
-                    expected.element_struct_type_id == element_struct_type_id;
-                const bool compatible_length =
-                    expected.length == 0 ||
-                    expected.length == array->elements.size();
-                // Compatible context supplies the declared shape (including
-                // numeric widening and dynamic length). An incompatible context
-                // must leave the inferred shape visible to the declaration,
-                // call, or return checker so it can issue its established error.
+                const bool context_is_nested = expected.dimensions.size() > 1u;
+                const bool element_kind_matches = context_is_nested == saw_nested_elements;
+                const bool compatible_shape =
+                    element_kind_matches &&
+                    compatible_array_literal_context(expected, inferred_shape);
                 model_.array_expression_types[&expression] =
-                    compatible_element && compatible_struct && compatible_length
-                        ? expected : inferred_shape;
+                    compatible_shape ? expected : inferred_shape;
             } else {
                 model_.array_expression_types[&expression] = inferred_shape;
+            }
+
+            const SemanticArrayType& result_shape =
+                model_.array_expression_types.at(&expression);
+            if (result_shape.is_fully_fixed() && result_shape.is_nested()) {
+                report("SEM060",
+                       "all-fixed nested array literals are deferred until VEX defines a target-aware aggregate and stack-size limit; add a dynamic dimension in the declared type",
+                       expression.span);
+                return Type::Error;
             }
             return Type::Array;
         }
@@ -844,6 +932,11 @@ private:
                 report("SEM043", "array type information is unavailable for this expression",
                        expression.span);
                 return Type::Error;
+            }
+            if (shape->second.is_nested()) {
+                model_.array_expression_types[&expression] =
+                    shape->second.immediate_array_element_shape();
+                return Type::Array;
             }
             if (shape->second.element_type == Type::Struct)
                 model_.struct_expression_types[&expression] =
@@ -1101,6 +1194,17 @@ private:
                     model_.array_expression_types[argument.get()] =
                         *function->parameter_array_types[index];
                 }
+                if (name && spelling(name->name) == "push" && index == 1u &&
+                    argument && std::holds_alternative<ArrayLiteralExpr>(argument->data) &&
+                    !call->arguments.empty() && call->arguments[0]) {
+                    const auto outer_shape =
+                        model_.array_expression_types.find(call->arguments[0].get());
+                    if (outer_shape != model_.array_expression_types.end() &&
+                        outer_shape->second.is_nested()) {
+                        model_.array_expression_types[argument.get()] =
+                            outer_shape->second.immediate_array_element_shape();
+                    }
+                }
                 argument_types.push_back(argument
                     ? analyze_expression(*argument) : Type::Error);
                 const auto structure = argument
@@ -1120,6 +1224,7 @@ private:
                     index >= call->arguments.size() || !call->arguments[index]) return false;
                 const auto shape = model_.array_expression_types.find(call->arguments[index].get());
                 return shape != model_.array_expression_types.end() &&
+                       shape->second.dimensions.size() == 1u &&
                        shape->second.element_type == Type::Byte &&
                        shape->second.length == 0 &&
                        shape->second.element_struct_type_id == 0;
@@ -1227,7 +1332,8 @@ private:
                 }
                 if (builtin_name == "length") return Type::Int;
                 if (builtin_name == "join") {
-                    if (shape->second.element_type != Type::String) {
+                    if (shape->second.dimensions.size() != 1u ||
+                        shape->second.element_type != Type::String) {
                         report("SEM021", "join requires a dynamic array of strings",
                                call->arguments[0]->span);
                         return Type::Error;
@@ -1270,20 +1376,40 @@ private:
                     return Type::Void;
                 }
                 if (builtin_name == "push") {
-                    const std::uint32_t value_struct_type_id = call->arguments[1] &&
-                        model_.struct_expression_types.find(call->arguments[1].get()) !=
-                            model_.struct_expression_types.end()
-                        ? model_.struct_expression_types.at(call->arguments[1].get()) : 0u;
-                    if (!is_assignable(shape->second.element_type, argument_types[1]) ||
-                        (shape->second.element_type == Type::Struct &&
-                         shape->second.element_struct_type_id != value_struct_type_id)) {
-                        report("SEM021", "push value has type " +
-                               std::string(type_name(argument_types[1])) +
-                               "; expected " + type_name(shape->second.element_type),
-                               call->arguments[1]->span);
-                        return Type::Error;
+                    if (shape->second.is_nested()) {
+                        const auto value_shape = call->arguments[1]
+                            ? model_.array_expression_types.find(call->arguments[1].get())
+                            : model_.array_expression_types.end();
+                        const SemanticArrayType expected_element =
+                            shape->second.immediate_array_element_shape();
+                        if (argument_types[1] != Type::Array ||
+                            value_shape == model_.array_expression_types.end() ||
+                            !value_shape->second.same_shape(expected_element)) {
+                            report("SEM021", "push value does not match the nested array element shape",
+                                   call->arguments[1]->span);
+                            return Type::Error;
+                        }
+                    } else {
+                        const std::uint32_t value_struct_type_id = call->arguments[1] &&
+                            model_.struct_expression_types.find(call->arguments[1].get()) !=
+                                model_.struct_expression_types.end()
+                            ? model_.struct_expression_types.at(call->arguments[1].get()) : 0u;
+                        if (!is_assignable(shape->second.element_type, argument_types[1]) ||
+                            (shape->second.element_type == Type::Struct &&
+                             shape->second.element_struct_type_id != value_struct_type_id)) {
+                            report("SEM021", "push value has type " +
+                                    std::string(type_name(argument_types[1])) +
+                                    "; expected " + type_name(shape->second.element_type),
+                                    call->arguments[1]->span);
+                            return Type::Error;
+                        }
                     }
                     return Type::Void;
+                }
+                if (shape->second.is_nested()) {
+                    model_.array_expression_types[&expression] =
+                        shape->second.immediate_array_element_shape();
+                    return Type::Array;
                 }
                 if (shape->second.element_type == Type::Struct)
                     model_.struct_expression_types[&expression] =
@@ -1814,7 +1940,8 @@ private:
                 const auto shape = model_.array_expression_types.find(loop->iterable.get());
                 if (shape != model_.array_expression_types.end()) {
                     array_type = shape->second;
-                    iteration_type = array_type->element_type;
+                    iteration_type = array_type->is_nested()
+                        ? Type::Array : array_type->element_type;
                 }
             } else if (iterable == Type::Range) {
                 iteration_type = Type::Int;
@@ -1827,6 +1954,9 @@ private:
             iteration_variable.type = iteration_type;
             if (array_type && iteration_type == Type::Struct)
                 iteration_variable.struct_type_id = array_type->element_struct_type_id;
+            if (array_type && iteration_type == Type::Array)
+                iteration_variable.array_type =
+                    array_type->immediate_array_element_shape();
             iteration_variable.declaration = loop->variable;
             SemanticBindingId iteration_binding = 0;
             if (define(spelling(loop->variable), std::move(iteration_variable),

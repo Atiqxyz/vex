@@ -989,6 +989,7 @@ private:
         }
         if (target->second == "join") {
             if (arguments.size() != 1 || arguments[0].type != IRType::Array ||
+                ir_array_dimensions(arguments[0]).size() != 1u ||
                 arguments[0].array_length != 0 ||
                 arguments[0].element_type != IRType::String) {
                 report("IR119", "join expects exactly one dynamic string array", expression.span);
@@ -1005,16 +1006,22 @@ private:
         }
         if (target->second == "push") {
             if (arguments.size() != 2 || arguments[0].type != IRType::Array ||
-                arguments[0].array_length != 0) {
-                report("IR119", "push expects a dynamic array and one value", expression.span);
+                ir_array_dimensions(arguments[0]).empty() ||
+                ir_array_dimensions(arguments[0]).front() != 0u) {
+                report("IR119", "push expects a dynamic outer array and one value", expression.span);
                 return std::nullopt;
             }
-            const auto converted = convert(arguments[1], arguments[0].element_type,
+            const IRValue expected_element =
+                ir_array_element_value(arguments[0], call.arguments[1]->span);
+            const auto converted = convert(arguments[1], expected_element.type,
                                            call.arguments[1]->span);
             if (!converted) return std::nullopt;
-            if (arguments[0].element_type == IRType::Struct &&
-                converted->struct_type_id != arguments[0].element_struct_type_id) {
-                report("IR119", "push value has the wrong structure element type", expression.span);
+            if ((expected_element.type == IRType::Struct &&
+                 converted->struct_type_id != expected_element.struct_type_id) ||
+                (expected_element.type == IRType::Array &&
+                 !ir_same_array_shape(*converted, expected_element))) {
+                report("IR119", "push value has the wrong immediate element type or nested shape",
+                       expression.span);
                 return std::nullopt;
             }
             IRInstruction instruction;
@@ -1026,8 +1033,9 @@ private:
         }
         if (target->second == "pop") {
             if (arguments.size() != 1 || arguments[0].type != IRType::Array ||
-                arguments[0].array_length != 0) {
-                report("IR119", "pop expects exactly one dynamic array", expression.span);
+                ir_array_dimensions(arguments[0]).empty() ||
+                ir_array_dimensions(arguments[0]).front() != 0u) {
+                report("IR119", "pop expects exactly one array with a dynamic outer dimension", expression.span);
                 return std::nullopt;
             }
             IRInstruction instruction;

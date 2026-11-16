@@ -75,7 +75,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 - [x] Fixed-size one-dimensional primitive and structure arrays
 - [x] Dynamic one-dimensional primitive and structure arrays
-- [ ] Nested arrays and collections of collections (parser preserves the full declared shape; semantic analysis, IR, verifier, and both backends remain one-dimensional; see [design proposal](nested-array-design.md))
+- [ ] Nested arrays and collections of collections (recursive IR shapes, verifier, lowering metadata, and backend type mappings are implemented; semantic/runtime integration and all-fixed size policy remain in progress; see [design proposal](nested-array-design.md))
 - [ ] Multidimensional arrays with documented storage order
 - [x] Checked owning byte-range copies through `byte_slice`
 - [ ] Slices / non-owning views over arrays and buffers (requires lifetimes and aliasing rules)

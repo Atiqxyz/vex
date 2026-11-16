@@ -1,6 +1,6 @@
 # Nested arrays and collections of collections
 
-**Status:** implementation groundwork in progress. The parser now consumes and preserves repeated array-dimension suffixes in type annotations. Semantic analysis deliberately rejects annotations with more than one dimension until recursive semantic typing, lowering, IR verification, and both backends are implemented. Nested-array programs are **not yet supported**.
+**Status:** recursive IR descriptors, verifier shape checks, lowering metadata, and native type representations are implemented. Semantic support is being enabled for mixed fixed/dynamic and dynamic collections. All-fixed nested source arrays remain gated pending a documented target-aware aggregate and stack-size policy; nested programs should not be described as fully supported until runtime tests cover the relevant cases.
 
 **Current baseline:** branch **dev** at **cca44d2b49fc69bf66c7393b95925acac27b7ab0**. Its CI run #276 was still in progress when this design note was refreshed; the most recent fully completed four-platform green baseline remains [run #43744348963](https://github.com/Atiqxyz/vex/actions/runs/43744348963) at commit **0fdc5712a9398a0a95517d7c57baeab075e1fa90**.
 

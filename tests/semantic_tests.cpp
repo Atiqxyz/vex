@@ -458,13 +458,32 @@ void test_array_function_types_and_shapes(TestContext& tests) {
                 "fixed-array annotations reject zero and over-limit lengths");
 }
 
-void test_nested_array_annotations_fail_closed(TestContext& tests) {
-    const vex::SourceFile source{"nested_array_annotations_not_yet_enabled.vex",
-        "make inspect(rows: int[][]) -> int { return 0 }\n"
-        "make main() { let grid: float[2][3] = [] }\n"};
-    const vex::SemanticResult result = analyze(source);
-    tests.check(has_code(result, "SEM055"),
-                "nested array annotations are rejected explicitly until recursive semantics and both backends are implemented");
+void test_nested_array_annotations_and_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"nested_array_semantics.vex",
+        "make first(rows: int[][]) -> int[] { return rows[0] }\n"
+        "make identity(rows: int[][3]) -> int[][3] { return rows }\n"
+        "make main() {\n"
+        "    let rows: int[][] = [[1, 2], [3, 4, 5]]\n"
+        "    let fixed_rows: int[][3] = [[1, 2, 3], [4, 5, 6]]\n"
+        "    let dynamic_columns: int[2][] = [[], [7, 8]]\n"
+        "    push(rows, [9, 10])\n"
+        "    push(rows[0], 11)\n"
+        "    let removed = pop(rows)\n"
+        "    let first_row = first(rows)\n"
+        "    for row in rows {\n"
+        "        for value in row { say(value) }\n"
+        "    }\n"
+        "    let count = length(rows[0])\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "dynamic, jagged, mixed fixed/dynamic nested arrays support literals, indexing, built-ins, functions, and nested iteration");
+
+    const vex::SourceFile invalid{"all_fixed_nested_arrays.vex",
+        "make main() { let matrix: int[2][3] = [[1, 2, 3], [4, 5, 6]] }\n"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM060"),
+                "all-fixed nested arrays remain gated until target-aware aggregate size limits are defined");
 }
 
 void test_default_initialization_semantics(TestContext& tests) {
@@ -853,7 +872,7 @@ void run_semantic_tests(TestContext& tests) {
     test_top_level_execution_scope(tests);
     test_fixed_arrays_and_index_assignment(tests);
     test_array_function_types_and_shapes(tests);
-    test_nested_array_annotations_fail_closed(tests);
+    test_nested_array_annotations_and_semantics(tests);
     test_default_initialization_semantics(tests);
     test_dynamic_array_semantics(tests);
     test_dynamic_array_capacity_semantics(tests);

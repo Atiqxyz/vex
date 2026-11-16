@@ -67,6 +67,14 @@ struct SemanticArrayType {
     [[nodiscard]] bool is_fully_fixed() const noexcept {
         return !dimensions.empty() && !has_dynamic_dimension();
     }
+
+    [[nodiscard]] SemanticArrayType immediate_array_element_shape() const {
+        if (dimensions.size() <= 1u) return {};
+        return SemanticArrayType(
+            element_type,
+            std::vector<std::uint32_t>(dimensions.begin() + 1, dimensions.end()),
+            element_struct_type_id);
+    }
 };
 
 [[nodiscard]] const char* semantic_type_name(SemanticType type) noexcept;
