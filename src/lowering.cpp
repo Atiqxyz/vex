@@ -453,11 +453,16 @@ private:
     [[nodiscard]] std::optional<IRValue> emit_array_set(
         const IRValue& array, const IRValue& index, IRValue replacement,
         const SourceSpan span) {
+        const IRValue expected_element = ir_array_element_value(array, span);
+        const bool replacement_matches =
+            replacement.type == expected_element.type &&
+            (expected_element.type != IRType::Struct ||
+             replacement.struct_type_id == expected_element.struct_type_id) &&
+            (expected_element.type != IRType::Array ||
+             ir_same_array_shape(replacement, expected_element));
         if (array.type != IRType::Array || index.type != IRType::Int ||
-            replacement.type != array.element_type ||
-            (array.element_type == IRType::Struct &&
-             replacement.struct_type_id != array.element_struct_type_id)) {
-            report("IR146", "array element update has incompatible operand types", span);
+            !replacement_matches) {
+            report("IR146", "array element update has incompatible immediate element type or nested shape", span);
             return std::nullopt;
         }
         IRValue result = make_value_like(array, span);
