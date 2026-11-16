@@ -162,7 +162,7 @@ bool generate_with_backend(const std::vector<std::string>& paths,
         files.emplace_back(path, std::move(contents));
     }
 
-    const SourceFile source(std::move(files));
+    const SourceFile source = SourceFile::from_files(std::move(files));
     const LexResult lexed = Lexer(source).scan();
     if (lexed.has_errors()) {
         print_diagnostics(std::cerr, source, lexed.diagnostics);

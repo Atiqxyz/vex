@@ -3,7 +3,7 @@
 #include "vex/source.hpp"
 
 void test_combined_source_preserves_file_origins(TestContext& tests) {
-    const vex::SourceFile source({
+    const vex::SourceFile source = vex::SourceFile::from_files({
         {"main.vex", "make main() {\n    helper()\n}\n"},
         {"math.vex", "make helper() {\n    let value: int = \"wrong\"\n}\n"}
     });

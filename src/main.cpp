@@ -100,7 +100,7 @@ std::optional<vex::SourceFile> read_source_bundle(
         if (!read_source_file(path, contents)) return std::nullopt;
         files.emplace_back(path, std::move(contents));
     }
-    return vex::SourceFile(std::move(files));
+    return vex::SourceFile::from_files(std::move(files));
 }
 
 int run_check(const std::vector<std::string>& paths) {

@@ -14,7 +14,13 @@ SourceFile::SourceFile(std::string path, std::string contents)
     origins_.push_back(std::move(origin));
 }
 
-SourceFile::SourceFile(std::vector<std::pair<std::string, std::string>> files) {
+SourceFile SourceFile::from_files(
+    std::vector<std::pair<std::string, std::string>> files) {
+    return SourceFile(std::move(files), CombinedSourcesTag{});
+}
+
+SourceFile::SourceFile(
+    std::vector<std::pair<std::string, std::string>> files, CombinedSourcesTag) {
     if (files.empty()) {
         path_ = "<empty compilation unit>";
         Origin origin{path_, {}, 0, {0}};

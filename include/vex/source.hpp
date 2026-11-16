@@ -36,7 +36,8 @@ public:
     SourceFile(std::string path, std::string contents);
     // Concatenates files into one translation unit while retaining each file's
     // origin for diagnostics. File order is declaration order.
-    explicit SourceFile(std::vector<std::pair<std::string, std::string>> files);
+    [[nodiscard]] static SourceFile from_files(
+        std::vector<std::pair<std::string, std::string>> files);
 
     [[nodiscard]] const std::string& path() const noexcept;
     [[nodiscard]] std::string_view contents() const noexcept;
@@ -58,6 +59,9 @@ private:
         std::vector<std::size_t> line_starts;
     };
 
+    struct CombinedSourcesTag {};
+    SourceFile(std::vector<std::pair<std::string, std::string>> files,
+               CombinedSourcesTag);
     void index_lines();
     void index_origin(Origin& origin);
 
