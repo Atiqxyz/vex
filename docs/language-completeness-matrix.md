@@ -44,7 +44,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Foreign-function interface | Design undecided | ABI, calling conventions, symbol visibility and ownership across boundary need design. |
 | Function visibility / public-private | Design undecided | Depends on module and package model. |
 | Entry point | Implemented | Explicit zero-argument \`main\` is optional; implicit top-level entry is synthesized otherwise. |
-| Multiple source files / cross-file calls | Not implemented | Current top-level function collection is within one compilation unit. |
+| Multiple source files / cross-file calls | Partial | CLI commands accept multiple source files as one ordered translation unit; declarations share a global namespace. No import syntax, module namespaces, or separate compilation yet. |
 
 ## 2. Bindings, scopes and declarations
 

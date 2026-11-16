@@ -14,8 +14,10 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 #ifndef VEX_VERSION
 #define VEX_VERSION "0.1.0"
 #endif
@@ -26,11 +28,11 @@ void print_help() {
         << "Usage:\n"
         << "  vex lex <file.vex>      Tokenize a VEX source file\n"
         << "  vex parse <file.vex>    Parse a VEX source file and print its AST\n"
-        << "  vex check <file.vex>    Resolve names and check static types\n"
+        << "  vex check <file.vex> [more.vex ...] Check a multi-file translation unit\n"
         << "  vex ir <file.vex>       Lower a valid program to typed SSA IR\n"
         << "  vex emit-c <file.vex>   Emit portable C11 from verified VEX IR\n"
         << "  vex emit-llvm <file.vex> Emit LLVM IR from verified VEX IR\n"
-        << "  vex build <file.vex>    Build a native executable using LLVM\n"
+        << "  vex build <file.vex> [more.vex ...] Build a multi-file program using LLVM\n"
         << "  vex run <file.vex>      Build and execute using the bundled LLVM toolchain\n"
         << "  vex build-c <file.vex>  Build using the optional C11 backend\n"
         << "  vex run-c <file.vex>    Build and execute using the optional C11 backend\n"
@@ -39,6 +41,8 @@ void print_help() {
         << "  vex run-llvm <file.vex> Build and execute using LLVM\n"
         << "  vex --version           Show compiler version\n"
         << "  vex --help              Show this help message\n\n"
+        << "Multiple source files are combined in command-line order into one translation unit and global namespace.\n"
+        << "Imports, namespaces, and separate compilation are not implemented yet.\n"
         << "emit-c and emit-llvm write generated source to standard output.\n"
         << "build/run use the bundled Zig/LLVM toolchain (or installed Clang); build-c/run-c require a C11 compiler.\n";
 }
@@ -86,10 +90,23 @@ int run_parser(const std::string& path) {
     vex::print_ast(std::cout, source, parsed.program);
     return 0;
 }
-int run_check(const std::string& path) {
-    std::string contents;
-    if (!read_source_file(path, contents)) return 2;
-    const vex::SourceFile source(path, std::move(contents));
+std::optional<vex::SourceFile> read_source_bundle(
+    const std::vector<std::string>& paths) {
+    if (paths.empty()) return std::nullopt;
+    std::vector<std::pair<std::string, std::string>> files;
+    files.reserve(paths.size());
+    for (const std::string& path : paths) {
+        std::string contents;
+        if (!read_source_file(path, contents)) return std::nullopt;
+        files.emplace_back(path, std::move(contents));
+    }
+    return vex::SourceFile(std::move(files));
+}
+
+int run_check(const std::vector<std::string>& paths) {
+    auto source_bundle = read_source_bundle(paths);
+    if (!source_bundle) return 2;
+    const vex::SourceFile& source = *source_bundle;
     const vex::LexResult lexed = vex::Lexer(source).scan();
     if (lexed.has_errors()) {
         vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
@@ -108,10 +125,10 @@ int run_check(const std::string& path) {
     return 0;
 }
 
-int run_ir(const std::string& path) {
-    std::string contents;
-    if (!read_source_file(path, contents)) return 2;
-    const vex::SourceFile source(path, std::move(contents));
+int run_ir(const std::vector<std::string>& paths) {
+    auto source_bundle = read_source_bundle(paths);
+    if (!source_bundle) return 2;
+    const vex::SourceFile& source = *source_bundle;
     const vex::LexResult lexed = vex::Lexer(source).scan();
     if (lexed.has_errors()) {
         vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
@@ -140,10 +157,10 @@ int run_ir(const std::string& path) {
     return 0;
 }
 
-int run_emit_backend(const std::string& path, const vex::BackendKind kind) {
-    std::string contents;
-    if (!read_source_file(path, contents)) return 2;
-    const vex::SourceFile source(path, std::move(contents));
+int run_emit_backend(const std::vector<std::string>& paths, const vex::BackendKind kind) {
+    auto source_bundle = read_source_bundle(paths);
+    if (!source_bundle) return 2;
+    const vex::SourceFile& source = *source_bundle;
     const vex::LexResult lexed = vex::Lexer(source).scan();
     if (lexed.has_errors()) {
         vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
@@ -179,12 +196,12 @@ int run_emit_backend(const std::string& path, const vex::BackendKind kind) {
     return 0;
 }
 
-int run_emit_c(const std::string& path) {
-    return run_emit_backend(path, vex::BackendKind::C);
+int run_emit_c(const std::vector<std::string>& paths) {
+    return run_emit_backend(paths, vex::BackendKind::C);
 }
 
-int run_emit_llvm(const std::string& path) {
-    return run_emit_backend(path, vex::BackendKind::LLVM);
+int run_emit_llvm(const std::vector<std::string>& paths) {
+    return run_emit_backend(paths, vex::BackendKind::LLVM);
 }
 } // namespace
 int main(const int argc, char* argv[]) {
@@ -195,30 +212,39 @@ int main(const int argc, char* argv[]) {
             return 0;
         }
         if (argument == "--version" || argument == "-v") {
-            std::cout << "VEX compiler " << VEX_VERSION << '\n';
+            std::cout << "VEX compiler " << VEX_VERSION << '\\n';
             return 0;
         }
     }
-    if (argc == 3) {
+    if (argc >= 3) {
         const std::string command = argv[1];
-        if (command == "lex") return run_lexer(argv[2]);
-        if (command == "parse") return run_parser(argv[2]);
-        if (command == "check") return run_check(argv[2]);
-        if (command == "ir") return run_ir(argv[2]);
-        if (command == "emit-c") return run_emit_c(argv[2]);
-        if (command == "emit-llvm") return run_emit_llvm(argv[2]);
-        if (command == "build") return vex::build_llvm_program(argv[2]);
-        if (command == "run") return vex::run_llvm_program(argv[2]);
-        if (command == "build-c") return vex::build_program(argv[2]);
-        if (command == "run-c") return vex::run_program(argv[2]);
-        if (command == "build-llvm") return vex::build_llvm_program(argv[2]);
-        if (command == "run-llvm") return vex::run_llvm_program(argv[2]);
-    }
-    if (argc == 5 && std::string(argv[3]) == "-o") {
-        const std::string command = argv[1];
-        if (command == "build") return vex::build_llvm_program(argv[2], argv[4]);
-        if (command == "build-c") return vex::build_program(argv[2], argv[4]);
-        if (command == "build-llvm") return vex::build_llvm_program(argv[2], argv[4]);
+        if (command == "lex" && argc == 3) return run_lexer(argv[2]);
+        if (command == "parse" && argc == 3) return run_parser(argv[2]);
+
+        int input_end = argc;
+        std::string output_path;
+        if ((command == "build" || command == "build-c" || command == "build-llvm") &&
+            argc >= 5 && std::string(argv[argc - 2]) == "-o") {
+            input_end = argc - 2;
+            output_path = argv[argc - 1];
+        }
+        std::vector<std::string> paths;
+        for (int index = 2; index < input_end; ++index)
+            paths.emplace_back(argv[index]);
+        if (paths.empty()) return 2;
+        if (command == "check") return run_check(paths);
+        if (command == "ir") return run_ir(paths);
+        if (command == "emit-c") return run_emit_c(paths);
+        if (command == "emit-llvm") return run_emit_llvm(paths);
+        if (command == "build") return output_path.empty()
+            ? vex::build_llvm_program(paths) : vex::build_llvm_program(paths, output_path);
+        if (command == "run") return vex::run_llvm_program(paths);
+        if (command == "build-c") return output_path.empty()
+            ? vex::build_program(paths) : vex::build_program(paths, output_path);
+        if (command == "run-c") return vex::run_program(paths);
+        if (command == "build-llvm") return output_path.empty()
+            ? vex::build_llvm_program(paths) : vex::build_llvm_program(paths, output_path);
+        if (command == "run-llvm") return vex::run_llvm_program(paths);
     }
     print_help();
     return 2;

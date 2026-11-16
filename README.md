@@ -22,8 +22,11 @@ The current C++20 development build has:
 - shared-reference dynamic arrays across aliases, function parameters, and function returns, with `for-in` iteration over fixed/dynamic arrays and integer ranges;
 - C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed/dynamic-array access, dynamic allocation and cleanup, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, LLVM IR emission, native builds, and program execution;
+- multi-file translation units: source files can be passed together to `check`, `ir`, `emit-c`, `emit-llvm`, `build`, and `run`;
 - cross-platform process launching and temporary-build management;
 - unit tests plus cross-platform integration tests for the public CLI and portable compiler discovery.
+
+Multiple source files are currently combined in command-line order into one translation unit and one global namespace. This is the first multi-file compilation step; import declarations, module namespaces, visibility controls, and separate compilation are not implemented yet.
 
 The binary file helpers operate on complete files rather than exposing streaming handles. `read_file` appends to a mutable byte array and returns the appended byte count or `-1`; `write_file` replaces the destination file and returns the byte count or `-1`. The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
 

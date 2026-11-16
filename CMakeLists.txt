@@ -126,6 +126,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(vex_tests PRIVATE vex_frontend vex_build_options)
     add_test(NAME vex_frontend_tests COMMAND vex_tests)
+    add_test(NAME vex_multifile_compilation_integration
+        COMMAND ${CMAKE_COMMAND}
+            -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+            -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/multifile_compilation_integration.cmake
+    )
     set_tests_properties(vex_frontend_tests PROPERTIES TIMEOUT 15)
 
     add_executable(vex_toolchain_stub tests/toolchain_stub.cpp)
