@@ -45,6 +45,8 @@ public:
     [[nodiscard]] const TargetLayoutConfig& config() const noexcept;
     [[nodiscard]] std::optional<TypeLayout> layout_of(
         const IRValue& value, const IRModule& module, std::string* error = nullptr) const;
+    [[nodiscard]] std::optional<TypeLayout> layout_of_array_element(
+        const IRValue& array, const IRModule& module, std::string* error = nullptr) const;
     [[nodiscard]] std::optional<StructLayout> layout_of_struct(
         std::uint32_t struct_type_id, const IRModule& module,
         std::string* error = nullptr) const;

@@ -49,6 +49,16 @@ public:
         return layout_struct(id);
     }
 
+    std::optional<TypeLayout> run_array_element(const IRValue& array) {
+        if (!valid_config()) return std::nullopt;
+        if (array.type != IRType::Array) {
+            fail("array element layout requires an array type");
+            return std::nullopt;
+        }
+        if (!layout_of(array)) return std::nullopt;
+        return layout_of(ir_array_element_value(array));
+    }
+
 private:
     bool valid_config() {
         if (!is_power_of_two(config_.pointer_alignment) ||
@@ -231,6 +241,12 @@ std::optional<TypeLayout> TargetDataLayout::layout_of(
     const IRValue& value, const IRModule& module, std::string* error) const {
     if (error) error->clear();
     return LayoutComputer(config_, module, error).run(value);
+}
+
+std::optional<TypeLayout> TargetDataLayout::layout_of_array_element(
+    const IRValue& array, const IRModule& module, std::string* error) const {
+    if (error) error->clear();
+    return LayoutComputer(config_, module, error).run_array_element(array);
 }
 
 std::optional<StructLayout> TargetDataLayout::layout_of_struct(

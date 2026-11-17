@@ -1152,6 +1152,11 @@ void test_target_data_layout_service(TestContext& tests) {
         vex::IRType::Int, {0u, 3u}), module);
     tests.check(dynamic && dynamic->size == 8u && dynamic->alignment == 8u,
                 "dynamic outer arrays use pointer-sized value representation");
+    const auto dynamic_element = layout.layout_of_array_element(vex::ir_make_array_value(
+        vex::IRType::Int, {0u, 3u}), module);
+    tests.check(dynamic_element && dynamic_element->size == 24u &&
+                dynamic_element->stride == 24u && dynamic_element->alignment == 8u,
+                "target layout exposes the true stride of a dynamic array's fixed-row element");
 
     vex::IRValue string_value;
     string_value.type = vex::IRType::String;
