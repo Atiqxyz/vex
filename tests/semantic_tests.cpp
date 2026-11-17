@@ -1023,7 +1023,7 @@ make main() {
     say(value)
 }
 )VEX"};
-    const pointer_parameters_result = analyze(pointer_parameters);
+    const vex::SemanticResult pointer_parameters_result = analyze(pointer_parameters);
     tests.check(!pointer_parameters_result.has_errors(),
                 "typed pointers may be passed to functions as typed pointer parameters");
 
