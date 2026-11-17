@@ -82,7 +82,7 @@ make main() {
 ~~~
 
 - A `struct` declaration is file-scope only. Field names must be unique, and a structure must have at least one field.
-- A field type may be a primitive, an earlier-declared structure, or a one-dimensional fixed/dynamic array of either. Array annotations use forms such as `Point[3]` and `Point[]`.
+- A field type may be a primitive, an earlier-declared structure, or a fixed/dynamic nested array of either. Repeated dimensions are supported for dynamic and mixed fixed/dynamic jagged shapes (for example, `Point[][]` or `int[2][]`); all-fixed nested array fields remain deferred pending the aggregate-size and stack policy.
 - A fixed array stores its elements by value. Fixed arrays of structures can be fields, local values, function parameters, and return values.
 - A dynamic array stores a shared runtime-managed reference to contiguous elements. Dynamic arrays of structures are supported; copying a structure that contains a dynamic array copies that reference, so the nested dynamic collection remains shared.
 - Direct recursive by-value fields and fixed arrays that would create a by-value cycle are rejected. A dynamic array field may refer to its own containing structure because it is pointer-backed (for example, `Node { children: Node[] }`). Forward structure references remain unsupported.
@@ -225,7 +225,7 @@ Dynamic-array allocations are registered in a program-lifetime runtime list and 
 | `bool` | Boolean value |
 | `string` | Length-aware byte string; UTF-8 validity is not guaranteed. |
 | `void` | Function return with no value |
-| fixed array | One-dimensional, fixed-length sequence of primitive or structure values; may be inferred or annotated as `Point[3]` |
+| fixed array | One inline fixed-length dimension in an array shape; may contain supported nested dynamic dimensions, and may be annotated as `Point[3]` or `int[2][]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
 The implemented numeric representation is signed 64-bit `int` values and 64-bit floating-point values. `byte` is a separate unsigned 8-bit scalar and is deliberately not an arithmetic numeric type. `to_byte(int)` checks that the value is in the inclusive range 0 through 255 and traps otherwise; `to_int(byte)` zero-extends the value to `int`. Byte relational comparisons are unsigned. Bitwise operations accept two `int` operands or two `byte` operands: `int` operations act on all 64 bits, while `byte` operations act on exactly 8 bits and return `byte`. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer. Dynamic-array elements are copied as typed values, including whole structures; any dynamic-array fields inside those structures retain their shared references.
@@ -314,7 +314,7 @@ The compiler exposes a typed, backend-independent SSA intermediate representatio
 - Values have explicit primitive IR types and unique SSA identifiers.
 - Functions contain ordered basic blocks; each block has one explicit terminator.
 - Basic-block parameters represent values passed along incoming control-flow edges. They provide SSA merge points without requiring phi instructions in the IR syntax.
-- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, checked integer-to-byte conversion, byte-width bitwise operations, byte-preserving string concatenation/joining and byte-length inspection, owning byte slices, endian-aware binary integer reads/writes, whole-file byte-array reads/writes, dynamic-array length/capacity/reservation and mutation, direct calls, the `say` intrinsic, typed fixed/dynamic array construction and indexing, and structure construction/field access/updates including array-valued fields.
+- The instruction set covers constants, numeric and logical operations, comparisons, integer-to-float widening, checked integer-to-byte conversion, byte-width bitwise operations, byte-preserving string concatenation/joining and byte-length inspection, owning byte slices, endian-aware binary integer reads/writes, whole-file byte-array reads/writes, dynamic-array length/capacity/reservation and mutation, direct calls, the `say` intrinsic, typed fixed/dynamic and recursively nested jagged array construction and indexing, and structure construction/field access/updates including nested array-valued fields.
 - The lowering pass consumes semantic-model information instead of repeating name resolution or type inference.
 - `if` branches, short-circuit logical expressions, counted `repeat` loops, condition-driven `while` loops, fixed-array iteration, integer-range iteration, and loop-control edges lower into explicit control-flow graphs.
 - The verifier checks instruction and call types, array element types, lengths and nominal structure identities, structure field aggregate shapes, SSA definitions and uses, branch arguments, terminators, reachability, and dominance.
