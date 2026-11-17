@@ -66,6 +66,10 @@ bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count
 bool valid_place_type(const IRValue& value, const std::size_t struct_count,
                       const std::size_t enum_count) {
     if (value.id != 0u || value.type == IRType::Void) return false;
+    if (value.type != IRType::Pointer &&
+        (value.pointer_pointee_type != IRType::Void ||
+         value.pointer_pointee_struct_type_id != 0u ||
+         value.pointer_pointee_enum_type_id != 0u)) return false;
     if (value.type == IRType::Array)
         return valid_array_descriptor(value, struct_count, enum_count);
     if (value.type == IRType::Struct) {
@@ -80,15 +84,28 @@ bool valid_place_type(const IRValue& value, const std::size_t struct_count,
                value.array_length == 0u && value.element_struct_type_id == 0u &&
                value.array_dimensions.empty();
     }
-    if (value.type == IRType::Pointer)
-        return (value.pointer_pointee_type == IRType::Int ||
-                value.pointer_pointee_type == IRType::Byte ||
-                value.pointer_pointee_type == IRType::Float ||
-                value.pointer_pointee_type == IRType::Bool ||
-                value.pointer_pointee_type == IRType::String) &&
+    if (value.type == IRType::Pointer) {
+        const bool primitive_pointee =
+            (value.pointer_pointee_type == IRType::Int ||
+             value.pointer_pointee_type == IRType::Byte ||
+             value.pointer_pointee_type == IRType::Float ||
+             value.pointer_pointee_type == IRType::Bool ||
+             value.pointer_pointee_type == IRType::String) &&
+            value.pointer_pointee_struct_type_id == 0u &&
+            value.pointer_pointee_enum_type_id == 0u;
+        const bool struct_pointee = value.pointer_pointee_type == IRType::Struct &&
+            value.pointer_pointee_struct_type_id != 0u &&
+            value.pointer_pointee_struct_type_id <= struct_count &&
+            value.pointer_pointee_enum_type_id == 0u;
+        const bool enum_pointee = value.pointer_pointee_type == IRType::Enum &&
+            value.pointer_pointee_enum_type_id != 0u &&
+            value.pointer_pointee_enum_type_id <= enum_count &&
+            value.pointer_pointee_struct_type_id == 0u;
+        return (primitive_pointee || struct_pointee || enum_pointee) &&
                value.struct_type_id == 0u && value.enum_type_id == 0u &&
                value.element_type == IRType::Void && value.array_length == 0u &&
                value.element_struct_type_id == 0u && value.array_dimensions.empty();
+    }
     return (value.type == IRType::Int || value.type == IRType::Byte ||
             value.type == IRType::Float || value.type == IRType::Bool ||
             value.type == IRType::String) &&
@@ -280,6 +297,10 @@ private:
             report("IR050", "SSA array value has an invalid element type or aggregate identity",
                    value.span);
         } else if (value.type == IRType::Struct) {
+            if (value.pointer_pointee_type != IRType::Void ||
+                value.pointer_pointee_struct_type_id != 0u ||
+                value.pointer_pointee_enum_type_id != 0u)
+                report("IR112", "non-pointer structure value carries pointer metadata", value.span);
             if (value.struct_type_id == 0 || value.struct_type_id > struct_types_.size())
                 report("IR060", "SSA value has an invalid structure type", value.span);
             if (value.element_type != IRType::Void || value.array_length != 0 ||
@@ -287,17 +308,33 @@ private:
                 !value.array_dimensions.empty())
                 report("IR051", "structure SSA value cannot carry array shape metadata", value.span);
         } else if (value.type == IRType::Pointer) {
-            if (value.pointer_pointee_type != IRType::Int &&
-                value.pointer_pointee_type != IRType::Byte &&
-                value.pointer_pointee_type != IRType::Float &&
-                value.pointer_pointee_type != IRType::Bool &&
-                value.pointer_pointee_type != IRType::String)
-                report("IR112", "SSA pointer has an unsupported pointee type", value.span);
+            const bool primitive_pointee =
+                (value.pointer_pointee_type == IRType::Int ||
+                 value.pointer_pointee_type == IRType::Byte ||
+                 value.pointer_pointee_type == IRType::Float ||
+                 value.pointer_pointee_type == IRType::Bool ||
+                 value.pointer_pointee_type == IRType::String) &&
+                value.pointer_pointee_struct_type_id == 0u &&
+                value.pointer_pointee_enum_type_id == 0u;
+            const bool struct_pointee = value.pointer_pointee_type == IRType::Struct &&
+                value.pointer_pointee_struct_type_id != 0u &&
+                value.pointer_pointee_struct_type_id <= struct_types_.size() &&
+                value.pointer_pointee_enum_type_id == 0u;
+            const bool enum_pointee = value.pointer_pointee_type == IRType::Enum &&
+                value.pointer_pointee_enum_type_id != 0u &&
+                value.pointer_pointee_enum_type_id <= enum_types_.size() &&
+                value.pointer_pointee_struct_type_id == 0u;
+            if (!primitive_pointee && !struct_pointee && !enum_pointee)
+                report("IR112", "SSA pointer has an unsupported or invalid pointee type", value.span);
             if (value.struct_type_id != 0 || value.enum_type_id != 0 ||
                 value.element_type != IRType::Void || value.array_length != 0 ||
                 value.element_struct_type_id != 0 || !value.array_dimensions.empty())
                 report("IR112", "pointer SSA value carries invalid aggregate metadata", value.span);
         } else if (value.type == IRType::Enum) {
+            if (value.pointer_pointee_type != IRType::Void ||
+                value.pointer_pointee_struct_type_id != 0u ||
+                value.pointer_pointee_enum_type_id != 0u)
+                report("IR112", "non-pointer enum value carries pointer metadata", value.span);
             if (value.enum_type_id == 0 || value.enum_type_id > enum_types_.size())
                 report("IR086", "SSA value has an invalid enum type", value.span);
             if (value.element_type != IRType::Void || value.array_length != 0 ||
@@ -307,7 +344,10 @@ private:
         } else if (value.type != IRType::Array &&
                    (value.element_type != IRType::Void || value.array_length != 0 ||
                     value.struct_type_id != 0 || value.element_struct_type_id != 0 ||
-                    value.enum_type_id != 0 || !value.array_dimensions.empty())) {
+                    value.enum_type_id != 0 || !value.array_dimensions.empty() ||
+                    value.pointer_pointee_type != IRType::Void ||
+                    value.pointer_pointee_struct_type_id != 0u ||
+                    value.pointer_pointee_enum_type_id != 0u)) {
             report("IR051", "primitive SSA value cannot carry aggregate shape metadata", value.span);
         }
         const auto inserted = definitions_.emplace(
@@ -368,7 +408,10 @@ private:
         if (left.type == IRType::Array) return same_array_shape(left, right);
         if (left.type == IRType::Struct) return left.struct_type_id == right.struct_type_id;
         if (left.type == IRType::Enum) return left.enum_type_id == right.enum_type_id;
-        if (left.type == IRType::Pointer) return left.pointer_pointee_type == right.pointer_pointee_type;
+        if (left.type == IRType::Pointer)
+            return left.pointer_pointee_type == right.pointer_pointee_type &&
+                   left.pointer_pointee_struct_type_id == right.pointer_pointee_struct_type_id &&
+                   left.pointer_pointee_enum_type_id == right.pointer_pointee_enum_type_id;
         return true;
     }
 
@@ -441,8 +484,14 @@ private:
             if (!found->second->mutable_place)
                 report("IR114", "address-of currently requires a mutable place", instruction.span);
             if (!instruction.result || instruction.result->type != IRType::Pointer ||
-                instruction.result->pointer_pointee_type != found->second->value_type.type)
-                report("IR114", "address-of result must point to the place value type", instruction.span);
+                instruction.result->pointer_pointee_type != found->second->value_type.type ||
+                instruction.result->pointer_pointee_struct_type_id !=
+                    (found->second->value_type.type == IRType::Struct
+                        ? found->second->value_type.struct_type_id : 0u) ||
+                instruction.result->pointer_pointee_enum_type_id !=
+                    (found->second->value_type.type == IRType::Enum
+                        ? found->second->value_type.enum_type_id : 0u))
+                report("IR114", "address-of result must point to the complete place value type", instruction.span);
             break;
         }
         case IROp::Load: {
@@ -1121,7 +1170,11 @@ private:
             if (definition == definitions_.end())
                 report("IR115", "pointer-target place references an undefined pointer value", span);
             else if (definition->second.value.type != IRType::Pointer ||
-                     definition->second.value.pointer_pointee_type != place.value_type.type)
+                     definition->second.value.pointer_pointee_type != place.value_type.type ||
+                     definition->second.value.pointer_pointee_struct_type_id !=
+                        (place.value_type.type == IRType::Struct ? place.value_type.struct_type_id : 0u) ||
+                     definition->second.value.pointer_pointee_enum_type_id !=
+                        (place.value_type.type == IRType::Enum ? place.value_type.enum_type_id : 0u))
                 report("IR115", "pointer-target place has a pointer with the wrong pointee type", span);
             validate_use(place.pointer_value, use_block, use_position, span);
         }

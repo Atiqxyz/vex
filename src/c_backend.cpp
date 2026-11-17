@@ -72,8 +72,13 @@ IRValue array_element_value(const IRValue& array) {
 }
 
 std::string c_type(const IRValue& value) {
-    if (value.type == IRType::Pointer)
-        return std::string(c_type(value.pointer_pointee_type)) + " *";
+    if (value.type == IRType::Pointer) {
+        IRValue pointee;
+        pointee.type = value.pointer_pointee_type;
+        pointee.struct_type_id = value.pointer_pointee_struct_type_id;
+        pointee.enum_type_id = value.pointer_pointee_enum_type_id;
+        return c_type(pointee) + " *";
+    }
     if (value.type == IRType::Struct) return struct_type_name(value.struct_type_id);
     if (value.type == IRType::Enum) return enum_type_name(value.enum_type_id);
     if (value.type != IRType::Array) return c_type(value.type);

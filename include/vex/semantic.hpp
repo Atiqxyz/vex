@@ -93,6 +93,8 @@ struct SemanticPointerType {
     SemanticType pointee_type{SemanticType::Error};
     SemanticBindingId pointee_binding_id{0};
     bool mutable_pointee{true};
+    std::uint32_t pointee_struct_type_id{0};
+    std::uint32_t pointee_enum_type_id{0};
 };
 
 struct SemanticBinding {
@@ -185,6 +187,8 @@ struct SemanticModel {
     std::unordered_map<const VariableDeclStmt*, SemanticBindingId> variable_bindings;
     std::unordered_map<const Parameter*, SemanticBindingId> parameter_bindings;
     std::unordered_map<const AssignmentExpr*, SemanticBindingId> assignment_targets;
+    // Aggregate mutations rooted at *pointer retain the pointer expression for lowering.
+    std::unordered_map<const AssignmentExpr*, const Expr*> assignment_pointer_targets;
     std::unordered_map<const ForStmt*, SemanticBindingId> for_bindings;
     std::unordered_map<const CallExpr*, std::string> resolved_calls;
     std::unordered_map<const MatchStmt*, SemanticMatchInfo> match_statements;

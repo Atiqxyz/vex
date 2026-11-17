@@ -14,7 +14,7 @@ SSA values are not sufficient to model arbitrary addressable storage. The IR now
 
 Places now form typed projection chains. A root place owns function-local storage; a structure-field projection records its parent and field index; an array-element projection records its parent and an already-evaluated integer SSA index. The verifier checks parent ordering, projected result shape, inherited mutability, field validity, index type, and index-definition dominance at every load/store use. The C backend computes native lvalue addresses; LLVM uses target-typed GEPs for fields and fixed arrays, and checked runtime element access for dynamic arrays. Addresses are recomputed at each memory operation rather than cached across intervening code, so a dynamic-array reallocation cannot leave a projected place holding a stale element pointer.
 
-VEX now has an initial, deliberately narrow raw-pointer slice: a single-level typed pointer may target a mutable primitive local or parameter; `&value` produces a native pointer, `*pointer` loads through it, and `*pointer = value` stores through it. Pointer-target places retain the pointer SSA value and are verified for pointee type and dominance. Pointer parameters/returns, aggregate pointees, nulls, arithmetic, integer conversions, provenance, lifetime/borrowing rules, volatile access, and alias-sensitive optimization contracts remain open. Do not mistake this first slice for the complete pointer or aliasing model.
+VEX now has a broader initial raw-pointer slice: a single-level typed pointer may target a mutable primitive, structure, or enum local/parameter. `&value` produces a native pointer; `*pointer` loads through it; `*pointer = value` stores through it; and projected field/array-element places can be rooted in a dereferenced structure pointer. Pointer values and pointer-target places preserve pointee type and nominal identity, and the verifier checks those descriptors and pointer-value dominance. Pointer parameters/returns, pointer-to-pointer, nulls, arithmetic, integer conversions, explicit unsafe boundaries, full provenance/lifetime/borrowing, volatile access, and alias-sensitive optimization contracts remain open.
 
 ## Pointers, references, and slices
 
@@ -40,7 +40,7 @@ Native struct layout is not portable serialization. Binary codecs remain explici
 
 1. Canonical recursive type descriptors and target-aware size/alignment/offset queries.
 2. [x] Function-local typed places, explicit load/store, projected places, and verifier rules.
-3. [ ] Expand the initial scalar-pointer slice into aggregate pointers, pointer parameters/returns, arithmetic, unsafe boundaries, and explicit provenance/lifetime rules.
+3. [ ] Expand the initial pointer slice into pointer parameters/returns, pointer-to-pointer, null values, arithmetic, unsafe boundaries, and explicit provenance/lifetime rules (primitive and nominal aggregate pointees are now implemented).
 4. Allocator values, aligned allocation, reallocation, deallocation, and ownership transfer.
 5. References, slices, borrowing, lifetime checks, and invalidation rules.
 6. Deterministic scope cleanup and destruction across all structured control-flow exits.

@@ -1047,6 +1047,27 @@ void test_typed_pointer_semantics(TestContext& tests) {
     const vex::SemanticResult retargeted_result = analyze(retargeted);
     tests.check(!retargeted_result.has_errors(),
                 "pointer reassignment refreshes the target origin before alias propagation");
+
+    const vex::SourceFile aggregate{"aggregate_pointers.vex",
+        "struct Inner { value: int }\\n"
+        "struct Outer { inner: Inner, values: int[2] }\\n"
+        "make update(point: Outer) -> int {\\n"
+        "    let pointer: *Outer = &point\\n"
+        "    (*pointer).inner.value = 7\\n"
+        "    (*pointer).values[1] = 9\\n"
+        "    return point.inner.value + point.values[1]\\n"
+        "}\\n"
+        "make main() {\\n"
+        "    let outer = Outer { inner: Inner { value: 1 }, values: [3, 4] }\\n"
+        "    let pointer: *Outer = &outer\\n"
+        "    (*pointer).inner.value = 10\\n"
+        "    (*pointer).values[0] = 8\\n"
+        "    say(outer.inner.value)\\n"
+        "    say(update(outer))\\n"
+        "}\\n"};
+    const vex::SemanticResult aggregate_result = analyze(aggregate);
+    tests.check(!aggregate_result.has_errors(),
+                "typed pointers may address mutable structures and project nested fields and arrays");
 }
 
 } // namespace

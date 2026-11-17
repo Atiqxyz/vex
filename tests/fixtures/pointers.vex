@@ -10,4 +10,28 @@ make main() {
     *pointer = 42
     say(value)
     say(bump(value))
+
+    let outer = Outer { inner: Inner { value: 1 }, values: [3, 4] }
+    let pointer: *Outer = &outer
+    (*pointer).inner.value = 10
+    (*pointer).values[0] = 8
+    say(outer.inner.value)
+    say(update(outer))
 }
+
+struct Inner {
+    value: int,
+}
+
+struct Outer {
+    inner: Inner,
+    values: int[2],
+}
+
+make update(point: Outer) -> int {
+    let pointer: *Outer = &point
+    (*pointer).inner.value = 7
+    (*pointer).values[1] = 9
+    return point.inner.value + point.values[1]
+}
+

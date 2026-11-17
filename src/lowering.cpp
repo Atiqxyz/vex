@@ -285,6 +285,8 @@ private:
         value.array_dimensions = source.array_dimensions;
         value.enum_type_id = source.enum_type_id;
         value.pointer_pointee_type = source.pointer_pointee_type;
+        value.pointer_pointee_struct_type_id = source.pointer_pointee_struct_type_id;
+        value.pointer_pointee_enum_type_id = source.pointer_pointee_enum_type_id;
         return value;
     }
 
@@ -422,6 +424,8 @@ private:
         IRPlace place;
         place.id = next_place_id_++;
         place.value_type.type = pointer.pointer_pointee_type;
+        place.value_type.struct_type_id = pointer.pointer_pointee_struct_type_id;
+        place.value_type.enum_type_id = pointer.pointer_pointee_enum_type_id;
         place.value_type.span = span;
         place.mutable_place = true;
         place.span = span;
@@ -603,6 +607,8 @@ private:
     [[nodiscard]] bool collect_access_path(
         const Expr& expression, std::vector<AccessStep>& path) const {
         if (std::holds_alternative<NameExpr>(expression.data)) return true;
+        if (const auto* unary = std::get_if<UnaryExpr>(&expression.data))
+            return unary->op == TokenKind::Star && unary->operand != nullptr;
         if (const auto* group = std::get_if<GroupExpr>(&expression.data))
             return group->expression && collect_access_path(*group->expression, path);
         if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
@@ -1550,7 +1556,10 @@ private:
                 if (!pointee) return std::nullopt;
                 IRInstruction instruction;
                 instruction.op = IROp::AddressOf;
-                instruction.result = ir_make_pointer_value(*pointee, expression.span);
+                instruction.result = ir_make_pointer_value(
+                    *pointee, expression.span,
+                    pointer_type->second.pointee_struct_type_id,
+                    pointer_type->second.pointee_enum_type_id);
                 instruction.place = root_place->second;
                 instruction.span = expression.span;
                 const IRValue result = *instruction.result;
@@ -1600,20 +1609,33 @@ private:
             }
             if(assignment->target&&(std::holds_alternative<MemberExpr>(assignment->target->data)||
                                     std::holds_alternative<IndexExpr>(assignment->target->data))) {
-                const auto target=semantic_model_.assignment_targets.find(assignment);
-                if(target==semantic_model_.assignment_targets.end()||!assignment->value) {
-                    report("IR148","aggregate assignment is missing its resolved binding",expression.span);
-                    return std::nullopt;
+                if (!assignment->value) return std::nullopt;
+                IRPlaceId root_place_id = 0u;
+                const auto pointer_root =
+                    semantic_model_.assignment_pointer_targets.find(assignment);
+                if (pointer_root != semantic_model_.assignment_pointer_targets.end()) {
+                    if (!pointer_root->second) return std::nullopt;
+                    const auto pointer = lower_expression(*pointer_root->second);
+                    if (!pointer) return std::nullopt;
+                    root_place_id = create_pointer_target_place(*pointer, expression.span);
+                } else {
+                    const auto target=semantic_model_.assignment_targets.find(assignment);
+                    if(target==semantic_model_.assignment_targets.end()) {
+                        report("IR148","aggregate assignment is missing its resolved binding",expression.span);
+                        return std::nullopt;
+                    }
+                    const auto root_place = mutable_places_.find(target->second);
+                    if (root_place == mutable_places_.end()) {
+                        report("IR148", "aggregate mutation requires an addressable mutable root place",
+                               expression.span);
+                        return std::nullopt;
+                    }
+                    root_place_id = root_place->second;
                 }
-                const auto root_place = mutable_places_.find(target->second);
-                if (root_place == mutable_places_.end()) {
-                    report("IR148", "aggregate mutation requires an addressable mutable root place",
-                           expression.span);
-                    return std::nullopt;
-                }
+                if (root_place_id == 0u) return std::nullopt;
                 const auto root_descriptor = std::find_if(
                     function_.places.begin(), function_.places.end(),
-                    [&](const IRPlace& place) { return place.id == root_place->second; });
+                    [&](const IRPlace& place) { return place.id == root_place_id; });
                 if (root_descriptor == function_.places.end()) {
                     report("IR148", "aggregate mutation root place is unavailable",
                            expression.span);
@@ -1626,7 +1648,7 @@ private:
                 }
                 // Build an addressable projection chain. Index expressions are
                 // evaluated once, in source order, and retained as SSA values.
-                IRPlaceId projected_place = root_place->second;
+                IRPlaceId projected_place = root_place_id;
                 IRValue container_type = root_descriptor->value_type;
                 for (AccessStep& step : path) {
                     IRValue child_type;
@@ -1726,7 +1748,9 @@ private:
             }
             if (*target_type == IRType::Pointer &&
                 (!binding->pointer_type || converted->pointer_pointee_type !=
-                 to_ir_type(binding->pointer_type->pointee_type).value_or(IRType::Void))) {
+                 to_ir_type(binding->pointer_type->pointee_type).value_or(IRType::Void) ||
+                 converted->pointer_pointee_struct_type_id != binding->pointer_type->pointee_struct_type_id ||
+                 converted->pointer_pointee_enum_type_id != binding->pointer_type->pointee_enum_type_id)) {
                 report("IR154", "assigned pointer has an incompatible pointee type", expression.span);
                 return std::nullopt;
             }
@@ -1800,7 +1824,9 @@ private:
         }
         if (converted && *target_type == IRType::Pointer &&
             (!info->pointer_type || converted->pointer_pointee_type !=
-             to_ir_type(info->pointer_type->pointee_type).value_or(IRType::Void))) {
+             to_ir_type(info->pointer_type->pointee_type).value_or(IRType::Void) ||
+             converted->pointer_pointee_struct_type_id != info->pointer_type->pointee_struct_type_id ||
+             converted->pointer_pointee_enum_type_id != info->pointer_type->pointee_enum_type_id)) {
             report("IR154", "pointer initializer has an incompatible pointee type", variable.name);
             return;
         }
