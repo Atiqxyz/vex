@@ -479,6 +479,14 @@ void test_nested_array_annotations_and_semantics(TestContext& tests) {
     tests.check(!accepted.has_errors(),
                 "dynamic, jagged, mixed fixed/dynamic nested arrays support literals, indexing, built-ins, functions, and nested iteration");
 
+    const vex::SourceFile deep_jagged{"deep_jagged_nested_arrays.vex",
+        "make main() {\n"
+        "    let cubes: int[][][] = [[[1, 2], [3,]], [[4,]]]\n"
+        "}\n"};
+    const vex::SemanticResult deep_accepted = analyze(deep_jagged);
+    tests.check(!deep_accepted.has_errors(),
+                "contextual dynamic dimensions permit different lengths at deeper jagged levels");
+
     const vex::SourceFile invalid{"all_fixed_nested_arrays.vex",
         "make main() { let matrix: int[2][3] = [[1, 2, 3], [4, 5, 6]] }\n"};
     const vex::SemanticResult rejected = analyze(invalid);
