@@ -1291,7 +1291,7 @@ trap:
             const std::string size = emit_type_size(value);
             const std::string target_size_ok = next_temp();
             output_ << "  " << target_size_ok << " = icmp eq i64 " << size
-                    << ", " << expected_layout->size << "\\n";
+                    << ", " << expected_layout->size << "\n";
             const std::string object_ok = next_temp();
             output_ << "  " << object_ok << " = icmp ule i64 " << size
                     << ", " << max_nested_fixed_aggregate_bytes << "\n";

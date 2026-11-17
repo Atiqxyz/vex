@@ -1184,6 +1184,43 @@ void test_target_data_layout_service(TestContext& tests) {
     const auto invalid = layout.layout_of_struct(9u, module, &error);
     tests.check(!invalid && !error.empty(),
                 "target layout diagnoses unknown structure identifiers");
+
+    vex::IRValue record_parameter;
+    record_parameter.id = 1u;
+    record_parameter.type = vex::IRType::Struct;
+    record_parameter.struct_type_id = 1u;
+    vex::IRBlock consume_entry;
+    consume_entry.id = 0u;
+    consume_entry.name = "entry";
+    consume_entry.terminator = vex::IRTerminator{vex::IRReturn{std::nullopt}, {}};
+    vex::IRFunction consume;
+    consume.name = "consume_layout_record";
+    consume.parameters.push_back(vex::IRFunctionParameter{"record", record_parameter});
+    consume.blocks.push_back(std::move(consume_entry));
+    module.functions.push_back(std::move(consume));
+
+    vex::IRBlock main_entry;
+    main_entry.id = 0u;
+    main_entry.name = "entry";
+    main_entry.terminator = vex::IRTerminator{vex::IRReturn{std::nullopt}, {}};
+    vex::IRFunction main;
+    main.name = "main";
+    main.blocks.push_back(std::move(main_entry));
+    module.functions.push_back(std::move(main));
+
+    const auto verified = vex::IRVerifier{}.verify(module);
+    tests.check(!verified.has_errors(),
+                "layout conformance module passes independent IR verification");
+    if (verified.has_errors()) return;
+    const auto c = vex::CBackend{}.generate(module);
+    tests.check(!c.has_errors() &&
+                c.source.find("_Static_assert(sizeof(vex_struct_1) == 48u") != std::string::npos &&
+                c.source.find("offsetof(vex_struct_1, vex_field_1) == 8u") != std::string::npos,
+                "C backend asserts target structure size and field offsets");
+    const auto llvm = vex::LLVMBackend{}.emit(module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("alloca %vex.struct.1, align 8") != std::string::npos,
+                "LLVM backend consumes target layout for structure stack-slot alignment");
 }
 
 } // namespace

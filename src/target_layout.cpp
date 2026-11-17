@@ -120,6 +120,14 @@ private:
             fail("array has an invalid recursive type descriptor");
             return std::nullopt;
         }
+        if (value.array_length != dimensions.front() || value.struct_type_id != 0u ||
+            (value.element_type == IRType::Struct &&
+             (value.element_struct_type_id == 0u ||
+              value.element_struct_type_id > module_.struct_types.size())) ||
+            (value.element_type != IRType::Struct && value.element_struct_type_id != 0u)) {
+            fail("array has inconsistent leaf type or outer-dimension metadata");
+            return std::nullopt;
+        }
         for (const std::uint32_t dimension : dimensions) {
             if (dimension > 65536u) {
                 fail("array dimension exceeds the supported target-layout limit");
