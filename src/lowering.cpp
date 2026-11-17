@@ -2132,6 +2132,7 @@ private:
     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures_;
     const FunctionDeclStmt& declaration_;
     const std::vector<IRStructType>& struct_types_;
+    const std::vector<IREnumType>& enum_types_;
     std::vector<Diagnostic>& diagnostics_;
     const std::vector<const Statement*>* implicit_body_{nullptr};
     IRFunction function_;
@@ -2161,6 +2162,7 @@ public:
                     continue;
                 }
                 IRStructField ir_field{field.name, *type, field.struct_type_id};
+                ir_field.enum_type_id = field.enum_type_id;
                 if (field.type == SemanticType::Array && field.array_type) {
                     const auto element_type = to_ir_type(field.array_type->element_type);
                     if (!element_type || *element_type == IRType::Void ||
@@ -2174,6 +2176,7 @@ public:
                     ir_field.array_length = field.array_type->length;
                     ir_field.element_struct_type_id =
                         field.array_type->element_struct_type_id;
+                    ir_field.enum_type_id = field.array_type->element_enum_type_id;
                     ir_field.array_dimensions = field.array_type->dimensions;
                 }
                 converted.fields.push_back(std::move(ir_field));
@@ -2197,6 +2200,7 @@ public:
                     }
                     IRStructField ir_field{"payload_" + std::to_string(index), *type,
                                            field.struct_type_id};
+                    ir_field.enum_type_id = field.enum_type_id;
                     if (field.type == SemanticType::Array && field.array_type) {
                         const auto element_type = to_ir_type(field.array_type->element_type);
                         if (!element_type || *element_type == IRType::Void ||
@@ -2210,6 +2214,7 @@ public:
                         ir_field.array_length = field.array_type->length;
                         ir_field.element_struct_type_id =
                             field.array_type->element_struct_type_id;
+                        ir_field.enum_type_id = field.array_type->element_enum_type_id;
                         ir_field.array_dimensions = field.array_type->dimensions;
                     }
                     converted_variant.fields.push_back(std::move(ir_field));
@@ -2240,7 +2245,7 @@ public:
             if (source_.slice(function->name) == "main") has_explicit_main = true;
             module_.functions.push_back(FunctionLowerer(
                 source_, semantic_model_, signatures, *function, module_.struct_types,
-                diagnostics_).lower());
+                module_.enum_types, diagnostics_).lower());
         }
 
         if (has_explicit_main) {
@@ -2255,7 +2260,8 @@ public:
             const FunctionDeclStmt implicit_entry{};
             module_.functions.push_back(FunctionLowerer(
                 source_, semantic_model_, signatures, implicit_entry,
-                module_.struct_types, diagnostics_, &top_level_statements).lower());
+                module_.struct_types, module_.enum_types, diagnostics_,
+                &top_level_statements).lower());
         }
         return IRLoweringResult{std::move(module_), std::move(diagnostics_)};
     }
