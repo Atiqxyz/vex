@@ -74,6 +74,8 @@ The `say(value)` intrinsic and the first mathematical standard-library functions
 
 The shared `TargetDataLayout` service computes primitive, string, fixed/dynamic nested-array, and structure size/alignment/stride/field offsets using checked arithmetic. Its default data model is explicitly 64-bit, matching the current supported CI targets. Dynamic arrays are pointer-sized values; fixed arrays are inline aggregates. The C backend emits compile-time assertions for string and fixed-array sizes/alignments, structure sizes/alignments, and every structure field offset. The LLVM backend uses the same service for SSA stack-slot alignment and checks LLVM-computed nested aggregate sizes against the expected target layout before accepting those allocations. This provides a concrete baseline for future pointers, enums, custom layout attributes, and ABI work without confusing native layout with serialization.
 
+The enum/tagged-union design is recorded in [enum-and-tagged-union-design.md](enum-and-tagged-union-design.md). The layout service now has a layout-only descriptor API for calculating a fixed 32-bit discriminant, source-order variant tags, naturally aligned tuple payloads, maximum union storage, payload offsets, and final enum size/alignment. This is a design substrate only; enum syntax, values, IR operations, and backend code generation are not yet implemented.
+
 ### Typed semantic model and SSA IR
 
 Semantic analysis returns a `SemanticModel` alongside diagnostics. It records expression types, resolved variable and assignment bindings, parameter and local binding identities, resolved direct-call names, and function signatures. The model is tied to the lifetime of the AST it describes.

@@ -38,6 +38,38 @@ struct StructLayout {
     std::vector<FieldLayout> fields;
 };
 
+// Layout-only enum descriptor used while defining the inline tagged-union ABI.
+// It becomes part of the main typed IR model when enum syntax and values land.
+struct EnumVariantLayoutDescriptor {
+    std::string name;
+    std::vector<IRStructField> fields;
+};
+
+struct EnumLayoutDescriptor {
+    std::uint32_t id{0};
+    std::string name;
+    std::vector<EnumVariantLayoutDescriptor> variants;
+};
+
+struct EnumVariantLayout {
+    std::string name;
+    std::uint32_t tag{0};
+    std::uint64_t payload_size{0};
+    std::uint64_t payload_alignment{1};
+    std::vector<FieldLayout> fields;
+};
+
+struct EnumLayout {
+    std::uint64_t size{0};
+    std::uint64_t alignment{1};
+    std::uint64_t discriminant_size{4};
+    std::uint64_t discriminant_alignment{4};
+    std::uint64_t payload_offset{0};
+    std::uint64_t payload_size{0};
+    std::uint64_t payload_alignment{1};
+    std::vector<EnumVariantLayout> variants;
+};
+
 // Default layout describes the 64-bit targets currently supported by VEX.
 class TargetDataLayout {
 public:
@@ -49,6 +81,9 @@ public:
         const IRValue& array, const IRModule& module, std::string* error = nullptr) const;
     [[nodiscard]] std::optional<StructLayout> layout_of_struct(
         std::uint32_t struct_type_id, const IRModule& module,
+        std::string* error = nullptr) const;
+    [[nodiscard]] std::optional<EnumLayout> layout_of_enum(
+        const EnumLayoutDescriptor& enumeration, const IRModule& module,
         std::string* error = nullptr) const;
 
 private:

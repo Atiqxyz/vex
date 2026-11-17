@@ -1190,6 +1190,53 @@ void test_target_data_layout_service(TestContext& tests) {
     tests.check(!invalid && !error.empty(),
                 "target layout diagnoses unknown structure identifiers");
 
+    vex::EnumLayoutDescriptor event;
+    event.id = 1u;
+    event.name = "Event";
+    event.variants.push_back(vex::EnumVariantLayoutDescriptor{"Stopped", {}});
+    vex::EnumVariantLayoutDescriptor moving;
+    moving.name = "Moving";
+    moving.fields.push_back(vex::IRStructField{"code", vex::IRType::Byte});
+    moving.fields.push_back(vex::IRStructField{"distance", vex::IRType::Int});
+    event.variants.push_back(std::move(moving));
+    vex::EnumVariantLayoutDescriptor text;
+    text.name = "Text";
+    text.fields.push_back(vex::IRStructField{"contents", vex::IRType::String});
+    event.variants.push_back(std::move(text));
+
+    const auto event_layout = layout.layout_of_enum(event, module);
+    tests.check(event_layout && event_layout->discriminant_size == 4u &&
+                event_layout->discriminant_alignment == 4u &&
+                event_layout->payload_offset == 8u &&
+                event_layout->payload_size == 16u &&
+                event_layout->payload_alignment == 8u &&
+                event_layout->size == 24u && event_layout->alignment == 8u,
+                "enum layout computes a fixed tag and naturally aligned maximum variant payload");
+    tests.check(event_layout && event_layout->variants.size() == 3u &&
+                event_layout->variants[0].tag == 0u &&
+                event_layout->variants[1].tag == 1u &&
+                event_layout->variants[1].fields.size() == 2u &&
+                event_layout->variants[1].fields[1].offset == 8u,
+                "enum layout preserves declaration-order tags and per-variant payload offsets");
+
+    vex::EnumLayoutDescriptor unit_enum;
+    unit_enum.id = 2u;
+    unit_enum.name = "Direction";
+    unit_enum.variants = {{"North", {}}, {"South", {}}, {"East", {}}, {"West", {}}};
+    const auto unit_layout = layout.layout_of_enum(unit_enum, module);
+    tests.check(unit_layout && unit_layout->size == 4u &&
+                unit_layout->alignment == 4u && unit_layout->payload_offset == 4u &&
+                unit_layout->payload_size == 0u,
+                "payload-free enums are compact 32-bit discriminant values");
+
+    vex::EnumLayoutDescriptor duplicate_enum;
+    duplicate_enum.id = 3u;
+    duplicate_enum.name = "Invalid";
+    duplicate_enum.variants = {{"Same", {}}, {"Same", {}}};
+    error.clear();
+    tests.check(!layout.layout_of_enum(duplicate_enum, module, &error) && !error.empty(),
+                "target layout rejects duplicate enum variant names");
+
     vex::IRValue record_parameter;
     record_parameter.id = 1u;
     record_parameter.type = vex::IRType::Struct;

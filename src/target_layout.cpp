@@ -59,6 +59,93 @@ public:
         return layout_of(ir_array_element_value(array));
     }
 
+    std::optional<EnumLayout> run_enum(const EnumLayoutDescriptor& enumeration) {
+        if (!valid_config()) return std::nullopt;
+        if (enumeration.id == 0u || enumeration.name.empty() ||
+            enumeration.variants.empty() || enumeration.variants.size() > UINT32_MAX) {
+            fail("enum layout descriptor requires a name, nonzero identity, and at least one variant");
+            return std::nullopt;
+        }
+
+        EnumLayout result;
+        std::vector<std::string> variant_names;
+        std::uint64_t maximum_payload_size = 0u;
+        std::uint64_t maximum_payload_alignment = 1u;
+        for (std::size_t variant_index = 0; variant_index < enumeration.variants.size(); ++variant_index) {
+            const EnumVariantLayoutDescriptor& variant = enumeration.variants[variant_index];
+            if (variant.name.empty() ||
+                std::find(variant_names.begin(), variant_names.end(), variant.name) != variant_names.end()) {
+                fail("enum variant names must be nonempty and unique");
+                return std::nullopt;
+            }
+            variant_names.push_back(variant.name);
+
+            EnumVariantLayout variant_layout;
+            variant_layout.name = variant.name;
+            variant_layout.tag = static_cast<std::uint32_t>(variant_index);
+            std::uint64_t cursor = 0u;
+            std::uint64_t alignment = 1u;
+            std::vector<std::string> field_names;
+            for (const IRStructField& field : variant.fields) {
+                if (field.name.empty() ||
+                    std::find(field_names.begin(), field_names.end(), field.name) != field_names.end()) {
+                    fail("enum variant payload field names must be nonempty and unique");
+                    return std::nullopt;
+                }
+                field_names.push_back(field.name);
+                const auto field_layout = layout_of(ir_struct_field_value(field));
+                if (!field_layout) return std::nullopt;
+                const auto offset = align_up(cursor, field_layout->alignment);
+                if (!offset) {
+                    fail("enum variant payload field offset overflows the target size type");
+                    return std::nullopt;
+                }
+                const auto end = checked_add(*offset, field_layout->size);
+                if (!end || *end > config_.maximum_object_size) {
+                    fail("enum variant payload exceeds the target object-size limit");
+                    return std::nullopt;
+                }
+                variant_layout.fields.push_back(FieldLayout{field.name, *offset, *field_layout});
+                cursor = *end;
+                alignment = std::max(alignment, field_layout->alignment);
+            }
+            const auto payload_size = align_up(cursor, alignment);
+            if (!payload_size || *payload_size > config_.maximum_object_size) {
+                fail("enum variant payload tail padding exceeds the target object-size limit");
+                return std::nullopt;
+            }
+            variant_layout.payload_size = *payload_size;
+            variant_layout.payload_alignment = alignment;
+            maximum_payload_size = std::max(maximum_payload_size, *payload_size);
+            maximum_payload_alignment = std::max(maximum_payload_alignment, alignment);
+            result.variants.push_back(std::move(variant_layout));
+        }
+
+        const auto payload_offset = align_up(result.discriminant_size,
+                                             maximum_payload_alignment);
+        if (!payload_offset) {
+            fail("enum payload offset overflows the target alignment");
+            return std::nullopt;
+        }
+        const auto payload_end = checked_add(*payload_offset, maximum_payload_size);
+        if (!payload_end) {
+            fail("enum size overflows the target size type");
+            return std::nullopt;
+        }
+        result.alignment = std::max(result.discriminant_alignment,
+                                    maximum_payload_alignment);
+        const auto total_size = align_up(*payload_end, result.alignment);
+        if (!total_size || *total_size > config_.maximum_object_size) {
+            fail("enum aggregate exceeds the target object-size limit");
+            return std::nullopt;
+        }
+        result.payload_offset = *payload_offset;
+        result.payload_size = maximum_payload_size;
+        result.payload_alignment = maximum_payload_alignment;
+        result.size = *total_size;
+        return result;
+    }
+
 private:
     bool valid_config() {
         if (!is_power_of_two(config_.pointer_alignment) ||
@@ -254,6 +341,13 @@ std::optional<StructLayout> TargetDataLayout::layout_of_struct(
     std::string* error) const {
     if (error) error->clear();
     return LayoutComputer(config_, module, error).run_struct(struct_type_id);
+}
+
+std::optional<EnumLayout> TargetDataLayout::layout_of_enum(
+    const EnumLayoutDescriptor& enumeration, const IRModule& module,
+    std::string* error) const {
+    if (error) error->clear();
+    return LayoutComputer(config_, module, error).run_enum(enumeration);
 }
 
 } // namespace vex
