@@ -34,6 +34,7 @@ struct FunctionSignature {
     IRType return_pointer_pointee_type{IRType::Void};
     std::uint32_t return_pointer_pointee_struct_type_id{0};
     std::uint32_t return_pointer_pointee_enum_type_id{0};
+    std::uint32_t return_pointer_indirection_depth{0};
 };
 
 bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count,
@@ -72,7 +73,8 @@ bool valid_place_type(const IRValue& value, const std::size_t struct_count,
     if (value.type != IRType::Pointer &&
         (value.pointer_pointee_type != IRType::Void ||
          value.pointer_pointee_struct_type_id != 0u ||
-         value.pointer_pointee_enum_type_id != 0u)) return false;
+         value.pointer_pointee_enum_type_id != 0u ||
+         value.pointer_indirection_depth != 0u)) return false;
     if (value.type == IRType::Array)
         return valid_array_descriptor(value, struct_count, enum_count);
     if (value.type == IRType::Struct) {
@@ -104,7 +106,8 @@ bool valid_place_type(const IRValue& value, const std::size_t struct_count,
             value.pointer_pointee_enum_type_id != 0u &&
             value.pointer_pointee_enum_type_id <= enum_count &&
             value.pointer_pointee_struct_type_id == 0u;
-        return (primitive_pointee || struct_pointee || enum_pointee) &&
+        return value.pointer_indirection_depth != 0u &&
+               (primitive_pointee || struct_pointee || enum_pointee) &&
                value.struct_type_id == 0u && value.enum_type_id == 0u &&
                value.element_type == IRType::Void && value.array_length == 0u &&
                value.element_struct_type_id == 0u && value.array_dimensions.empty();
@@ -115,7 +118,8 @@ bool valid_place_type(const IRValue& value, const std::size_t struct_count,
            value.struct_type_id == 0u && value.enum_type_id == 0u &&
            value.element_type == IRType::Void && value.array_length == 0u &&
            value.element_struct_type_id == 0u && value.array_dimensions.empty() &&
-           value.pointer_pointee_type == IRType::Void;
+           value.pointer_pointee_type == IRType::Void &&
+           value.pointer_indirection_depth == 0u;
 }
 
 bool has_dynamic_outer_dimension(const IRValue& value) {
@@ -172,7 +176,8 @@ private:
         if (function_.return_type != IRType::Pointer &&
             (function_.return_pointer_pointee_type != IRType::Void ||
              function_.return_pointer_pointee_struct_type_id != 0u ||
-             function_.return_pointer_pointee_enum_type_id != 0u)) {
+             function_.return_pointer_pointee_enum_type_id != 0u ||
+             function_.return_pointer_indirection_depth != 0u)) {
             report("IR093", "non-pointer function return carries pointer pointee metadata",
                    function_.span);
         }
@@ -220,7 +225,8 @@ private:
             const IRValue pointer_return = ir_make_pointer_value(
                 function_.return_pointer_pointee_type, function_.span,
                 function_.return_pointer_pointee_struct_type_id,
-                function_.return_pointer_pointee_enum_type_id);
+                function_.return_pointer_pointee_enum_type_id,
+                function_.return_pointer_indirection_depth);
             const bool primitive_pointee =
                 (pointer_return.pointer_pointee_type == IRType::Int ||
                  pointer_return.pointer_pointee_type == IRType::Byte ||
@@ -239,7 +245,8 @@ private:
                 pointer_return.pointer_pointee_enum_type_id != 0u &&
                 pointer_return.pointer_pointee_enum_type_id <= enum_types_.size() &&
                 pointer_return.pointer_pointee_struct_type_id == 0u;
-            if (!primitive_pointee && !struct_pointee && !enum_pointee)
+            if (pointer_return.pointer_indirection_depth == 0u ||
+                (!primitive_pointee && !struct_pointee && !enum_pointee))
                 report("IR090", "function has an invalid pointer return descriptor", function_.span);
             if (function_.return_element_type != IRType::Void ||
                 function_.return_array_length != 0u ||
@@ -340,13 +347,15 @@ private:
             (!valid_array_descriptor(value, struct_types_.size(), enum_types_.size()) ||
              value.pointer_pointee_type != IRType::Void ||
              value.pointer_pointee_struct_type_id != 0u ||
-             value.pointer_pointee_enum_type_id != 0u)) {
+             value.pointer_pointee_enum_type_id != 0u ||
+             value.pointer_indirection_depth != 0u)) {
             report("IR050", "SSA array value has an invalid element type, aggregate identity, or pointer metadata",
                    value.span);
         } else if (value.type == IRType::Struct) {
             if (value.pointer_pointee_type != IRType::Void ||
                 value.pointer_pointee_struct_type_id != 0u ||
-                value.pointer_pointee_enum_type_id != 0u)
+                value.pointer_pointee_enum_type_id != 0u ||
+                value.pointer_indirection_depth != 0u)
                 report("IR112", "non-pointer structure value carries pointer metadata", value.span);
             if (value.struct_type_id == 0 || value.struct_type_id > struct_types_.size())
                 report("IR060", "SSA value has an invalid structure type", value.span);
@@ -371,7 +380,8 @@ private:
                 value.pointer_pointee_enum_type_id != 0u &&
                 value.pointer_pointee_enum_type_id <= enum_types_.size() &&
                 value.pointer_pointee_struct_type_id == 0u;
-            if (!primitive_pointee && !struct_pointee && !enum_pointee)
+            if (value.pointer_indirection_depth == 0u ||
+                (!primitive_pointee && !struct_pointee && !enum_pointee))
                 report("IR112", "SSA pointer has an unsupported or invalid pointee type", value.span);
             if (value.struct_type_id != 0 || value.enum_type_id != 0 ||
                 value.element_type != IRType::Void || value.array_length != 0 ||
@@ -380,7 +390,8 @@ private:
         } else if (value.type == IRType::Enum) {
             if (value.pointer_pointee_type != IRType::Void ||
                 value.pointer_pointee_struct_type_id != 0u ||
-                value.pointer_pointee_enum_type_id != 0u)
+                value.pointer_pointee_enum_type_id != 0u ||
+                value.pointer_indirection_depth != 0u)
                 report("IR112", "non-pointer enum value carries pointer metadata", value.span);
             if (value.enum_type_id == 0 || value.enum_type_id > enum_types_.size())
                 report("IR086", "SSA value has an invalid enum type", value.span);
@@ -394,7 +405,8 @@ private:
                     value.enum_type_id != 0 || !value.array_dimensions.empty() ||
                     value.pointer_pointee_type != IRType::Void ||
                     value.pointer_pointee_struct_type_id != 0u ||
-                    value.pointer_pointee_enum_type_id != 0u)) {
+                    value.pointer_pointee_enum_type_id != 0u ||
+                    value.pointer_indirection_depth != 0u)) {
             report("IR051", "primitive SSA value cannot carry aggregate shape metadata", value.span);
         }
         const auto inserted = definitions_.emplace(
@@ -458,7 +470,8 @@ private:
         if (left.type == IRType::Pointer)
             return left.pointer_pointee_type == right.pointer_pointee_type &&
                    left.pointer_pointee_struct_type_id == right.pointer_pointee_struct_type_id &&
-                   left.pointer_pointee_enum_type_id == right.pointer_pointee_enum_type_id;
+                   left.pointer_pointee_enum_type_id == right.pointer_pointee_enum_type_id &&
+                   left.pointer_indirection_depth == right.pointer_indirection_depth;
         return true;
     }
 
@@ -530,14 +543,23 @@ private:
             }
             if (!found->second->mutable_place)
                 report("IR114", "address-of currently requires a mutable place", instruction.span);
+            IRValue expected_pointer;
+            if (found->second->value_type.type == IRType::Pointer) {
+                expected_pointer = ir_make_pointer_value(
+                    found->second->value_type.pointer_pointee_type, instruction.span,
+                    found->second->value_type.pointer_pointee_struct_type_id,
+                    found->second->value_type.pointer_pointee_enum_type_id,
+                    found->second->value_type.pointer_indirection_depth + 1u);
+            } else {
+                expected_pointer = ir_make_pointer_value(
+                    found->second->value_type.type, instruction.span,
+                    found->second->value_type.type == IRType::Struct
+                        ? found->second->value_type.struct_type_id : 0u,
+                    found->second->value_type.type == IRType::Enum
+                        ? found->second->value_type.enum_type_id : 0u);
+            }
             if (!instruction.result || instruction.result->type != IRType::Pointer ||
-                instruction.result->pointer_pointee_type != found->second->value_type.type ||
-                instruction.result->pointer_pointee_struct_type_id !=
-                    (found->second->value_type.type == IRType::Struct
-                        ? found->second->value_type.struct_type_id : 0u) ||
-                instruction.result->pointer_pointee_enum_type_id !=
-                    (found->second->value_type.type == IRType::Enum
-                        ? found->second->value_type.enum_type_id : 0u))
+                !same_value_shape(*instruction.result, expected_pointer))
                 report("IR114", "address-of result must point to the complete place value type", instruction.span);
             break;
         }
@@ -866,7 +888,9 @@ private:
                      instruction.result->pointer_pointee_struct_type_id !=
                          found->second.return_pointer_pointee_struct_type_id ||
                      instruction.result->pointer_pointee_enum_type_id !=
-                         found->second.return_pointer_pointee_enum_type_id)) {
+                         found->second.return_pointer_pointee_enum_type_id ||
+                     instruction.result->pointer_indirection_depth !=
+                         found->second.return_pointer_indirection_depth)) {
                     report("IR092", "call result does not match the callee's typed pointer return",
                            instruction.span);
                 }
@@ -1168,7 +1192,9 @@ private:
                               returned.pointer_pointee_struct_type_id !=
                                   function_.return_pointer_pointee_struct_type_id ||
                               returned.pointer_pointee_enum_type_id !=
-                                  function_.return_pointer_pointee_enum_type_id))) {
+                                  function_.return_pointer_pointee_enum_type_id ||
+                              returned.pointer_indirection_depth !=
+                                  function_.return_pointer_indirection_depth))) {
                             report("IR031", "returned value has the wrong type or fixed-array shape",
                                    block.terminator->span);
                         }
@@ -1236,13 +1262,29 @@ private:
             const auto definition = definitions_.find(place.pointer_value);
             if (definition == definitions_.end())
                 report("IR115", "pointer-target place references an undefined pointer value", span);
-            else if (definition->second.value.type != IRType::Pointer ||
-                     definition->second.value.pointer_pointee_type != place.value_type.type ||
-                     definition->second.value.pointer_pointee_struct_type_id !=
-                        (place.value_type.type == IRType::Struct ? place.value_type.struct_type_id : 0u) ||
-                     definition->second.value.pointer_pointee_enum_type_id !=
-                        (place.value_type.type == IRType::Enum ? place.value_type.enum_type_id : 0u))
-                report("IR115", "pointer-target place has a pointer with the wrong pointee type", span);
+            else {
+                const IRValue& pointer = definition->second.value;
+                IRValue expected_place_type;
+                if (pointer.pointer_indirection_depth > 1u) {
+                    expected_place_type = ir_make_pointer_value(
+                        pointer.pointer_pointee_type, span,
+                        pointer.pointer_pointee_struct_type_id,
+                        pointer.pointer_pointee_enum_type_id,
+                        pointer.pointer_indirection_depth - 1u);
+                } else {
+                    expected_place_type.type = pointer.pointer_pointee_type;
+                    expected_place_type.struct_type_id =
+                        pointer.pointer_pointee_type == IRType::Struct
+                            ? pointer.pointer_pointee_struct_type_id : 0u;
+                    expected_place_type.enum_type_id =
+                        pointer.pointer_pointee_type == IRType::Enum
+                            ? pointer.pointer_pointee_enum_type_id : 0u;
+                    expected_place_type.span = span;
+                }
+                if (pointer.pointer_indirection_depth == 0u ||
+                    !same_value_shape(expected_place_type, place.value_type))
+                    report("IR115", "pointer-target place has a pointer with the wrong pointee type or depth", span);
+            }
             validate_use(place.pointer_value, use_block, use_position, span);
         }
         if (place.projection == IRPlaceProjectionKind::ArrayElement) {
@@ -1728,6 +1770,8 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
             function.return_pointer_pointee_struct_type_id;
         signature.return_pointer_pointee_enum_type_id =
             function.return_pointer_pointee_enum_type_id;
+        signature.return_pointer_indirection_depth =
+            function.return_pointer_indirection_depth;
         for (const IRFunctionParameter& parameter : function.parameters) {
             signature.parameters.push_back(parameter.value);
         }

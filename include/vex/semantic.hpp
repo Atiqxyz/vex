@@ -97,6 +97,8 @@ struct SemanticPointerType {
     std::uint32_t pointee_enum_type_id{0};
     // One-based parameter origin when this pointer is a borrowed function parameter.
     std::uint32_t pointee_parameter_index{0};
+    // Number of pointer indirections before the primitive or nominal pointee.
+    std::uint32_t indirection_depth{1};
 };
 
 struct SemanticBinding {

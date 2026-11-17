@@ -1067,6 +1067,46 @@ make main() {
     tests.check(!null_result.has_errors(),
                 "typed null pointers work in initialization, assignment, comparison, calls, and returns");
 
+    const vex::SourceFile nested_pointers{"nested_pointers.vex", R"VEX(
+make increment_indirect(pointer: **int) -> int {
+    **pointer += 1
+    return **pointer
+}
+make replace_indirect(pointer: **int, replacement: *int) -> int {
+    *pointer = replacement
+    **pointer += 2
+    return **pointer
+}
+make main() {
+    let first = 10
+    let second = 20
+    let nested: *int = &first
+    let nested_pointer: **int = &nested
+    say(increment_indirect(nested_pointer))
+    say(first)
+    say(replace_indirect(nested_pointer, &second))
+    say(second)
+    say(increment_indirect(nested_pointer))
+    say(nested == &second)
+}
+)VEX"};
+    const vex::SemanticResult nested_result = analyze(nested_pointers);
+    tests.check(!nested_result.has_errors(),
+                "nested pointers support address-of, dereference, rebinding, compound stores, and function parameters");
+
+    const vex::SourceFile mismatched_nested{"mismatched_nested.vex", R"VEX(
+make consume(pointer: **int) {}
+make main() {
+    let value = 1
+    let pointer: *float = null
+    let nested: **float = &pointer
+    consume(nested)
+}
+)VEX"};
+    const vex::SemanticResult mismatched_nested_result = analyze(mismatched_nested);
+    tests.check(has_code(mismatched_nested_result, "SEM021"),
+                "nested pointer parameters reject incompatible pointee types");
+
     const vex::SourceFile ambiguous_null{"ambiguous_null.vex", R"VEX(
 make main() {
     let pointer = null

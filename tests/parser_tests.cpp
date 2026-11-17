@@ -482,9 +482,11 @@ void test_pointer_expression_syntax(TestContext& tests) {
         "    let value: int = 1\n"
         "    let pointer: *int = &value\n"
         "    let empty: *int = null\n"
-        "    *pointer = 2\n"
+        "    let nested: **int = &pointer\n"
+        "    *nested = &value\n"
+        "    **nested = 2\n"
         "    say(empty == null)\n"
-        "    say(*pointer)\n"
+        "    say(**nested)\n"
         "}\n"};
     const vex::ParseResult parsed = parse(source);
     tests.check(!parsed.has_errors(), "pointer annotations, address-of, and dereference parse");
@@ -497,6 +499,11 @@ void test_pointer_expression_syntax(TestContext& tests) {
     tests.check(pointer && pointer->type_annotation &&
                 source.slice(*pointer->type_annotation) == "*int",
                 "pointer type annotation preserves the leading star");
+    const auto* nested = body && body->statements.size() > 3u
+        ? std::get_if<vex::VariableDeclStmt>(&body->statements[3]->data) : nullptr;
+    tests.check(nested && nested->type_annotation &&
+                source.slice(*nested->type_annotation) == "**int",
+                "nested pointer type annotation preserves both stars");
 }
 
 } // namespace

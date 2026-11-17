@@ -77,7 +77,8 @@ std::string c_type(const IRValue& value) {
         pointee.type = value.pointer_pointee_type;
         pointee.struct_type_id = value.pointer_pointee_struct_type_id;
         pointee.enum_type_id = value.pointer_pointee_enum_type_id;
-        return c_type(pointee) + " *";
+        return c_type(pointee) +
+            std::string(static_cast<std::size_t>(value.pointer_indirection_depth), '*');
     }
     if (value.type == IRType::Struct) return struct_type_name(value.struct_type_id);
     if (value.type == IRType::Enum) return enum_type_name(value.enum_type_id);
@@ -95,6 +96,8 @@ std::string c_return_type(const IRFunction& function) {
             function.return_pointer_pointee_struct_type_id;
         pointer.pointer_pointee_enum_type_id =
             function.return_pointer_pointee_enum_type_id;
+        pointer.pointer_indirection_depth =
+            function.return_pointer_indirection_depth;
         return c_type(pointer);
     }
     if (function.return_type == IRType::Struct)

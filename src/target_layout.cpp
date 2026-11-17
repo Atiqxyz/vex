@@ -208,7 +208,8 @@ private:
         case IRType::Float:
             return finish(8u, config_.float_alignment);
         case IRType::Pointer:
-            if (value.pointer_pointee_type == IRType::Void ||
+            if (value.pointer_indirection_depth == 0u ||
+                value.pointer_pointee_type == IRType::Void ||
                 value.pointer_pointee_type == IRType::Array ||
                 value.pointer_pointee_type == IRType::Pointer) {
                 fail("pointer has an unsupported pointee type");

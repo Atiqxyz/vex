@@ -94,6 +94,8 @@ public:
                                     signature->second.return_pointer_type->pointee_struct_type_id;
                                 function_.return_pointer_pointee_enum_type_id =
                                     signature->second.return_pointer_type->pointee_enum_type_id;
+                                function_.return_pointer_indirection_depth =
+                                    signature->second.return_pointer_type->indirection_depth;
                             }
                         }
                     }
@@ -168,6 +170,8 @@ public:
                     info->pointer_type->pointee_struct_type_id;
                 value.pointer_pointee_enum_type_id =
                     info->pointer_type->pointee_enum_type_id;
+                value.pointer_indirection_depth =
+                    info->pointer_type->indirection_depth;
             }
             if (*type == IRType::Array) {
                 if (!info->array_type) {
@@ -325,6 +329,7 @@ private:
         value.pointer_pointee_type = source.pointer_pointee_type;
         value.pointer_pointee_struct_type_id = source.pointer_pointee_struct_type_id;
         value.pointer_pointee_enum_type_id = source.pointer_pointee_enum_type_id;
+        value.pointer_indirection_depth = source.pointer_indirection_depth;
         return value;
     }
 
@@ -461,9 +466,24 @@ private:
         }
         IRPlace place;
         place.id = next_place_id_++;
-        place.value_type.type = pointer.pointer_pointee_type;
-        place.value_type.struct_type_id = pointer.pointer_pointee_struct_type_id;
-        place.value_type.enum_type_id = pointer.pointer_pointee_enum_type_id;
+        if (pointer.pointer_indirection_depth == 0u) {
+            report("IR154", "pointer target requires a nonzero indirection depth", span);
+            return 0u;
+        }
+        if (pointer.pointer_indirection_depth > 1u) {
+            place.value_type.type = IRType::Pointer;
+            place.value_type.pointer_pointee_type = pointer.pointer_pointee_type;
+            place.value_type.pointer_pointee_struct_type_id =
+                pointer.pointer_pointee_struct_type_id;
+            place.value_type.pointer_pointee_enum_type_id =
+                pointer.pointer_pointee_enum_type_id;
+            place.value_type.pointer_indirection_depth =
+                pointer.pointer_indirection_depth - 1u;
+        } else {
+            place.value_type.type = pointer.pointer_pointee_type;
+            place.value_type.struct_type_id = pointer.pointer_pointee_struct_type_id;
+            place.value_type.enum_type_id = pointer.pointer_pointee_enum_type_id;
+        }
         place.value_type.span = span;
         place.mutable_place = true;
         place.span = span;
@@ -1407,7 +1427,8 @@ private:
                 if (!expected_pointee || arguments[index].type != IRType::Pointer ||
                     arguments[index].pointer_pointee_type != *expected_pointee ||
                     arguments[index].pointer_pointee_struct_type_id != expected.pointee_struct_type_id ||
-                    arguments[index].pointer_pointee_enum_type_id != expected.pointee_enum_type_id) {
+                    arguments[index].pointer_pointee_enum_type_id != expected.pointee_enum_type_id ||
+                    arguments[index].pointer_indirection_depth != expected.indirection_depth) {
                     report("IR122", "pointer argument does not match the parameter's exact pointee type",
                            call.arguments[index]->span);
                     return std::nullopt;
@@ -1497,6 +1518,8 @@ private:
                     signature->second.return_pointer_type->pointee_struct_type_id;
                 instruction.result->pointer_pointee_enum_type_id =
                     signature->second.return_pointer_type->pointee_enum_type_id;
+                instruction.result->pointer_indirection_depth =
+                    signature->second.return_pointer_type->indirection_depth;
             } else {
                 instruction.result = make_value(*return_type, expression.span);
             }
@@ -1536,6 +1559,8 @@ private:
                     pointer_type->second.pointee_struct_type_id;
                 result.pointer_pointee_enum_type_id =
                     pointer_type->second.pointee_enum_type_id;
+                result.pointer_indirection_depth =
+                    pointer_type->second.indirection_depth;
                 IRInstruction instruction;
                 instruction.op = IROp::Constant;
                 instruction.result = result;
@@ -1664,7 +1689,8 @@ private:
                 instruction.result = ir_make_pointer_value(
                     *pointee, expression.span,
                     pointer_type->second.pointee_struct_type_id,
-                    pointer_type->second.pointee_enum_type_id);
+                    pointer_type->second.pointee_enum_type_id,
+                    pointer_type->second.indirection_depth);
                 instruction.result->id = next_value_id_++;
                 instruction.place = root_place->second;
                 instruction.span = expression.span;
@@ -1731,7 +1757,15 @@ private:
                     (target_type == IRType::Enum &&
                      converted->enum_type_id != target_value_type.enum_type_id) ||
                     (target_type == IRType::Array &&
-                     !ir_same_array_shape(*converted, target_value_type))) {
+                     !ir_same_array_shape(*converted, target_value_type)) ||
+                    (target_type == IRType::Pointer &&
+                     (converted->pointer_pointee_type != target_value_type.pointer_pointee_type ||
+                      converted->pointer_pointee_struct_type_id !=
+                          target_value_type.pointer_pointee_struct_type_id ||
+                      converted->pointer_pointee_enum_type_id !=
+                          target_value_type.pointer_pointee_enum_type_id ||
+                      converted->pointer_indirection_depth !=
+                          target_value_type.pointer_indirection_depth))) {
                     report("IR146", "pointer store value has an incompatible nominal type or array shape",
                            expression.span);
                     return std::nullopt;
@@ -1882,7 +1916,8 @@ private:
                 (!binding->pointer_type || converted->pointer_pointee_type !=
                  to_ir_type(binding->pointer_type->pointee_type).value_or(IRType::Void) ||
                  converted->pointer_pointee_struct_type_id != binding->pointer_type->pointee_struct_type_id ||
-                 converted->pointer_pointee_enum_type_id != binding->pointer_type->pointee_enum_type_id)) {
+                 converted->pointer_pointee_enum_type_id != binding->pointer_type->pointee_enum_type_id ||
+                 converted->pointer_indirection_depth != binding->pointer_type->indirection_depth)) {
                 report("IR154", "assigned pointer has an incompatible pointee type", expression.span);
                 return std::nullopt;
             }
@@ -1958,7 +1993,8 @@ private:
             (!info->pointer_type || converted->pointer_pointee_type !=
              to_ir_type(info->pointer_type->pointee_type).value_or(IRType::Void) ||
              converted->pointer_pointee_struct_type_id != info->pointer_type->pointee_struct_type_id ||
-             converted->pointer_pointee_enum_type_id != info->pointer_type->pointee_enum_type_id)) {
+             converted->pointer_pointee_enum_type_id != info->pointer_type->pointee_enum_type_id ||
+             converted->pointer_indirection_depth != info->pointer_type->indirection_depth)) {
             report("IR154", "pointer initializer has an incompatible pointee type", variable.name);
             return;
         }
@@ -2599,7 +2635,9 @@ private:
                                 converted->pointer_pointee_struct_type_id !=
                                     function_.return_pointer_pointee_struct_type_id ||
                                 converted->pointer_pointee_enum_type_id !=
-                                    function_.return_pointer_pointee_enum_type_id)) {
+                                    function_.return_pointer_pointee_enum_type_id ||
+                                converted->pointer_indirection_depth !=
+                                    function_.return_pointer_indirection_depth)) {
                         report("IR154", "returned pointer has the wrong typed pointee descriptor",
                                returned->value->span);
                     } else if (converted) return_value = converted->id;

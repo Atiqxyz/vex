@@ -107,6 +107,8 @@ struct IRValue {
     IRType pointer_pointee_type{IRType::Void};
     std::uint32_t pointer_pointee_struct_type_id{0};
     std::uint32_t pointer_pointee_enum_type_id{0};
+    // Number of pointer indirections; zero for non-pointer values.
+    std::uint32_t pointer_indirection_depth{0};
 };
 
 // Older IR construction sites may only populate array_length. Treat that as
@@ -121,13 +123,15 @@ struct IRValue {
 [[nodiscard]] inline IRValue ir_make_pointer_value(
     const IRType pointee_type, const SourceSpan span = {},
     const std::uint32_t pointee_struct_type_id = 0,
-    const std::uint32_t pointee_enum_type_id = 0) {
+    const std::uint32_t pointee_enum_type_id = 0,
+    const std::uint32_t indirection_depth = 1u) {
     IRValue value;
     value.type = IRType::Pointer;
     value.span = span;
     value.pointer_pointee_type = pointee_type;
     value.pointer_pointee_struct_type_id = pointee_struct_type_id;
     value.pointer_pointee_enum_type_id = pointee_enum_type_id;
+    value.pointer_indirection_depth = indirection_depth;
     return value;
 }
 
@@ -306,6 +310,7 @@ struct IRFunction {
     IRType return_pointer_pointee_type{IRType::Void};
     std::uint32_t return_pointer_pointee_struct_type_id{0};
     std::uint32_t return_pointer_pointee_enum_type_id{0};
+    std::uint32_t return_pointer_indirection_depth{0};
 };
 
 struct IRModule {

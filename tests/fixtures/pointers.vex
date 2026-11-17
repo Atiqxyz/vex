@@ -21,6 +21,17 @@ make add_one(pointer: *int) -> int {
     return *pointer
 }
 
+make increment_indirect(pointer: **int) -> int {
+    **pointer += 1
+    return **pointer
+}
+
+make replace_indirect(pointer: **int, replacement: *int) -> int {
+    *pointer = replacement
+    **pointer += 2
+    return **pointer
+}
+
 make main() {
     let value = 41
     let pointer: *int = &value
@@ -32,6 +43,17 @@ make main() {
     let identity_pointer: *int = identity(pointer)
     *identity_pointer += 1
     say(value)
+
+    let first = 10
+    let second = 20
+    let nested: *int = &first
+    let nested_pointer: **int = &nested
+    say(increment_indirect(nested_pointer))
+    say(first)
+    say(replace_indirect(nested_pointer, &second))
+    say(second)
+    say(increment_indirect(nested_pointer))
+    say(nested == &second)
 
     let empty: *int = null
     say(empty == null)

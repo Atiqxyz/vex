@@ -178,8 +178,8 @@ private:
             Type pointee = Type::Error;
             std::uint32_t pointee_struct_type_id = 0u;
             std::uint32_t pointee_enum_type_id = 0u;
-            if (depth != 1u || pointee_name.empty()) {
-                report("SEM070", "only single-level pointer types are supported", span);
+            if (depth == 0u || depth > 8u || pointee_name.empty()) {
+                report("SEM070", "pointer type depth must be between one and eight", span);
                 return Type::Error;
             }
             if (pointee_name == "int") pointee = Type::Int;
@@ -203,9 +203,11 @@ private:
                 report("SEM070", "pointer parameters and return types are not supported yet", span);
                 return Type::Error;
             }
-            *pointer_type = SemanticPointerType{
+            SemanticPointerType descriptor{
                 pointee, 0u, true, pointee_struct_type_id, pointee_enum_type_id
             };
+            descriptor.indirection_depth = static_cast<std::uint32_t>(depth);
+            *pointer_type = descriptor;
             return Type::Pointer;
         }
         const std::size_t open = name.find('[');
@@ -833,6 +835,15 @@ private:
         }
     }
 
+    [[nodiscard]] Symbol* lookup_binding_symbol(const SemanticBindingId id) {
+        for (std::size_t index = scopes_.size(); index > 0; --index) {
+            for (auto& entry : scopes_[index - 1]) {
+                if (entry.second.id == id) return &entry.second;
+            }
+        }
+        return nullptr;
+    }
+
     [[nodiscard]] Symbol* lookup(const std::string& name) {
         for (std::size_t index = scopes_.size(); index > 0; --index) {
             Scope& scope = scopes_[index - 1];
@@ -1330,10 +1341,26 @@ private:
                     report("SEM070", "address-of requires a mutable, addressable scalar local or parameter", unary->operand->span);
                     return Type::Error;
                 }
-                model_.pointer_expression_types[&expression] = SemanticPointerType{
-                    binding->second.type, binding->second.id, true,
-                    binding->second.struct_type_id, binding->second.enum_type_id
-                };
+                SemanticPointerType addressed;
+                if (binding->second.type == Type::Pointer) {
+                    if (!binding->second.pointer_type ||
+                        binding->second.pointer_type->indirection_depth >= 8u) {
+                        report("SEM070", "cannot take the address of an unsupported or maximally nested pointer binding",
+                               unary->operand->span);
+                        return Type::Error;
+                    }
+                    addressed = *binding->second.pointer_type;
+                    ++addressed.indirection_depth;
+                } else {
+                    addressed = SemanticPointerType{
+                        binding->second.type, binding->second.id, true,
+                        binding->second.struct_type_id, binding->second.enum_type_id
+                    };
+                }
+                addressed.pointee_binding_id = binding->second.id;
+                addressed.pointee_parameter_index = 0u;
+                addressed.mutable_pointee = true;
+                model_.pointer_expression_types[&expression] = addressed;
                 return Type::Pointer;
             }
             if (unary->op == TokenKind::Star) {
@@ -1341,6 +1368,24 @@ private:
                 if (operand != Type::Pointer || pointer == model_.pointer_expression_types.end()) {
                     report("SEM070", "dereference requires a supported typed pointer", unary->operand->span);
                     return Type::Error;
+                }
+                if (pointer->second.indirection_depth == 0u) {
+                    report("SEM070", "pointer descriptor has zero indirection depth", unary->operand->span);
+                    return Type::Error;
+                }
+                if (pointer->second.indirection_depth > 1u) {
+                    SemanticPointerType dereferenced = pointer->second;
+                    --dereferenced.indirection_depth;
+                    dereferenced.pointee_binding_id = 0u;
+                    dereferenced.pointee_parameter_index = 0u;
+                    if (pointer->second.pointee_binding_id != 0u) {
+                        const auto origin = model_.bindings.find(
+                            pointer->second.pointee_binding_id);
+                        if (origin != model_.bindings.end() && origin->second.pointer_type)
+                            dereferenced = *origin->second.pointer_type;
+                    }
+                    model_.pointer_expression_types[&expression] = dereferenced;
+                    return Type::Pointer;
                 }
                 if (pointer->second.pointee_type == Type::Struct)
                     model_.struct_expression_types[&expression] =
@@ -1413,7 +1458,8 @@ private:
                               : std::optional<SemanticPointerType>{resolved_right->second}) &&
                     (resolved_left->second.pointee_type != resolved_right->second.pointee_type ||
                      resolved_left->second.pointee_struct_type_id != resolved_right->second.pointee_struct_type_id ||
-                     resolved_left->second.pointee_enum_type_id != resolved_right->second.pointee_enum_type_id)) {
+                     resolved_left->second.pointee_enum_type_id != resolved_right->second.pointee_enum_type_id ||
+                     resolved_left->second.indirection_depth != resolved_right->second.indirection_depth)) {
                     report("SEM014", "pointer equality requires identical pointee types", expression.span);
                     return Type::Error;
                 }
@@ -1542,6 +1588,20 @@ private:
                     : model_.pointer_expression_types.end();
                 const bool mutable_pointer = pointer != model_.pointer_expression_types.end() &&
                     pointer->second.mutable_pointee;
+                const SemanticBindingId pointer_cell_binding_id =
+                    pointer == model_.pointer_expression_types.end()
+                        ? 0u : pointer->second.pointee_binding_id;
+                const auto target_pointer = model_.pointer_expression_types.find(
+                    assignment->target.get());
+                const std::optional<SemanticPointerType> target_pointer_type =
+                    target_pointer == model_.pointer_expression_types.end()
+                        ? std::nullopt
+                        : std::optional<SemanticPointerType>{target_pointer->second};
+                if (target_type == Type::Pointer && target_pointer_type &&
+                    assignment->value && is_null_pointer_literal(assignment->value.get())) {
+                    model_.pointer_expression_types[assignment->value.get()] =
+                        *target_pointer_type;
+                }
                 const Type value_type = assignment->value
                     ? analyze_expression(*assignment->value) : Type::Error;
                 if (!mutable_pointer) {
@@ -1566,6 +1626,26 @@ private:
                 } else if (!is_assignable(target_type, value_type)) {
                     report("SEM071", "dereferenced pointer assignment has an incompatible pointee value",
                            expression.span);
+                } else if (target_type == Type::Pointer) {
+                    const auto actual_pointer = assignment->value
+                        ? model_.pointer_expression_types.find(assignment->value.get())
+                        : model_.pointer_expression_types.end();
+                    if (!target_pointer_type ||
+                        actual_pointer == model_.pointer_expression_types.end() ||
+                        target_pointer_type->pointee_type != actual_pointer->second.pointee_type ||
+                        target_pointer_type->pointee_struct_type_id != actual_pointer->second.pointee_struct_type_id ||
+                        target_pointer_type->pointee_enum_type_id != actual_pointer->second.pointee_enum_type_id ||
+                        target_pointer_type->indirection_depth != actual_pointer->second.indirection_depth) {
+                        report("SEM071", "pointer-to-pointer store requires an identical nested pointer type",
+                               expression.span);
+                    } else if (pointer_cell_binding_id != 0u) {
+                        const auto cell = model_.bindings.find(pointer_cell_binding_id);
+                        if (cell != model_.bindings.end()) {
+                            cell->second.pointer_type = actual_pointer->second;
+                            if (Symbol* symbol = lookup_binding_symbol(pointer_cell_binding_id))
+                                symbol->pointer_type = actual_pointer->second;
+                        }
+                    }
                 }
                 return target_type;
             }
@@ -1667,7 +1747,8 @@ private:
                 if (pointer == model_.pointer_expression_types.end() || !symbol->pointer_type ||
                     pointer->second.pointee_type != symbol->pointer_type->pointee_type ||
                     pointer->second.pointee_struct_type_id != symbol->pointer_type->pointee_struct_type_id ||
-                    pointer->second.pointee_enum_type_id != symbol->pointer_type->pointee_enum_type_id) {
+                    pointer->second.pointee_enum_type_id != symbol->pointer_type->pointee_enum_type_id ||
+                    pointer->second.indirection_depth != symbol->pointer_type->indirection_depth) {
                     report("SEM071", "pointer assignment requires a pointer with the same pointee type", expression.span);
                 } else {
                     const auto origin = model_.bindings.find(pointer->second.pointee_binding_id);
@@ -1678,6 +1759,9 @@ private:
                     // Later reads of this pointer binding must observe its current target origin,
                     // otherwise a subsequent copy could inherit a stale lifetime origin.
                     symbol->pointer_type = pointer->second;
+                    const auto binding = model_.bindings.find(symbol->id);
+                    if (binding != model_.bindings.end())
+                        binding->second.pointer_type = pointer->second;
                     model_.pointer_expression_types[&expression] = pointer->second;
                 }
             }
@@ -2132,7 +2216,8 @@ private:
                     if (!expected_pointer || actual_pointer == model_.pointer_expression_types.end() ||
                         expected_pointer->pointee_type != actual_pointer->second.pointee_type ||
                         expected_pointer->pointee_struct_type_id != actual_pointer->second.pointee_struct_type_id ||
-                        expected_pointer->pointee_enum_type_id != actual_pointer->second.pointee_enum_type_id) {
+                        expected_pointer->pointee_enum_type_id != actual_pointer->second.pointee_enum_type_id ||
+                        expected_pointer->indirection_depth != actual_pointer->second.indirection_depth) {
                         report("SEM021", "pointer argument " + std::to_string(index + 1) +
                                " does not match the parameter's exact pointee type",
                                call->arguments[index]->span);
@@ -2251,7 +2336,8 @@ private:
             } else if (declared_pointer_type &&
                        (declared_pointer_type->pointee_type != inferred_pointer->second.pointee_type ||
                         declared_pointer_type->pointee_struct_type_id != inferred_pointer->second.pointee_struct_type_id ||
-                        declared_pointer_type->pointee_enum_type_id != inferred_pointer->second.pointee_enum_type_id)) {
+                        declared_pointer_type->pointee_enum_type_id != inferred_pointer->second.pointee_enum_type_id ||
+                        declared_pointer_type->indirection_depth != inferred_pointer->second.indirection_depth)) {
                 report("SEM071", "pointer initializer has a different pointee type than its annotation", variable.initializer->span);
             } else {
                 // Retain origin information even when the source wrote an explicit *T annotation.
@@ -2329,7 +2415,7 @@ private:
                 (binding.type == Type::Int || binding.type == Type::Byte ||
                  binding.type == Type::Float || binding.type == Type::Bool ||
                  binding.type == Type::String || binding.type == Type::Struct ||
-                 binding.type == Type::Enum);
+                 binding.type == Type::Enum || binding.type == Type::Pointer);
         }
     }
 
@@ -2368,7 +2454,7 @@ private:
                     (binding.type == Type::Int || binding.type == Type::Byte ||
                      binding.type == Type::Float || binding.type == Type::Bool ||
                      binding.type == Type::String || binding.type == Type::Struct ||
-                     binding.type == Type::Enum);
+                     binding.type == Type::Enum || binding.type == Type::Pointer);
             }
         }
 
@@ -2807,7 +2893,9 @@ private:
                             actual_pointer->second.pointee_struct_type_id !=
                                 current_return_pointer_type_->pointee_struct_type_id ||
                             actual_pointer->second.pointee_enum_type_id !=
-                                current_return_pointer_type_->pointee_enum_type_id) {
+                                current_return_pointer_type_->pointee_enum_type_id ||
+                            actual_pointer->second.indirection_depth !=
+                                current_return_pointer_type_->indirection_depth) {
                             report("SEM028", "returned pointer does not match the function's exact pointee type",
                                    returned->value->span);
                         } else if (!is_null_pointer_literal(returned->value.get()) &&
