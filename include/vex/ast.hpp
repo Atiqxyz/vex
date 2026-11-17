@@ -57,11 +57,19 @@ struct BreakStmt {};
 struct ContinueStmt {};
 struct RepeatStmt { ExprPtr count; StmtPtr body; };
 struct ForStmt { SourceSpan variable{}; ExprPtr iterable; StmtPtr body; };
+struct MatchArm {
+    bool wildcard{false};
+    SourceSpan enum_name{};
+    SourceSpan variant_name{};
+    std::vector<SourceSpan> bindings;
+    StmtPtr body;
+};
+struct MatchStmt { ExprPtr value; std::vector<MatchArm> arms; };
 struct Statement {
     SourceSpan span{};
     std::variant<FunctionDeclStmt, StructDeclStmt, EnumDeclStmt, ImportDeclStmt, VariableDeclStmt, ReturnStmt,
                  ExpressionStmt, BlockStmt, IfStmt, WhileStmt, BreakStmt,
-                 ContinueStmt, RepeatStmt, ForStmt> data;
+                 ContinueStmt, RepeatStmt, ForStmt, MatchStmt> data;
 };
 struct Program { std::vector<StmtPtr> statements; };
 void print_ast(std::ostream& output, const SourceFile& source, const Program& program);
