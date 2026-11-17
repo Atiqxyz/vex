@@ -27,11 +27,14 @@ struct FunctionSignature {
     IRType return_element_type{IRType::Void};
     std::uint32_t return_array_length{0};
     std::uint32_t return_struct_type_id{0};
+    std::uint32_t return_enum_type_id{0};
     std::uint32_t return_element_struct_type_id{0};
+    std::uint32_t return_element_enum_type_id{0};
     std::vector<std::uint32_t> return_array_dimensions;
 };
 
-bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count) {
+bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count,
+                             const std::size_t enum_count) {
     if (value.type != IRType::Array || value.struct_type_id != 0 ||
         value.element_type == IRType::Void || value.element_type == IRType::Array) {
         return false;
@@ -52,8 +55,12 @@ bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count
     }
     if (value.element_type == IRType::Struct)
         return value.element_struct_type_id != 0 &&
-               value.element_struct_type_id <= struct_count;
-    return value.element_struct_type_id == 0;
+               value.element_struct_type_id <= struct_count &&
+               value.enum_type_id == 0;
+    if (value.element_type == IRType::Enum)
+        return value.element_struct_type_id == 0 &&
+               value.enum_type_id != 0 && value.enum_type_id <= enum_count;
+    return value.element_struct_type_id == 0 && value.enum_type_id == 0;
 }
 
 bool has_dynamic_outer_dimension(const IRValue& value) {
@@ -71,7 +78,8 @@ IRValue function_array_return_value(const IRFunction& function) {
     auto dimensions = function.return_array_dimensions;
     if (dimensions.empty()) dimensions.push_back(function.return_array_length);
     return ir_make_array_value(function.return_element_type, std::move(dimensions),
-                               function.return_element_struct_type_id, function.span);
+                               function.return_element_struct_type_id, function.span,
+                               function.return_element_enum_type_id);
 }
 
 struct Definition {
@@ -85,9 +93,10 @@ public:
     FunctionVerifier(const IRFunction& function,
                      const std::unordered_map<std::string, FunctionSignature>& functions,
                      const std::vector<IRStructType>& struct_types,
+                     const std::vector<IREnumType>& enum_types,
                      std::vector<Diagnostic>& diagnostics)
         : function_(function), functions_(functions), struct_types_(struct_types),
-          diagnostics_(diagnostics) {}
+          enum_types_(enum_types), diagnostics_(diagnostics) {}
 
     void run() {
         index_blocks();
@@ -118,7 +127,7 @@ private:
         }
         if (function_.return_type == IRType::Array) {
             if (!valid_array_descriptor(function_array_return_value(function_),
-                                        struct_types_.size())) {
+                                        struct_types_.size(), enum_types_.size())) {
                 report("IR053", "function has an invalid array return shape", function_.span);
             }
         } else if (function_.return_type == IRType::Struct) {
@@ -128,8 +137,20 @@ private:
             if (function_.return_element_type != IRType::Void ||
                 function_.return_array_length != 0 ||
                 function_.return_element_struct_type_id != 0 ||
+                function_.return_element_enum_type_id != 0 ||
                 !function_.return_array_dimensions.empty())
                 report("IR054", "structure function return cannot carry array shape metadata", function_.span);
+        } else if (function_.return_type == IRType::Enum) {
+            if (function_.return_enum_type_id == 0 ||
+                function_.return_enum_type_id > enum_types_.size())
+                report("IR086", "function has an invalid enum return type", function_.span);
+            if (function_.return_element_type != IRType::Void ||
+                function_.return_array_length != 0 ||
+                function_.return_element_struct_type_id != 0 ||
+                function_.return_element_enum_type_id != 0 ||
+                !function_.return_array_dimensions.empty() ||
+                function_.return_struct_type_id != 0)
+                report("IR054", "enum function return cannot carry unrelated aggregate metadata", function_.span);
         } else if (function_.return_type == IRType::Void ||
                    function_.return_type == IRType::Int ||
                    function_.return_type == IRType::Float ||
@@ -139,6 +160,9 @@ private:
             if (function_.return_element_type != IRType::Void ||
                 function_.return_array_length != 0 ||
                 function_.return_element_struct_type_id != 0 ||
+                function_.return_element_enum_type_id != 0 ||
+                function_.return_struct_type_id != 0 ||
+                function_.return_enum_type_id != 0 ||
                 !function_.return_array_dimensions.empty()) {
                 report("IR054", "primitive function return cannot carry array shape metadata",
                        function_.span);
@@ -160,19 +184,27 @@ private:
             report("IR006", "SSA values cannot have type void", value.span);
         }
         if (value.type == IRType::Array &&
-            !valid_array_descriptor(value, struct_types_.size())) {
+            !valid_array_descriptor(value, struct_types_.size(), enum_types_.size())) {
             report("IR050", "SSA array value has an invalid element type or aggregate identity",
                    value.span);
         } else if (value.type == IRType::Struct) {
             if (value.struct_type_id == 0 || value.struct_type_id > struct_types_.size())
                 report("IR060", "SSA value has an invalid structure type", value.span);
             if (value.element_type != IRType::Void || value.array_length != 0 ||
-                value.element_struct_type_id != 0 || !value.array_dimensions.empty())
+                value.element_struct_type_id != 0 || value.enum_type_id != 0 ||
+                !value.array_dimensions.empty())
                 report("IR051", "structure SSA value cannot carry array shape metadata", value.span);
+        } else if (value.type == IRType::Enum) {
+            if (value.enum_type_id == 0 || value.enum_type_id > enum_types_.size())
+                report("IR086", "SSA value has an invalid enum type", value.span);
+            if (value.element_type != IRType::Void || value.array_length != 0 ||
+                value.struct_type_id != 0 || value.element_struct_type_id != 0 ||
+                !value.array_dimensions.empty())
+                report("IR051", "enum SSA value cannot carry aggregate shape metadata", value.span);
         } else if (value.type != IRType::Array &&
                    (value.element_type != IRType::Void || value.array_length != 0 ||
                     value.struct_type_id != 0 || value.element_struct_type_id != 0 ||
-                     !value.array_dimensions.empty())) {
+                    value.enum_type_id != 0 || !value.array_dimensions.empty())) {
             report("IR051", "primitive SSA value cannot carry aggregate shape metadata", value.span);
         }
         const auto inserted = definitions_.emplace(
@@ -232,6 +264,7 @@ private:
         if (left.type != right.type) return false;
         if (left.type == IRType::Array) return same_array_shape(left, right);
         if (left.type == IRType::Struct) return left.struct_type_id == right.struct_type_id;
+        if (left.type == IRType::Enum) return left.enum_type_id == right.enum_type_id;
         return true;
     }
 
