@@ -1,3 +1,11 @@
+struct Point {
+    x: int,
+}
+
+struct Grid {
+    rows: int[][],
+}
+
 make total(rows: int[][]) -> int {
     let result = 0
     for row in rows {
@@ -12,15 +20,42 @@ make first_row(rows: int[][]) -> int[] {
     return rows[0]
 }
 
+make first_plane(cubes: int[][][]) -> int[][] {
+    return cubes[0]
+}
+
+make mark_index(calls: int[], marker: int, index: int) -> int {
+    push(calls, marker)
+    return index
+}
+
+make rhs_value(calls: int[]) -> int {
+    push(calls, 30)
+    return 5
+}
+
 make main() {
     let rows: int[][] = [[1, 2], [3, 4, 5]]
     say(length(rows))
     say(length(rows[0]))
 
     rows[0][1] = 10
+    let calls: int[] = []
+    rows[mark_index(calls, 10, 0)][mark_index(calls, 20, 1)] += rhs_value(calls)
+    say(rows[0][1])
+    say(length(calls))
+    say(calls[0])
+    say(calls[1])
+    say(calls[2])
+
+    let alias = rows
+    push(rows[0], 11)
+    say(length(alias[0]))
+    reserve(rows[0], 8)
+    say(capacity(alias[0]) >= 8)
+
     push(rows, [6, 7])
     push(rows[1], 9)
-
     say(length(rows))
     say(length(rows[1]))
 
@@ -31,4 +66,49 @@ make main() {
 
     let row = first_row(rows)
     say(length(row))
+    let removed_inner = pop(rows[0])
+    say(removed_inner)
+    say(length(alias))
+
+    let empty_rows: int[][] = [[], [1, 2]]
+    say(length(empty_rows[0]))
+
+    let fixed_empty: int[2][] = [[], [7, 8]]
+    push(fixed_empty[0], 9)
+    say(fixed_empty[0][0])
+
+    let fixed_outer: int[2][] = [[10, 20], [30,]]
+    let fixed_copy = fixed_outer
+    push(fixed_outer[0], 30)
+    fixed_outer[1][0] = 40
+    say(length(fixed_copy[0]))
+    say(fixed_copy[1][0])
+
+    let fixed_rows: int[][2] = [[5, 6], [7, 8]]
+    let fixed_rows_alias = fixed_rows
+    fixed_rows[0][1] = 60
+    say(fixed_rows_alias[0][1])
+    let detached = fixed_rows[0]
+    fixed_rows[0][1] = 61
+    say(detached[1])
+    let removed_fixed = pop(fixed_rows)
+    say(removed_fixed[0])
+
+    let cubes: int[][][] = [[[1, 2], [3,]], [[4,]]]
+    say(length(cubes[0][1]))
+    push(cubes[0][1], 5)
+    say(cubes[0][1][1])
+    let plane = first_plane(cubes)
+    say(plane[0][1])
+
+    let grid = Grid { rows: [[1, 2], [3,]] }
+    push(grid.rows[0], 8)
+    say(grid.rows[0][2])
+
+    let points: Point[][] = [
+        [Point { x: 1 }, Point { x: 2 }],
+        [Point { x: 3 }, Point { x: 4 }]
+    ]
+    points[1][0].x += 3
+    say(points[1][0].x)
 }

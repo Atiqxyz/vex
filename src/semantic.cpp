@@ -102,8 +102,7 @@ public:
         collect_struct_types();
         collect_function_signatures();
         for (const StmtPtr& statement : program_.statements) {
-            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data) &&
-                !std::holds_alternative<ImportDeclStmt>(statement->data))
+            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data))
                 analyze_statement(*statement);
         }
         return SemanticResult{std::move(diagnostics_), std::move(model_)};
@@ -1834,8 +1833,13 @@ private:
             analyze_variable(*variable);
             return;
         }
-        if (std::holds_alternative<StructDeclStmt>(statement.data) ||
-            std::holds_alternative<ImportDeclStmt>(statement.data)) return;
+        if (const auto* import = std::get_if<ImportDeclStmt>(&statement.data)) {
+            report("SEM061",
+                   "import declarations are not yet supported; module resolution is not implemented",
+                   import->path_literal);
+            return;
+        }
+        if (std::holds_alternative<StructDeclStmt>(statement.data)) return;
         if (std::holds_alternative<BlockStmt>(statement.data)) {
             analyze_block(statement, true);
             return;

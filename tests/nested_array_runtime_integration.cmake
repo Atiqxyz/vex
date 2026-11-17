@@ -2,7 +2,7 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED SOURCE_FILE OR NOT DEFINED BACKEND)
     message(FATAL_ERROR "VEX_EXECUTABLE, SOURCE_FILE, and BACKEND are required")
 endif()
 
-set(expected_output "2\n2\n3\n4\n7\n2\n32\n2\n")
+set(expected_output "2\n2\n15\n3\n10\n20\n30\n3\ntrue\n3\n4\n7\n2\n48\n3\n11\n2\n0\n9\n3\n40\n60\n60\n7\n1\n5\n2\n8\n6\n")
 if(BACKEND STREQUAL "llvm")
     if(NOT DEFINED LLVM_CLANG)
         message(FATAL_ERROR "LLVM_CLANG is required for the LLVM nested-array runtime test")

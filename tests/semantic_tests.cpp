@@ -856,6 +856,15 @@ void test_string_join_semantics(TestContext& tests) {
                 "join rejects non-string and fixed-size arrays");
 }
 
+void test_import_declarations_are_rejected_until_module_resolution(TestContext& tests) {
+    const vex::SourceFile source{"unsupported_import.vex",
+        "import \"math.vex\"\n"
+        "make main() { say(1) }\n"};
+    const vex::SemanticResult result = analyze(source);
+    tests.check(has_code(result, "SEM061"),
+                "parsed import declarations are rejected until module resolution exists");
+}
+
 } // namespace
 
 void run_semantic_tests(TestContext& tests) {
@@ -873,6 +882,7 @@ void run_semantic_tests(TestContext& tests) {
     test_fixed_arrays_and_index_assignment(tests);
     test_array_function_types_and_shapes(tests);
     test_nested_array_annotations_and_semantics(tests);
+    test_import_declarations_are_rejected_until_module_resolution(tests);
     test_default_initialization_semantics(tests);
     test_dynamic_array_semantics(tests);
     test_dynamic_array_capacity_semantics(tests);

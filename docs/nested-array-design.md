@@ -1,10 +1,8 @@
 # Nested arrays and collections of collections
 
-**Status:** semantic analysis now accepts dynamic and mixed fixed/dynamic nested collection shapes, and recursive IR descriptors, verifier shape checks, lowering metadata, and native type representations carry those shapes. All-fixed nested source arrays remain gated pending a documented target-aware aggregate and stack-size policy. Native C and LLVM runtime integration tests are pending; do not claim complete support until both execute the same nested fixtures correctly.
+**Status:** Dynamic and mixed fixed/dynamic jagged arrays are implemented across parsing, semantic analysis, recursive IR descriptors, verifier, lowering, and both C and LLVM backends. The native runtime fixture exercises two- and three-dimensional arrays, ragged and empty rows, mixed fixed/dynamic dimensions, nested assignment and compound assignment, side-effecting index expressions, nested collection operations, function parameters and returns, structure fields, arrays of structures, and value-versus-reference behavior. All-fixed nested arrays remain deferred pending a target-aware aggregate-size and stack-allocation policy; contiguous rectangular multidimensional arrays remain a separate feature.
 
-**Current baseline:** branch **dev** at **cca44d2b49fc69bf66c7393b95925acac27b7ab0**. Its CI run #276 was still in progress when this design note was refreshed; the most recent fully completed four-platform green baseline remains [run #43744348963](https://github.com/Atiqxyz/vex/actions/runs/43744348963) at commit **0fdc5712a9398a0a95517d7c57baeab075e1fa90**.
-
-This note records the semantic contract for the feature and tracks implementation boundaries. Parsing repeated dimensions is now supported, but nested arrays do not compile today.
+This note records the semantic contract and remaining implementation boundaries. Repeated dimensions compile and execute for dynamic and mixed fixed/dynamic jagged shapes; all-fixed nested source arrays are intentionally rejected until their size and stack policy is enforced.
 
 ## 1. Problem and intended use
 
@@ -161,9 +159,9 @@ The roadmap still leaves the stack-allocation policy undecided. A representable 
 
 ## 9. Type metadata required by the compiler
 
-The current semantic and IR metadata describes only one array layer: a base element kind, one length, and optionally one nominal structure ID. That representation is the main architectural blocker.
+The semantic model and IR now carry one canonical flattened recursive shape: a scalar or nominal structure leaf type plus an ordered, outermost-first vector of fixed or dynamic dimensions. Indexing removes exactly the first dimension, and structural equality compares the leaf identity and every remaining dimension. This representation travels through bindings, structure fields, function parameters and returns, block parameters, SSA values, array operations, and call verification.
 
-Replace the flattened shape with one canonical recursive/structural type descriptor shared conceptually across the semantic model and IR:
+The descriptor is the foundation for nested arrays; all-fixed source shapes remain gated separately until their target-aware size and stack policy is enforced.
 
 - a scalar or nominal structure base type;
 - an ordered sequence of array dimensions, outermost first;
@@ -200,16 +198,18 @@ VEX adopts contiguous storage within each individual dynamic dimension, geometri
 
 ## 11. Required implementation and test sequence
 
-Do not implement this as a parser-only feature. The coherent vertical slice is:
+Do not implement this as a parser-only feature. The implemented dynamic/mixed jagged-array vertical slice is:
 
-1. Introduce the canonical multi-dimension type descriptor and recursive equality/validation helpers.
-2. Extend type-annotation parsing to consume repeated dimensions and report malformed suffixes precisely.
-3. Update semantic analysis for recursive annotations, contextual nested literals, empty nested literals, function signatures, structure fields, assignment, mutability, built-ins, and recursive structure-cycle checks.
-4. Carry complete shapes through lowering and function/block values.
-5. Extend the IR verifier to compare complete nested shapes for array construction, get/set, push/pop, calls, returns, and structure fields.
-6. Update C type naming/emission recursively and verify wrapper dependency ordering.
-7. Update LLVM aggregate types and target-native element-size calculations recursively.
-8. Add matching C and LLVM integration fixtures, then run the full four-platform CI matrix.
+1. [x] Canonical multi-dimension descriptors and recursive equality/validation helpers.
+2. [x] Repeated type-annotation parsing and malformed-suffix diagnostics.
+3. [x] Semantic analysis for dynamic and mixed fixed/dynamic annotations, contextual nested literals, empty nested literals, function signatures, structure fields, assignment, mutability, built-ins, and recursive structure-cycle checks.
+4. [x] Complete shapes through lowering and function/block values.
+5. [x] Recursive IR verifier checks for array construction, get/set, push/pop, calls, returns, and structure fields.
+6. [x] Recursive C type naming/emission and wrapper dependency ordering.
+7. [x] Recursive LLVM aggregate types and target-native element-size calculations.
+8. [x] Matching C and LLVM runtime fixtures in the four-platform CI matrix.
+
+Remaining gate: define and enforce a target-aware aggregate-size and per-function stack-allocation policy before enabling all-fixed nested arrays. Expand adversarial allocation-failure and deeply nested structure tests as that policy is implemented.
 
 Minimum test coverage:
 
@@ -229,4 +229,4 @@ This feature does not implement borrowed slices, element references, pointer ari
 
 The current program-lifetime allocation registry is sufficient to make shared nested dynamic references safe for the existing language subset, although it can retain unreachable allocations until entry return. A future ownership or allocator model must revisit this policy deliberately.
 
-The next implementation task should begin with the recursive type descriptor, not with new collection methods. Once nested arrays work end to end, audit collection lifetime and fixed-array stack behavior again before moving to enums or modules.
+The recursive descriptor and dynamic/mixed jagged-array runtime slice are now in place. The next array dependency is a target-aware size and per-function stack budget for all-fixed nested aggregates, including those embedded in structures. After that, audit allocation lifetime and failure behavior again before moving to enums or modules.

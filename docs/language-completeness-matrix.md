@@ -44,7 +44,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Foreign-function interface | Design undecided | ABI, calling conventions, symbol visibility and ownership across boundary need design. |
 | Function visibility / public-private | Design undecided | Depends on module and package model. |
 | Entry point | Implemented | Explicit zero-argument \`main\` is optional; implicit top-level entry is synthesized otherwise. |
-| Multiple source files / cross-file calls | Partial | CLI commands accept multiple source files as one ordered translation unit; declarations share a global namespace. No import syntax, module namespaces, or separate compilation yet. |
+| Multiple source files / cross-file calls | Partial | CLI commands accept multiple source files as one ordered translation unit; declarations share a global namespace. Top-level quoted import syntax parses, but semantic analysis rejects it until module resolution exists; there are no module namespaces or separate compilation yet. |
 
 ## 2. Bindings, scopes and declarations
 
@@ -75,28 +75,28 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Void | Implemented | Function no-value result. |
 | Fixed-size one-dimensional arrays | Implemented | Primitive and structure arrays support inference, explicit `type[length]` annotations, structure fields, parameters/returns, and value aggregates. |
 | Array indexing and mutation | Implemented | Runtime bounds checks; nested field/index writes rooted at named aggregates, in both backends. |
-| Array iteration | Implemented | for-in over fixed and dynamic arrays of primitive or structure values. Dynamic length is checked at each loop header. |
-| Array function parameters | Implemented | Fixed arrays of primitives or structures are passed by value; dynamic arrays are shared references. Element type, nominal structure identity, and shape are checked. |
-| Array function returns | Implemented | Fixed arrays of primitives or structures are returned by value; dynamic arrays return a shared reference. IR verifies element identity and shape. |
-| Nested arrays | Partial | Dynamic and mixed fixed/dynamic jagged shapes are accepted by semantic analysis, typed IR, and both backend type mappers; all-fixed multidimensional aggregates remain rejected pending a target-aware size/stack policy. Native runtime integration tests are pending. See the [design proposal](nested-array-design.md). |
+| Array iteration | Implemented | for-in over fixed/dynamic one-dimensional and supported nested jagged arrays of primitive or structure values; nested loops preserve the remaining element shape. Dynamic length is checked at each loop header. |
+| Array function parameters | Implemented | Fixed one-dimensional arrays are passed by value; dynamic and mixed nested jagged arrays preserve each dimension's value/reference representation. Element type, nominal structure identity, and complete supported shape are checked. |
+| Array function returns | Implemented | Fixed one-dimensional arrays are returned by value; dynamic and mixed nested jagged arrays preserve each dimension's value/reference representation. IR verifies leaf identity and the complete supported shape. |
+| Nested arrays | Partial | Dynamic and mixed fixed/dynamic jagged arrays are implemented end to end. C and LLVM runtime tests cover 2D/3D, ragged and empty rows, mixed fixed/dynamic dimensions, nested compound assignment with exactly-once side-effecting indices, nested push/pop/reserve/capacity, function parameters/returns, structure fields, arrays of structures, and copy/alias behavior. All-fixed nested aggregates remain deferred pending a target-aware size/stack policy. See the [design proposal](nested-array-design.md). |
 | Integer ranges | Implemented | \`start..end\` exclusive and \`start..=end\` inclusive, directly in \`for-in\`. |
 | Unsigned integer types | Partial | `byte` is an unsigned 8-bit scalar; broader unsigned integer types are not yet language types. |
 | Smaller/larger integer widths | Partial | `byte` provides 8-bit storage and `int` is signed 64-bit; independent 16/32/unsigned integer scalar types remain absent. |
 | 32-bit floating point | Not implemented | Useful for memory-sensitive and accelerator workloads. |
 | Character / code-point type | Not implemented | Distinguish Unicode scalar values from bytes. |
 | Byte / raw buffer type | Implemented | `byte` is an unsigned 8-bit scalar; dynamic `byte[]` arrays provide mutable contiguous buffers with checked indexing, growth, capacity and reservation. |
-| User-defined structs / records | Implemented | Named value types with primitive, earlier-declared nested-struct, and one-dimensional array fields; arrays of structs support fixed value semantics and dynamic shared-reference semantics, nominal identity, nested field/index mutation, parameters/returns, push/pop/iteration, typed IR, C and LLVM backends. Recursive dynamic-array fields are supported; recursive by-value fields, explicit layout controls and equality remain deferred. |
+| User-defined structs / records | Implemented | Named value types with primitive, earlier-declared nested-struct, and fixed/dynamic nested array fields; arrays of structs support value or shared-reference semantics according to their dimensions, nominal identity, nested field/index mutation, parameters/returns, push/pop/iteration, typed IR, C and LLVM backends. Recursive dynamic-array fields are supported; recursive by-value fields, explicit layout controls and equality remain deferred. |
 | Tuples | Not implemented | Could support multiple results and grouped values. |
 | Enums / tagged unions | Not implemented | Should be designed with exhaustive matching. |
 | Union / untagged union | Not implemented | Low-level representation and safety rules needed. |
 | Optional / nullable values | Not implemented | Decide representation and null-safety rules. |
 | Result / error values | Not implemented | Needed for explicit recoverable error handling. |
-| Dynamic arrays / vectors | Implemented | Primitive or structure elements, contiguous heap storage, geometric growth, bounds-checked indexing, `length`, `capacity`, absolute-minimum `reserve`, `push`, `pop`, shared-reference aliasing, and entry-point cleanup. Arrays of arrays, borrowed slices, per-scope release, and borrowing checks remain absent; the separate `byte_slice` helper returns an owning copy. |
+| Dynamic arrays / vectors | Implemented | Primitive, structure, fixed-array, or dynamic-array elements; contiguous heap storage per dynamic dimension; geometric growth; bounds-checked indexing; `length`, `capacity`, absolute-minimum `reserve`, `push`, `pop`; shared-header aliasing; and entry-point cleanup. Borrowed slices, per-scope release, and borrowing checks remain absent; the separate `byte_slice` helper returns an owning copy. |
 | Dynamic-array capacity and reservation | Implemented | `capacity` reports allocated element slots; `reserve(array, n)` treats `n` as an absolute minimum, preserves contents and length, never shrinks, and updates all shared aliases. |
 | Chunk-based string building | Implemented | A StringBuilder structure can store string[] chunks, append with push, and materialize an immutable snapshot with join; joining validates length overflow and copies each output byte once. |
 | Owning byte slices | Implemented | `byte_slice(byte[], start, count)` returns an independent copy with checked bounds; it does not expose a borrowed view. |
 | Borrowed / zero-copy slices | Not implemented | Requires explicit lifetime, aliasing and invalidation rules. |
-| Multidimensional arrays | Not implemented | Important for scientific computing; decide contiguous layout and indexing. |
+| Contiguous multidimensional arrays | Not implemented | Jagged nested arrays are implemented separately; a rectangular contiguous matrix/view still needs explicit shape, storage order, stride, and indexing semantics. |
 | Maps / dictionaries | Not implemented | Hashing, equality, key constraints and allocation needed. |
 | Sets | Not implemented | Usually built on hashing/equality and collection infrastructure. |
 | Generic types | Not implemented | Needs type identity, constraints and monomorphization or another implementation strategy. |
@@ -266,7 +266,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 |---|---|---|
 | Multiple-file compilation | Not implemented | Current compiler is single-compilation-unit oriented. |
 | Module declarations | Deferred | Intentionally postponed until core types and APIs stabilize. |
-| Imports | Deferred | Same; avoid designing package syntax prematurely. |
+| Module resolution and imported declarations | Deferred | Top-level quoted import syntax is parsed but rejected by semantic analysis; path resolution, namespaces, exports, dependency ordering, and separate compilation remain unimplemented. |
 | Visibility / export rules | Design undecided | Needs module boundary. |
 | Package manager | Not implemented | Dependency resolution, versions and registries. |
 | Build manifest | Not implemented | Build configuration and reproducibility. |
