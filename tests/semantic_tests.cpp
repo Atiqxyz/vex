@@ -1027,6 +1027,34 @@ make main() {
     tests.check(!pointer_parameters_result.has_errors(),
                 "typed pointers may be passed to functions as typed pointer parameters");
 
+    const vex::SourceFile pointer_returns{"pointer_returns.vex", R"VEX(
+make identity(pointer: *int) -> *int {
+    return pointer
+}
+make main() {
+    let value = 3
+    let pointer: *int = &value
+    let returned: *int = identity(pointer)
+    *returned += 1
+    say(value)
+}
+)VEX"};
+    const vex::SemanticResult pointer_returns_result = analyze(pointer_returns);
+    tests.check(!pointer_returns_result.has_errors(),
+                "a function may return a typed pointer borrowed from its pointer parameter");
+
+    const vex::SourceFile dangling_return{"dangling_pointer_return.vex", R"VEX(
+make dangling() -> *int {
+    let local = 3
+    let pointer: *int = &local
+    return pointer
+}
+make main() {}
+)VEX"};
+    const vex::SemanticResult dangling_return_result = analyze(dangling_return);
+    tests.check(has_code(dangling_return_result, "SEM072"),
+                "a function cannot return a pointer into its own local stack storage");
+
     const vex::SourceFile immutable{"pointer_to_const.vex",
         "make main() {\n"
         "    const value = 1\n"

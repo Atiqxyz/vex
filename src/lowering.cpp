@@ -77,6 +77,26 @@ public:
                         function_.return_struct_type_id = signature->second.return_struct_type_id;
                     if (function_.return_type == IRType::Enum)
                         function_.return_enum_type_id = signature->second.return_enum_type_id;
+                    if (function_.return_type == IRType::Pointer) {
+                        if (!signature->second.return_pointer_type) {
+                            report("IR101", "pointer return type is missing its pointee descriptor",
+                                   declaration_.name);
+                        } else {
+                            const auto pointee =
+                                to_ir_type(signature->second.return_pointer_type->pointee_type);
+                            if (!pointee || *pointee == IRType::Void ||
+                                *pointee == IRType::Array || *pointee == IRType::Pointer) {
+                                report("IR101", "pointer return pointee cannot be represented in IR",
+                                       declaration_.name);
+                            } else {
+                                function_.return_pointer_pointee_type = *pointee;
+                                function_.return_pointer_pointee_struct_type_id =
+                                    signature->second.return_pointer_type->pointee_struct_type_id;
+                                function_.return_pointer_pointee_enum_type_id =
+                                    signature->second.return_pointer_type->pointee_enum_type_id;
+                            }
+                        }
+                    }
                     if (function_.return_type == IRType::Array) {
                         if (!signature->second.return_array_type) {
                             report("IR101", "array return type is missing its fixed shape",
@@ -1457,6 +1477,26 @@ private:
             } else if (*return_type == IRType::Enum) {
                 instruction.result = make_enum_value(
                     signature->second.return_enum_type_id, expression.span);
+            } else if (*return_type == IRType::Pointer) {
+                if (!signature->second.return_pointer_type) {
+                    report("IR123", "pointer return type is missing its pointee descriptor",
+                           expression.span);
+                    return std::nullopt;
+                }
+                const auto pointee =
+                    to_ir_type(signature->second.return_pointer_type->pointee_type);
+                if (!pointee || *pointee == IRType::Void ||
+                    *pointee == IRType::Array || *pointee == IRType::Pointer) {
+                    report("IR123", "pointer return pointee cannot be represented in IR",
+                           expression.span);
+                    return std::nullopt;
+                }
+                instruction.result = make_value(IRType::Pointer, expression.span);
+                instruction.result->pointer_pointee_type = *pointee;
+                instruction.result->pointer_pointee_struct_type_id =
+                    signature->second.return_pointer_type->pointee_struct_type_id;
+                instruction.result->pointer_pointee_enum_type_id =
+                    signature->second.return_pointer_type->pointee_enum_type_id;
             } else {
                 instruction.result = make_value(*return_type, expression.span);
             }
@@ -2524,6 +2564,15 @@ private:
                     } else if (converted && function_.return_type == IRType::Enum &&
                                converted->enum_type_id != function_.return_enum_type_id) {
                         report("IR152", "returned enum has the wrong nominal enum type",
+                               returned->value->span);
+                    } else if (converted && function_.return_type == IRType::Pointer &&
+                               (converted->pointer_pointee_type !=
+                                    function_.return_pointer_pointee_type ||
+                                converted->pointer_pointee_struct_type_id !=
+                                    function_.return_pointer_pointee_struct_type_id ||
+                                converted->pointer_pointee_enum_type_id !=
+                                    function_.return_pointer_pointee_enum_type_id)) {
+                        report("IR154", "returned pointer has the wrong typed pointee descriptor",
                                returned->value->span);
                     } else if (converted) return_value = converted->id;
                 }

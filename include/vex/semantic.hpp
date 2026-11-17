@@ -95,6 +95,8 @@ struct SemanticPointerType {
     bool mutable_pointee{true};
     std::uint32_t pointee_struct_type_id{0};
     std::uint32_t pointee_enum_type_id{0};
+    // One-based parameter origin when this pointer is a borrowed function parameter.
+    std::uint32_t pointee_parameter_index{0};
 };
 
 struct SemanticBinding {
@@ -122,6 +124,8 @@ struct SemanticFunctionSignature {
     std::optional<SemanticArrayType> return_array_type;
     std::uint32_t return_struct_type_id{0};
     std::uint32_t return_enum_type_id{0};
+    std::optional<SemanticPointerType> return_pointer_type;
+    std::optional<std::uint32_t> return_pointer_parameter_index;
     SourceSpan declaration{};
 };
 

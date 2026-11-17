@@ -31,6 +31,9 @@ struct FunctionSignature {
     std::uint32_t return_element_struct_type_id{0};
     std::uint32_t return_element_enum_type_id{0};
     std::vector<std::uint32_t> return_array_dimensions;
+    IRType return_pointer_pointee_type{IRType::Void};
+    std::uint32_t return_pointer_pointee_struct_type_id{0};
+    std::uint32_t return_pointer_pointee_enum_type_id{0};
 };
 
 bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count,
@@ -166,6 +169,13 @@ private:
     }
 
     void index_blocks() {
+        if (function_.return_type != IRType::Pointer &&
+            (function_.return_pointer_pointee_type != IRType::Void ||
+             function_.return_pointer_pointee_struct_type_id != 0u ||
+             function_.return_pointer_pointee_enum_type_id != 0u)) {
+            report("IR093", "non-pointer function return carries pointer pointee metadata",
+                   function_.span);
+        }
         for (const IRBlock& block : function_.blocks) {
             if (!blocks_.emplace(block.id, &block).second) {
                 report("IR001", "duplicate basic-block identifier", {});
@@ -206,6 +216,40 @@ private:
                 !function_.return_array_dimensions.empty() ||
                 function_.return_struct_type_id != 0)
                 report("IR054", "enum function return cannot carry unrelated aggregate metadata", function_.span);
+        } else if (function_.return_type == IRType::Pointer) {
+            const IRValue pointer_return = ir_make_pointer_value(
+                function_.return_pointer_pointee_type, function_.span,
+                function_.return_pointer_pointee_struct_type_id,
+                function_.return_pointer_pointee_enum_type_id);
+            const bool primitive_pointee =
+                (pointer_return.pointer_pointee_type == IRType::Int ||
+                 pointer_return.pointer_pointee_type == IRType::Byte ||
+                 pointer_return.pointer_pointee_type == IRType::Float ||
+                 pointer_return.pointer_pointee_type == IRType::Bool ||
+                 pointer_return.pointer_pointee_type == IRType::String) &&
+                pointer_return.pointer_pointee_struct_type_id == 0u &&
+                pointer_return.pointer_pointee_enum_type_id == 0u;
+            const bool struct_pointee =
+                pointer_return.pointer_pointee_type == IRType::Struct &&
+                pointer_return.pointer_pointee_struct_type_id != 0u &&
+                pointer_return.pointer_pointee_struct_type_id <= struct_types_.size() &&
+                pointer_return.pointer_pointee_enum_type_id == 0u;
+            const bool enum_pointee =
+                pointer_return.pointer_pointee_type == IRType::Enum &&
+                pointer_return.pointer_pointee_enum_type_id != 0u &&
+                pointer_return.pointer_pointee_enum_type_id <= enum_types_.size() &&
+                pointer_return.pointer_pointee_struct_type_id == 0u;
+            if (!primitive_pointee && !struct_pointee && !enum_pointee)
+                report("IR090", "function has an invalid pointer return descriptor", function_.span);
+            if (function_.return_element_type != IRType::Void ||
+                function_.return_array_length != 0u ||
+                function_.return_element_struct_type_id != 0u ||
+                function_.return_element_enum_type_id != 0u ||
+                function_.return_struct_type_id != 0u ||
+                function_.return_enum_type_id != 0u ||
+                !function_.return_array_dimensions.empty())
+                report("IR091", "pointer function return cannot carry unrelated type metadata",
+                       function_.span);
         } else if (function_.return_type == IRType::Void ||
                    function_.return_type == IRType::Int ||
                    function_.return_type == IRType::Float ||
@@ -812,6 +856,16 @@ private:
                     report("IR086", "call result does not match the callee's enum type",
                            instruction.span);
                 }
+                if (found->second.return_type == IRType::Pointer && instruction.result &&
+                    (instruction.result->pointer_pointee_type !=
+                         found->second.return_pointer_pointee_type ||
+                     instruction.result->pointer_pointee_struct_type_id !=
+                         found->second.return_pointer_pointee_struct_type_id ||
+                     instruction.result->pointer_pointee_enum_type_id !=
+                         found->second.return_pointer_pointee_enum_type_id)) {
+                    report("IR092", "call result does not match the callee's typed pointer return",
+                           instruction.span);
+                }
             }
             break;
         }
@@ -1104,7 +1158,13 @@ private:
                             (function_.return_type == IRType::Array &&
                              !same_array_shape(returned, function_array_return_value(function_))) ||
                             (function_.return_type == IRType::Struct &&
-                             returned.struct_type_id != function_.return_struct_type_id)) {
+                             returned.struct_type_id != function_.return_struct_type_id) ||
+                            (function_.return_type == IRType::Pointer &&
+                             (returned.pointer_pointee_type != function_.return_pointer_pointee_type ||
+                              returned.pointer_pointee_struct_type_id !=
+                                  function_.return_pointer_pointee_struct_type_id ||
+                              returned.pointer_pointee_enum_type_id !=
+                                  function_.return_pointer_pointee_enum_type_id))) {
                             report("IR031", "returned value has the wrong type or fixed-array shape",
                                    block.terminator->span);
                         }
@@ -1659,6 +1719,11 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
         signature.return_element_enum_type_id =
             function.return_element_enum_type_id;
         signature.return_array_dimensions = function.return_array_dimensions;
+        signature.return_pointer_pointee_type = function.return_pointer_pointee_type;
+        signature.return_pointer_pointee_struct_type_id =
+            function.return_pointer_pointee_struct_type_id;
+        signature.return_pointer_pointee_enum_type_id =
+            function.return_pointer_pointee_enum_type_id;
         for (const IRFunctionParameter& parameter : function.parameters) {
             signature.parameters.push_back(parameter.value);
         }

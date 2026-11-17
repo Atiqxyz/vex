@@ -4,6 +4,10 @@ make bump(value: int) -> int {
     return value
 }
 
+make identity(pointer: *int) -> *int {
+    return pointer
+}
+
 make add_one(pointer: *int) -> int {
     *pointer += 1
     return *pointer
@@ -16,6 +20,9 @@ make main() {
     say(value)
     say(bump(value))
     say(add_one(pointer))
+    say(value)
+    let identity_pointer: *int = identity(pointer)
+    *identity_pointer += 1
     say(value)
 
     let outer = Outer { inner: Inner { value: 1 }, values: [3, 4] }

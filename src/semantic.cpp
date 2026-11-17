@@ -109,6 +109,8 @@ struct Symbol {
     std::vector<std::uint32_t> parameter_enum_type_ids;
     std::uint32_t return_struct_type_id{0};
     std::uint32_t return_enum_type_id{0};
+    std::optional<SemanticPointerType> return_pointer_type;
+    std::optional<std::uint32_t> return_pointer_parameter_index;
 };
 
 using Scope = std::unordered_map<std::string, Symbol>;
@@ -684,6 +686,55 @@ private:
         return nullptr;
     }
 
+    [[nodiscard]] std::optional<std::uint32_t> direct_pointer_return_parameter(
+        const FunctionDeclStmt& function) const {
+        std::optional<std::uint32_t> origin;
+        bool saw_return = false;
+        bool valid = true;
+        const auto visit = [&](const auto& self, const Statement* statement) -> void {
+            if (!statement || !valid) return;
+            if (const auto* returned = std::get_if<ReturnStmt>(&statement->data)) {
+                if (!returned->value) { valid = false; return; }
+                const auto* name = std::get_if<NameExpr>(&returned->value->data);
+                if (!name) { valid = false; return; }
+                const std::string returned_name = spelling(name->name);
+                for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+                    const Parameter& parameter = function.parameters[index];
+                    if (spelling(parameter.name) != returned_name ||
+                        !parameter.type_annotation) continue;
+                    const std::string annotation = spelling(*parameter.type_annotation);
+                    if (annotation.empty() || annotation.front() != '*') {
+                        valid = false;
+                        return;
+                    }
+                    const std::uint32_t candidate = static_cast<std::uint32_t>(index + 1u);
+                    if (origin && *origin != candidate) valid = false;
+                    else origin = candidate;
+                    saw_return = true;
+                    return;
+                }
+                valid = false;
+                return;
+            }
+            if (const auto* block = std::get_if<BlockStmt>(&statement->data)) {
+                for (const StmtPtr& child : block->statements) self(self, child.get());
+            } else if (const auto* conditional = std::get_if<IfStmt>(&statement->data)) {
+                self(self, conditional->then_branch.get());
+                self(self, conditional->else_branch.get());
+            } else if (const auto* loop = std::get_if<WhileStmt>(&statement->data)) {
+                self(self, loop->body.get());
+            } else if (const auto* loop = std::get_if<RepeatStmt>(&statement->data)) {
+                self(self, loop->body.get());
+            } else if (const auto* loop = std::get_if<ForStmt>(&statement->data)) {
+                self(self, loop->body.get());
+            } else if (const auto* matched = std::get_if<MatchStmt>(&statement->data)) {
+                for (const MatchArm& arm : matched->arms) self(self, arm.body.get());
+            }
+        };
+        visit(visit, function.body.get());
+        return valid && saw_return ? origin : std::nullopt;
+    }
+
     void collect_function_signatures() {
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
@@ -699,8 +750,12 @@ private:
                 ? annotation_type(*function->return_type, true,
                                   &signature.return_array_type,
                                   &signature.return_struct_type_id,
-                                  &signature.return_enum_type_id)
+                                  &signature.return_enum_type_id,
+                                  &signature.return_pointer_type)
                 : Type::Void;
+            if (signature.type == Type::Pointer)
+                signature.return_pointer_parameter_index =
+                    direct_pointer_return_parameter(*function);
 
             for (const Parameter& parameter : function->parameters) {
                 Type parameter_type = Type::Unknown;
@@ -746,6 +801,9 @@ private:
             public_signature.parameter_pointer_types = signature.parameter_pointer_types;
             public_signature.return_struct_type_id = signature.return_struct_type_id;
             public_signature.return_enum_type_id = signature.return_enum_type_id;
+            public_signature.return_pointer_type = signature.return_pointer_type;
+            public_signature.return_pointer_parameter_index =
+                signature.return_pointer_parameter_index;
             public_signature.declaration = function->name;
             model_.functions.emplace(function, std::move(public_signature));
             signatures_.emplace(function, std::move(signature));
@@ -2011,6 +2069,17 @@ private:
                 model_.struct_expression_types[&expression] = function->return_struct_type_id;
             if (function->type == Type::Enum && function->return_enum_type_id != 0)
                 model_.enum_expression_types[&expression] = function->return_enum_type_id;
+            if (function->type == Type::Pointer && function->return_pointer_type &&
+                function->return_pointer_parameter_index) {
+                const std::size_t source_index =
+                    static_cast<std::size_t>(*function->return_pointer_parameter_index - 1u);
+                if (source_index < call->arguments.size() && call->arguments[source_index]) {
+                    const auto source_pointer = model_.pointer_expression_types.find(
+                        call->arguments[source_index].get());
+                    if (source_pointer != model_.pointer_expression_types.end())
+                        model_.pointer_expression_types[&expression] = source_pointer->second;
+                }
+            }
             return function->type;
         }
 
@@ -2183,6 +2252,9 @@ private:
                 symbol.enum_type_id = signature.parameter_enum_type_ids[index];
             if (index < signature.parameter_pointer_types.size())
                 symbol.pointer_type = signature.parameter_pointer_types[index];
+            if (symbol.pointer_type)
+                symbol.pointer_type->pointee_parameter_index =
+                    static_cast<std::uint32_t>(index + 1u);
             symbol.declaration = parameter.name;
             SemanticBindingId binding_id = 0;
             if (define(spelling(parameter.name), std::move(symbol),
@@ -2202,11 +2274,17 @@ private:
         const auto previous_return_array_type = current_return_array_type_;
         const std::uint32_t previous_return_struct_type_id = current_return_struct_type_id_;
         const std::uint32_t previous_return_enum_type_id = current_return_enum_type_id_;
+        const auto previous_return_pointer_type = current_return_pointer_type_;
+        const auto previous_return_pointer_parameter_index =
+            current_return_pointer_parameter_index_;
         inside_function_ = true;
         current_return_type_ = signature.type;
         current_return_array_type_ = signature.return_array_type;
         current_return_struct_type_id_ = signature.return_struct_type_id;
         current_return_enum_type_id_ = signature.return_enum_type_id;
+        current_return_pointer_type_ = signature.return_pointer_type;
+        current_return_pointer_parameter_index_ =
+            signature.return_pointer_parameter_index;
 
         if (function.body) {
             analyze_block(*function.body, false);
@@ -2222,6 +2300,9 @@ private:
         current_return_array_type_ = previous_return_array_type;
         current_return_struct_type_id_ = previous_return_struct_type_id;
         current_return_enum_type_id_ = previous_return_enum_type_id;
+        current_return_pointer_type_ = previous_return_pointer_type;
+        current_return_pointer_parameter_index_ =
+            previous_return_pointer_parameter_index;
         inside_function_ = was_in_function;
         scopes_.pop_back();
     }
@@ -2607,6 +2688,26 @@ private:
                                    returned->value->span);
                         }
                     }
+                    if (actual == Type::Pointer) {
+                        const auto actual_pointer = model_.pointer_expression_types.find(
+                            returned->value.get());
+                        if (!current_return_pointer_type_ ||
+                            actual_pointer == model_.pointer_expression_types.end() ||
+                            actual_pointer->second.pointee_type !=
+                                current_return_pointer_type_->pointee_type ||
+                            actual_pointer->second.pointee_struct_type_id !=
+                                current_return_pointer_type_->pointee_struct_type_id ||
+                            actual_pointer->second.pointee_enum_type_id !=
+                                current_return_pointer_type_->pointee_enum_type_id) {
+                            report("SEM028", "returned pointer does not match the function's exact pointee type",
+                                   returned->value->span);
+                        } else if (!current_return_pointer_parameter_index_ ||
+                                   actual_pointer->second.pointee_parameter_index !=
+                                       *current_return_pointer_parameter_index_) {
+                            report("SEM072", "a function may return only a pointer derived directly from one of its pointer parameters; returning local storage would create a dangling pointer",
+                                   returned->value->span);
+                        }
+                    }
                 }
             }
             return;
@@ -2733,6 +2834,8 @@ private:
     std::optional<SemanticArrayType> current_return_array_type_;
     std::uint32_t current_return_struct_type_id_{0};
     std::uint32_t current_return_enum_type_id_{0};
+    std::optional<SemanticPointerType> current_return_pointer_type_;
+    std::optional<std::uint32_t> current_return_pointer_parameter_index_;
 };
 
 } // namespace

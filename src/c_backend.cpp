@@ -87,6 +87,16 @@ std::string c_type(const IRValue& value) {
 }
 
 std::string c_return_type(const IRFunction& function) {
+    if (function.return_type == IRType::Pointer) {
+        IRValue pointer;
+        pointer.type = IRType::Pointer;
+        pointer.pointer_pointee_type = function.return_pointer_pointee_type;
+        pointer.pointer_pointee_struct_type_id =
+            function.return_pointer_pointee_struct_type_id;
+        pointer.pointer_pointee_enum_type_id =
+            function.return_pointer_pointee_enum_type_id;
+        return c_type(pointer);
+    }
     if (function.return_type == IRType::Struct)
         return struct_type_name(function.return_struct_type_id);
     if (function.return_type == IRType::Enum)

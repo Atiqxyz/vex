@@ -302,6 +302,10 @@ struct IRFunction {
     SourceSpan span{};
     // Function-local addressable storage with activation lifetime.
     std::vector<IRPlace> places;
+    // Typed pointer return descriptor; meaningful only when return_type is Pointer.
+    IRType return_pointer_pointee_type{IRType::Void};
+    std::uint32_t return_pointer_pointee_struct_type_id{0};
+    std::uint32_t return_pointer_pointee_enum_type_id{0};
 };
 
 struct IRModule {

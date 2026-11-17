@@ -145,7 +145,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Allocator selection and allocator-aware collections
 - [ ] Explicit allocation and deallocation where appropriate
 - [ ] References and borrowing rules
-- [ ] Complete raw-pointer model: pointer returns, pointer-to-pointer, nulls, arithmetic, unsafe boundaries, and provenance/lifetime rules (primitive and nominal aggregate pointees, typed pointer parameters, and compound dereference stores are implemented)
+- [ ] Complete raw-pointer model: pointer-to-pointer, nulls, arithmetic, unsafe boundaries, and full provenance/lifetime/aliasing rules (primitive and nominal aggregate pointees, typed parameters, compound stores, and parameter-borrowed returns are implemented)
 - [ ] Ownership and move/copy semantics
 - [x] Program-exit cleanup of compiler-tracked dynamic-array headers/buffers and allocated string blocks in both backends
 - [ ] Deterministic destruction and resource cleanup
