@@ -8,6 +8,14 @@ make identity(pointer: *int) -> *int {
     return pointer
 }
 
+make is_null(pointer: *int) -> bool {
+    return pointer == null
+}
+
+make missing_pointer() -> *int {
+    return null
+}
+
 make add_one(pointer: *int) -> int {
     *pointer += 1
     return *pointer
@@ -24,6 +32,16 @@ make main() {
     let identity_pointer: *int = identity(pointer)
     *identity_pointer += 1
     say(value)
+
+    let empty: *int = null
+    say(empty == null)
+    say(pointer != null)
+    say(is_null(null))
+    let missing: *int = missing_pointer()
+    say(missing == null)
+    empty = &value
+    empty = null
+    say(empty == null)
 
     let outer = Outer { inner: Inner { value: 1 }, values: [3, 4] }
     let outer_pointer: *Outer = &outer

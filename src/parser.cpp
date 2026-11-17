@@ -597,7 +597,7 @@ ExprPtr Parser::parse_prefix(const bool allow_newlines) {
     }
     if (check(TokenKind::Integer) || check(TokenKind::Float) ||
         check(TokenKind::String) || check(TokenKind::KwTrue) ||
-        check(TokenKind::KwFalse)) {
+        check(TokenKind::KwFalse) || check(TokenKind::KwNull)) {
         const Token literal = advance();
         return make_expression(literal.span, LiteralExpr{literal.kind});
     }

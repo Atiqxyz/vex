@@ -1043,6 +1043,40 @@ make main() {
     tests.check(!pointer_returns_result.has_errors(),
                 "a function may return a typed pointer borrowed from its pointer parameter");
 
+    const vex::SourceFile null_pointers{"null_pointers.vex", R"VEX(
+make is_null(pointer: *int) -> bool {
+    return pointer == null
+}
+make missing_pointer() -> *int {
+    return null
+}
+make main() {
+    let value = 5
+    let pointer: *int = &value
+    let empty: *int = null
+    empty = pointer
+    empty = null
+    say(empty == null)
+    say(pointer != null)
+    say(is_null(null))
+    let missing: *int = missing_pointer()
+    say(missing == null)
+}
+)VEX"};
+    const vex::SemanticResult null_result = analyze(null_pointers);
+    tests.check(!null_result.has_errors(),
+                "typed null pointers work in initialization, assignment, comparison, calls, and returns");
+
+    const vex::SourceFile ambiguous_null{"ambiguous_null.vex", R"VEX(
+make main() {
+    let pointer = null
+    let same = null == null
+}
+)VEX"};
+    const vex::SemanticResult ambiguous_null_result = analyze(ambiguous_null);
+    tests.check(has_code(ambiguous_null_result, "SEM073"),
+                "untyped null values and comparisons between two untyped nulls are rejected");
+
     const vex::SourceFile dangling_return{"dangling_pointer_return.vex", R"VEX(
 make dangling() -> *int {
     let local = 3

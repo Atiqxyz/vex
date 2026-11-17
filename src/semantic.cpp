@@ -134,6 +134,17 @@ public:
                 !std::holds_alternative<EnumDeclStmt>(statement->data))
                 analyze_statement(*statement);
         }
+        for (const Expr* null_literal : null_pointer_literals_) {
+            const auto pointer = null_literal
+                ? model_.pointer_expression_types.find(null_literal)
+                : model_.pointer_expression_types.end();
+            if (pointer == model_.pointer_expression_types.end() ||
+                pointer->second.pointee_type == Type::Unknown ||
+                pointer->second.pointee_type == Type::Error) {
+                report("SEM073", "null requires an explicit or otherwise unambiguous typed pointer context",
+                       null_literal ? null_literal->span : SourceSpan{});
+            }
+        }
         return SemanticResult{std::move(diagnostics_), std::move(model_)};
     }
 
@@ -666,6 +677,12 @@ private:
         return nullptr;
     }
 
+    [[nodiscard]] bool is_null_pointer_literal(const Expr* expression) const {
+        const auto* literal = expression
+            ? std::get_if<LiteralExpr>(&expression->data) : nullptr;
+        return literal && literal->token_kind == TokenKind::KwNull;
+    }
+
     [[nodiscard]] const UnaryExpr* member_root_dereference(const Expr* expression) const {
         while (expression) {
             if (const auto* member = std::get_if<MemberExpr>(&expression->data)) {
@@ -695,6 +712,10 @@ private:
             if (!statement || !valid) return;
             if (const auto* returned = std::get_if<ReturnStmt>(&statement->data)) {
                 if (!returned->value) { valid = false; return; }
+                if (is_null_pointer_literal(returned->value.get())) {
+                    saw_return = true;
+                    return;
+                }
                 const auto* name = std::get_if<NameExpr>(&returned->value->data);
                 if (!name) { valid = false; return; }
                 const std::string returned_name = spelling(name->name);
@@ -732,7 +753,9 @@ private:
             }
         };
         visit(visit, function.body.get());
-        return valid && saw_return ? origin : std::nullopt;
+        return valid && saw_return
+            ? std::optional<std::uint32_t>{origin.value_or(0u)}
+            : std::nullopt;
     }
 
     void collect_function_signatures() {
@@ -860,6 +883,16 @@ private:
             case TokenKind::String: return Type::String;
             case TokenKind::KwTrue:
             case TokenKind::KwFalse: return Type::Bool;
+            case TokenKind::KwNull:
+                if (std::find(null_pointer_literals_.begin(), null_pointer_literals_.end(),
+                              &expression) == null_pointer_literals_.end())
+                    null_pointer_literals_.push_back(&expression);
+                if (model_.pointer_expression_types.find(&expression) ==
+                    model_.pointer_expression_types.end()) {
+                    model_.pointer_expression_types[&expression] =
+                        SemanticPointerType{Type::Unknown, 0u, true};
+                }
+                return Type::Pointer;
             default: return Type::Error;
             }
         }
@@ -1349,6 +1382,42 @@ private:
             const Type left = analyze_expression(*binary->left);
             const Type right = analyze_expression(*binary->right);
             if (left == Type::Error || right == Type::Error) return Type::Error;
+            if ((binary->op == TokenKind::EqualEqual ||
+                 binary->op == TokenKind::BangEqual) &&
+                left == Type::Pointer && right == Type::Pointer) {
+                const bool left_null = is_null_pointer_literal(binary->left.get());
+                const bool right_null = is_null_pointer_literal(binary->right.get());
+                const auto left_found = model_.pointer_expression_types.find(binary->left.get());
+                const auto right_found = model_.pointer_expression_types.find(binary->right.get());
+                const std::optional<SemanticPointerType> left_type =
+                    left_found == model_.pointer_expression_types.end()
+                        ? std::nullopt : std::optional<SemanticPointerType>{left_found->second};
+                const std::optional<SemanticPointerType> right_type =
+                    right_found == model_.pointer_expression_types.end()
+                        ? std::nullopt : std::optional<SemanticPointerType>{right_found->second};
+                const auto typed = [](const std::optional<SemanticPointerType>& pointer) {
+                    return pointer && pointer->pointee_type != Type::Unknown &&
+                           pointer->pointee_type != Type::Error;
+                };
+                if (left_null && !right_null && typed(right_type))
+                    model_.pointer_expression_types[binary->left.get()] = *right_type;
+                if (right_null && !left_null && typed(left_type))
+                    model_.pointer_expression_types[binary->right.get()] = *left_type;
+                const auto resolved_left = model_.pointer_expression_types.find(binary->left.get());
+                const auto resolved_right = model_.pointer_expression_types.find(binary->right.get());
+                if (typed(resolved_left == model_.pointer_expression_types.end()
+                              ? std::nullopt
+                              : std::optional<SemanticPointerType>{resolved_left->second}) &&
+                    typed(resolved_right == model_.pointer_expression_types.end()
+                              ? std::nullopt
+                              : std::optional<SemanticPointerType>{resolved_right->second}) &&
+                    (resolved_left->second.pointee_type != resolved_right->second.pointee_type ||
+                     resolved_left->second.pointee_struct_type_id != resolved_right->second.pointee_struct_type_id ||
+                     resolved_left->second.pointee_enum_type_id != resolved_right->second.pointee_enum_type_id)) {
+                    report("SEM014", "pointer equality requires identical pointee types", expression.span);
+                    return Type::Error;
+                }
+            }
             if (left == Type::Unknown || right == Type::Unknown) return Type::Unknown;
             if(binary->op==TokenKind::Plus&&left==Type::String&&right==Type::String)
                 return Type::String;
@@ -1412,6 +1481,18 @@ private:
                 if (left == Type::Struct || right == Type::Struct) {
                     report("SEM014", "structure values cannot be compared until an explicit equality model is defined", expression.span);
                     return Type::Error;
+                }
+                if (left == Type::Pointer && right == Type::Pointer) {
+                    const auto left_pointer = model_.pointer_expression_types.find(binary->left.get());
+                    const auto right_pointer = model_.pointer_expression_types.find(binary->right.get());
+                    if (left_pointer == model_.pointer_expression_types.end() ||
+                        right_pointer == model_.pointer_expression_types.end() ||
+                        left_pointer->second.pointee_type == Type::Unknown ||
+                        right_pointer->second.pointee_type == Type::Unknown) {
+                        report("SEM073", "pointer equality requires a typed pointer; two untyped null values are ambiguous",
+                               expression.span);
+                        return Type::Error;
+                    }
                 }
                 if (left == Type::Enum && right == Type::Enum) {
                     const std::uint32_t left_enum =
@@ -1572,6 +1653,11 @@ private:
                 symbol->array_type &&
                 std::holds_alternative<ArrayLiteralExpr>(assignment->value->data)) {
                 model_.array_expression_types[assignment->value.get()] = *symbol->array_type;
+            }
+            if (symbol->type == Type::Pointer && symbol->pointer_type &&
+                assignment->value && is_null_pointer_literal(assignment->value.get())) {
+                model_.pointer_expression_types[assignment->value.get()] =
+                    *symbol->pointer_type;
             }
             const Type value=assignment->value?analyze_expression(*assignment->value):Type::Error;
             if (symbol->type == Type::Pointer) {
@@ -1735,6 +1821,13 @@ private:
             argument_types.reserve(call->arguments.size());
             for (std::size_t index = 0; index < call->arguments.size(); ++index) {
                 const ExprPtr& argument = call->arguments[index];
+                if (function && argument &&
+                    index < function->parameter_pointer_types.size() &&
+                    function->parameter_pointer_types[index] &&
+                    is_null_pointer_literal(argument.get())) {
+                    model_.pointer_expression_types[argument.get()] =
+                        *function->parameter_pointer_types[index];
+                }
                 if (function && argument &&
                     index < function->parameter_array_types.size() &&
                     function->parameter_array_types[index] &&
@@ -2071,13 +2164,18 @@ private:
                 model_.enum_expression_types[&expression] = function->return_enum_type_id;
             if (function->type == Type::Pointer && function->return_pointer_type &&
                 function->return_pointer_parameter_index) {
-                const std::size_t source_index =
-                    static_cast<std::size_t>(*function->return_pointer_parameter_index - 1u);
-                if (source_index < call->arguments.size() && call->arguments[source_index]) {
-                    const auto source_pointer = model_.pointer_expression_types.find(
-                        call->arguments[source_index].get());
-                    if (source_pointer != model_.pointer_expression_types.end())
-                        model_.pointer_expression_types[&expression] = source_pointer->second;
+                if (*function->return_pointer_parameter_index == 0u) {
+                    model_.pointer_expression_types[&expression] =
+                        *function->return_pointer_type;
+                } else {
+                    const std::size_t source_index =
+                        static_cast<std::size_t>(*function->return_pointer_parameter_index - 1u);
+                    if (source_index < call->arguments.size() && call->arguments[source_index]) {
+                        const auto source_pointer = model_.pointer_expression_types.find(
+                            call->arguments[source_index].get());
+                        if (source_pointer != model_.pointer_expression_types.end())
+                            model_.pointer_expression_types[&expression] = source_pointer->second;
+                    }
                 }
             }
             return function->type;
@@ -2112,6 +2210,11 @@ private:
             model_.array_expression_types[variable.initializer.get()] = *declared_array_type;
 
         const bool has_initializer = static_cast<bool>(variable.initializer);
+        if (has_initializer && declared == Type::Pointer && declared_pointer_type &&
+            is_null_pointer_literal(variable.initializer.get())) {
+            model_.pointer_expression_types[variable.initializer.get()] =
+                *declared_pointer_type;
+        }
         const Type inferred = has_initializer
             ? analyze_expression(*variable.initializer) : declared;
         if (!variable.type_annotation) {
@@ -2662,6 +2765,12 @@ private:
                         model_.array_expression_types[returned->value.get()] =
                             *current_return_array_type_;
                     }
+                    if (current_return_type_ == Type::Pointer &&
+                        current_return_pointer_type_ &&
+                        is_null_pointer_literal(returned->value.get())) {
+                        model_.pointer_expression_types[returned->value.get()] =
+                            *current_return_pointer_type_;
+                    }
                     const Type actual = analyze_expression(*returned->value);
                     require_type(actual, current_return_type_, returned->value->span,
                                  "SEM028", "return type does not match function");
@@ -2701,9 +2810,11 @@ private:
                                 current_return_pointer_type_->pointee_enum_type_id) {
                             report("SEM028", "returned pointer does not match the function's exact pointee type",
                                    returned->value->span);
-                        } else if (!current_return_pointer_parameter_index_ ||
-                                   actual_pointer->second.pointee_parameter_index !=
-                                       *current_return_pointer_parameter_index_) {
+                        } else if (!is_null_pointer_literal(returned->value.get()) &&
+                                   (!current_return_pointer_parameter_index_ ||
+                                    (*current_return_pointer_parameter_index_ == 0u ||
+                                     actual_pointer->second.pointee_parameter_index !=
+                                         *current_return_pointer_parameter_index_))) {
                             report("SEM072", "a function may return only a pointer derived directly from one of its pointer parameters; returning local storage would create a dangling pointer",
                                    returned->value->span);
                         }
@@ -2836,6 +2947,7 @@ private:
     std::uint32_t current_return_enum_type_id_{0};
     std::optional<SemanticPointerType> current_return_pointer_type_;
     std::optional<std::uint32_t> current_return_pointer_parameter_index_;
+    std::vector<const Expr*> null_pointer_literals_;
 };
 
 } // namespace

@@ -32,6 +32,7 @@ enum class TokenKind {
     KwReturn,
     KwTrue,
     KwFalse,
+    KwNull,
     KwInt,
     KwByte,
     KwFloat,

@@ -1066,8 +1066,12 @@ private:
             report("CG009", "array values must be constructed with array_make", instruction.span);
             return false;
         case IRType::Pointer:
-            report("CG010", "pointer values must be produced by address-of, not constants", instruction.span);
-            return false;
+            if (instruction.immediate != "null") {
+                report("CG010", "pointer constants must use the typed null literal", instruction.span);
+                return false;
+            }
+            output_ << "    " << target << " = 0;\n";
+            return true;
         case IRType::Struct:
             report("CG010", "structure values must be constructed with struct_make", instruction.span);
             return false;

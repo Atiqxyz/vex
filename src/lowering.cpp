@@ -1515,7 +1515,35 @@ private:
         }
 
         if (const auto* literal = std::get_if<LiteralExpr>(&expression.data)) {
-            static_cast<void>(literal);
+            if (literal->token_kind == TokenKind::KwNull) {
+                const auto pointer_type =
+                    semantic_model_.pointer_expression_types.find(&expression);
+                if (pointer_type == semantic_model_.pointer_expression_types.end()) {
+                    report("IR155", "null literal is missing its contextual pointer type",
+                           expression.span);
+                    return std::nullopt;
+                }
+                const auto pointee = to_ir_type(pointer_type->second.pointee_type);
+                if (!pointee || *pointee == IRType::Void || *pointee == IRType::Array ||
+                    *pointee == IRType::Pointer) {
+                    report("IR155", "null literal has an unsupported pointer descriptor",
+                           expression.span);
+                    return std::nullopt;
+                }
+                IRValue result = make_value(IRType::Pointer, expression.span);
+                result.pointer_pointee_type = *pointee;
+                result.pointer_pointee_struct_type_id =
+                    pointer_type->second.pointee_struct_type_id;
+                result.pointer_pointee_enum_type_id =
+                    pointer_type->second.pointee_enum_type_id;
+                IRInstruction instruction;
+                instruction.op = IROp::Constant;
+                instruction.result = result;
+                instruction.immediate = "null";
+                instruction.span = expression.span;
+                emit(std::move(instruction));
+                return result;
+            }
             const auto type = expression_type(expression);
             if (!type || *type == IRType::Void) return std::nullopt;
             return emit_constant(*type, spelling(expression.span), expression.span);

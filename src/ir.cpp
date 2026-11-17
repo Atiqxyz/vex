@@ -587,6 +587,10 @@ private:
             if (instruction.immediate.empty()) {
                 report("IR012", "constant must retain its literal spelling", instruction.span);
             }
+            if (instruction.result && instruction.result->type == IRType::Pointer &&
+                instruction.immediate != "null") {
+                report("IR094", "pointer constants must use the typed null literal", instruction.span);
+            }
             break;
         case IROp::StringConcat:
             check_arity(instruction, 2);

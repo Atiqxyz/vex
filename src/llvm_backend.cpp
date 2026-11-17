@@ -1477,7 +1477,11 @@ trap:
             report("LLVM009", "array values must be constructed with array_make", instruction.span);
             return;
         case IRType::Pointer:
-            report("LLVM010", "pointer values must be produced by address-of, not constants", instruction.span);
+            if (instruction.immediate != "null") {
+                report("LLVM010", "pointer constants must use the typed null literal", instruction.span);
+                return;
+            }
+            store_result(instruction, "null");
             return;
         case IRType::Struct:
             report("LLVM010", "structure values must be constructed with struct_make", instruction.span);
@@ -1505,7 +1509,8 @@ trap:
             else if (instruction.op == IROp::Greater) predicate = "ugt";
             else if (instruction.op == IROp::GreaterEqual) predicate = "uge";
         }
-        const char* compare_type = type == IRType::Bool ? "i1" :
+        const char* compare_type = type == IRType::Pointer ? "ptr" :
+            type == IRType::Bool ? "i1" :
             type == IRType::Byte ? "i8" : "i64";
         const std::string result = next_temp();
         output_ << "  " << result << " = icmp " << predicate << ' '

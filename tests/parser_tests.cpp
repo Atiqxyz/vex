@@ -481,7 +481,9 @@ void test_pointer_expression_syntax(TestContext& tests) {
         "make main() {\n"
         "    let value: int = 1\n"
         "    let pointer: *int = &value\n"
+        "    let empty: *int = null\n"
         "    *pointer = 2\n"
+        "    say(empty == null)\n"
         "    say(*pointer)\n"
         "}\n"};
     const vex::ParseResult parsed = parse(source);
