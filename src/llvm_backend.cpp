@@ -1715,6 +1715,19 @@ trap:
             const IRType type = value_types_.at(instruction.operands.front()).type;
             if (type == IRType::String) {
                 emit_string_comparison(instruction, operands[0], operands[1]);
+            } else if (type == IRType::Enum) {
+                const IRValue& enum_value = value_types_.at(instruction.operands[0]);
+                const std::string left_tag = next_temp();
+                const std::string right_tag = next_temp();
+                const std::string result = next_temp();
+                output_ << "  " << left_tag << " = extractvalue " << llvm_type(enum_value)
+                        << ' ' << operands[0] << ", 0\n"
+                        << "  " << right_tag << " = extractvalue " << llvm_type(enum_value)
+                        << ' ' << operands[1] << ", 0\n"
+                        << "  " << result << " = icmp "
+                        << (instruction.op == IROp::Equal ? "eq" : "ne")
+                        << " i32 " << left_tag << ", " << right_tag << "\n";
+                store_result(instruction, result);
             } else if (type == IRType::Float) {
                 const std::string result = next_temp();
                 output_ << "  " << result << " = fcmp "
