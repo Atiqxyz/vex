@@ -571,7 +571,8 @@ private:
                         found->second.return_array_dimensions.empty()
                             ? std::vector<std::uint32_t>{found->second.return_array_length}
                             : found->second.return_array_dimensions,
-                        found->second.return_element_struct_type_id))) {
+                        found->second.return_element_struct_type_id, instruction.span,
+                        found->second.return_element_enum_type_id))) {
                     report("IR055", "call result does not match the callee's fixed-array return shape",
                            instruction.span);
                 }
@@ -581,7 +582,81 @@ private:
                     report("IR071", "call result does not match the callee's structure type",
                            instruction.span);
                 }
+                if (found->second.return_type == IRType::Enum &&
+                    instruction.result &&
+                    instruction.result->enum_type_id != found->second.return_enum_type_id) {
+                    report("IR086", "call result does not match the callee's enum type",
+                           instruction.span);
+                }
             }
+            break;
+        }
+        case IROp::EnumMake: {
+            const IRValue* result = instruction.result ? &*instruction.result : nullptr;
+            if (!result || result->type != IRType::Enum ||
+                result->enum_type_id == 0 || result->enum_type_id > enum_types_.size()) {
+                report("IR086", "enum construction must define a value with a valid nominal enum type",
+                       instruction.span);
+                break;
+            }
+            std::uint32_t variant_index = 0;
+            if (!parse_field_index(instruction.immediate, variant_index)) {
+                report("IR087", "enum construction has an invalid variant index", instruction.span);
+                break;
+            }
+            const IREnumType& enumeration = enum_types_[result->enum_type_id - 1u];
+            if (variant_index >= enumeration.variants.size()) {
+                report("IR087", "enum construction variant index is out of range", instruction.span);
+                break;
+            }
+            const auto& fields = enumeration.variants[variant_index].fields;
+            if (instruction.operands.size() != fields.size())
+                report("IR088", "enum construction operand count does not match the variant payload", instruction.span);
+            const std::size_t count = std::min(instruction.operands.size(), fields.size());
+            for (std::size_t index = 0; index < count; ++index) {
+                const IRValue* actual = operand_value(instruction, index);
+                if (actual && !same_value_shape(*actual, field_value(fields[index])))
+                    report("IR089", "enum construction payload has the wrong type or nominal identity", instruction.span);
+            }
+            break;
+        }
+        case IROp::EnumTag: {
+            check_arity(instruction, 1);
+            const IRValue* object = operand_value(instruction, 0);
+            if (object && (object->type != IRType::Enum || object->enum_type_id == 0 ||
+                           object->enum_type_id > enum_types_.size()))
+                report("IR090", "enum tag extraction requires a valid enum operand", instruction.span);
+            check_result(instruction, IRType::Int);
+            break;
+        }
+        case IROp::EnumPayloadGet: {
+            check_arity(instruction, 1);
+            const IRValue* object = operand_value(instruction, 0);
+            if (!object || object->type != IRType::Enum || object->enum_type_id == 0 ||
+                object->enum_type_id > enum_types_.size()) {
+                report("IR091", "enum payload extraction requires a valid enum operand", instruction.span);
+                break;
+            }
+            const auto separator = instruction.immediate.find(':');
+            std::uint32_t variant_index = 0;
+            std::uint32_t field_index = 0;
+            if (separator == std::string::npos ||
+                !parse_field_index(instruction.immediate.substr(0, separator), variant_index) ||
+                !parse_field_index(instruction.immediate.substr(separator + 1u), field_index)) {
+                report("IR092", "enum payload extraction has an invalid variant/field selector",
+                       instruction.span);
+                break;
+            }
+            const IREnumType& enumeration = enum_types_[object->enum_type_id - 1u];
+            if (variant_index >= enumeration.variants.size() ||
+                field_index >= enumeration.variants[variant_index].fields.size()) {
+                report("IR092", "enum payload extraction selector is out of range", instruction.span);
+                break;
+            }
+            const IRValue expected = field_value(enumeration.variants[variant_index].fields[field_index]);
+            if (!instruction.result || !same_value_shape(*instruction.result, expected))
+                report("IR093", "enum payload extraction result has the wrong type or nominal identity",
+                       instruction.span);
             break;
         }
         case IROp::Say:
@@ -970,6 +1045,7 @@ private:
     const IRFunction& function_;
     const std::unordered_map<std::string, FunctionSignature>& functions_;
     const std::vector<IRStructType>& struct_types_;
+    const std::vector<IREnumType>& enum_types_;
     std::vector<Diagnostic>& diagnostics_;
     std::unordered_map<IRBlockId, const IRBlock*> blocks_;
     std::unordered_map<IRValueId, Definition> definitions_;
@@ -1002,6 +1078,7 @@ const char* ir_type_name(const IRType type) noexcept {
     case IRType::String: return "string";
     case IRType::Array: return "array";
     case IRType::Struct: return "struct";
+    case IRType::Enum: return "enum";
     }
     return "unknown";
 }
@@ -1057,6 +1134,9 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::StructMake: return "struct_make";
     case IROp::StructGet: return "struct_get";
     case IROp::StructSet: return "struct_set";
+    case IROp::EnumMake: return "enum_make";
+    case IROp::EnumTag: return "enum_tag";
+    case IROp::EnumPayloadGet: return "enum_payload_get";
     }
     return "unknown";
 }
@@ -1168,11 +1248,16 @@ std::vector<IRValue> ir_function_nested_fixed_stack_values(
         returned.type = IRType::Struct;
         returned.struct_type_id = function.return_struct_type_id;
         add(returned);
+    } else if (function.return_type == IRType::Enum) {
+        returned.type = IRType::Enum;
+        returned.enum_type_id = function.return_enum_type_id;
+        add(returned);
     } else if (function.return_type == IRType::Array) {
         auto dims = function.return_array_dimensions;
         if (dims.empty()) dims.push_back(function.return_array_length);
         returned = ir_make_array_value(function.return_element_type, std::move(dims),
-            function.return_element_struct_type_id, function.span);
+            function.return_element_struct_type_id, function.span,
+            function.return_element_enum_type_id);
         add(returned);
     }
     return result;
@@ -1207,7 +1292,8 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
                 field_dimensions.end();
             const bool invalid_array =
                 field.type == IRType::Array &&
-                (!valid_array_descriptor(field_type, module.struct_types.size()) ||
+                (!valid_array_descriptor(field_type, module.struct_types.size(),
+                                          module.enum_types.size()) ||
                  (field.element_type == IRType::Struct &&
                   (field.element_struct_type_id > structure.id ||
                    (!field_has_dynamic_dimension &&
@@ -1248,7 +1334,8 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
             for (const IRStructField& field : variant.fields) {
                 const IRValue field_value = ir_struct_field_value(field);
                 const bool invalid_array = field.type == IRType::Array &&
-                    !valid_array_descriptor(field_value, module.struct_types.size());
+                    !valid_array_descriptor(field_value, module.struct_types.size(),
+                                            module.enum_types.size());
                 const bool invalid_non_array_shape = field.type != IRType::Array &&
                     (field.element_type != IRType::Void || field.array_length != 0u ||
                      field.element_struct_type_id != 0u || !field.array_dimensions.empty());
@@ -1290,8 +1377,11 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
         signature.return_element_type = function.return_element_type;
         signature.return_array_length = function.return_array_length;
         signature.return_struct_type_id = function.return_struct_type_id;
+        signature.return_enum_type_id = function.return_enum_type_id;
         signature.return_element_struct_type_id =
             function.return_element_struct_type_id;
+        signature.return_element_enum_type_id =
+            function.return_element_enum_type_id;
         signature.return_array_dimensions = function.return_array_dimensions;
         for (const IRFunctionParameter& parameter : function.parameters) {
             signature.parameters.push_back(parameter.value);
@@ -1305,7 +1395,8 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
     }
 
     for (const IRFunction& function : module.functions) {
-        FunctionVerifier(function, functions, module.struct_types, result.diagnostics).run();
+        FunctionVerifier(function, functions, module.struct_types, module.enum_types,
+                          result.diagnostics).run();
     }
     return result;
 }
