@@ -38,6 +38,7 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::KwBool: return "TYPE_BOOL";
     case TokenKind::KwString: return "TYPE_STRING";
     case TokenKind::KwImport: return "IMPORT";
+    case TokenKind::KwMatch: return "MATCH";
     case TokenKind::LeftParen: return "LEFT_PAREN";
     case TokenKind::RightParen: return "RIGHT_PAREN";
     case TokenKind::LeftBrace: return "LEFT_BRACE";
@@ -48,6 +49,7 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::Colon: return "COLON";
     case TokenKind::Dot: return "DOT";
     case TokenKind::Arrow: return "ARROW";
+    case TokenKind::FatArrow: return "FAT_ARROW";
     case TokenKind::Range: return "RANGE";
     case TokenKind::RangeInclusive: return "RANGE_INCLUSIVE";
     case TokenKind::Plus: return "PLUS";
