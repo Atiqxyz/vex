@@ -7,6 +7,7 @@
 #include "vex/lowering.hpp"
 #include "vex/parser.hpp"
 #include "vex/semantic.hpp"
+#include "vex/target_layout.hpp"
 
 #include <sstream>
 #include <string_view>
@@ -1106,6 +1107,85 @@ void test_byte_lowering_and_backends(TestContext& tests) {
                 "LLVM backend emits i8 operations and unsigned byte comparisons");
 }
 
+
+void test_target_data_layout_service(TestContext& tests) {
+    vex::IRModule module;
+    vex::IRStructType record;
+    record.id = 1u;
+    record.name = "LayoutRecord";
+    record.fields.push_back(vex::IRStructField{"flag", vex::IRType::Byte});
+    record.fields.push_back(vex::IRStructField{"count", vex::IRType::Int});
+
+    vex::IRStructField bytes{"bytes", vex::IRType::Array};
+    bytes.element_type = vex::IRType::Byte;
+    bytes.array_length = 3u;
+    bytes.array_dimensions = {3u};
+    record.fields.push_back(std::move(bytes));
+    record.fields.push_back(vex::IRStructField{"label", vex::IRType::String});
+
+    vex::IRStructField samples{"samples", vex::IRType::Array};
+    samples.element_type = vex::IRType::Int;
+    samples.array_dimensions = {0u};
+    record.fields.push_back(std::move(samples));
+    module.struct_types.push_back(std::move(record));
+
+    const vex::TargetDataLayout layout;
+    const auto structure = layout.layout_of_struct(1u, module);
+    tests.check(structure.has_value(),
+                "target layout computes scalar, fixed-array, string and dynamic-array structure fields");
+    if (!structure) return;
+    tests.check(structure->alignment == 8u && structure->size == 48u,
+                "64-bit structure layout applies natural alignment and tail padding");
+    const std::vector<std::uint64_t> offsets{0u, 8u, 16u, 24u, 40u};
+    bool match = structure->fields.size() == offsets.size();
+    for (std::size_t i = 0; match && i < offsets.size(); ++i)
+        match = structure->fields[i].offset == offsets[i];
+    tests.check(match, "target layout reports canonical structure field offsets");
+
+    const auto fixed = layout.layout_of(vex::ir_make_array_value(
+        vex::IRType::Int, {2u, 3u}), module);
+    tests.check(fixed && fixed->size == 48u && fixed->alignment == 8u &&
+                fixed->stride == 48u,
+                "target layout recursively computes inline nested fixed-array size and stride");
+
+    const auto dynamic = layout.layout_of(vex::ir_make_array_value(
+        vex::IRType::Int, {0u, 3u}), module);
+    tests.check(dynamic && dynamic->size == 8u && dynamic->alignment == 8u,
+                "dynamic outer arrays use pointer-sized value representation");
+
+    vex::IRValue string_value;
+    string_value.type = vex::IRType::String;
+    const auto string_layout = layout.layout_of(string_value, module);
+    tests.check(string_layout && string_layout->size == 16u &&
+                string_layout->alignment == 8u,
+                "string descriptor layout is pointer plus 64-bit byte length");
+
+    vex::TargetLayoutConfig narrow_config;
+    narrow_config.pointer_size = 4u;
+    narrow_config.pointer_alignment = 4u;
+    const vex::TargetDataLayout narrow_layout(narrow_config);
+    const auto narrow_pointer = narrow_layout.layout_of(vex::ir_make_array_value(
+        vex::IRType::Int, {0u}), module);
+    const auto narrow_string = narrow_layout.layout_of(string_value, module);
+    tests.check(narrow_pointer && narrow_pointer->size == 4u &&
+                narrow_string && narrow_string->size == 16u,
+                "layout separates pointer width from the fixed 64-bit string length field");
+
+    vex::TargetLayoutConfig bounded_config;
+    bounded_config.maximum_object_size = 32u;
+    const vex::TargetDataLayout bounded_layout(bounded_config);
+    std::string error;
+    const auto oversized = bounded_layout.layout_of(vex::ir_make_array_value(
+        vex::IRType::Int, {8u}), module, &error);
+    tests.check(!oversized && !error.empty(),
+                "target layout rejects objects exceeding the configured size limit");
+
+    error.clear();
+    const auto invalid = layout.layout_of_struct(9u, module, &error);
+    tests.check(!invalid && !error.empty(),
+                "target layout diagnoses unknown structure identifiers");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -1125,4 +1205,5 @@ void run_ir_tests(TestContext& tests) {
     test_default_initialized_scalar_lowering_and_backends(tests);
     test_recursive_array_ir_shapes_and_backends(tests);
     test_byte_lowering_and_backends(tests);
+    test_target_data_layout_service(tests);
 }

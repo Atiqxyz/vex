@@ -39,6 +39,7 @@ add_library(vex_frontend STATIC
     src/parser.cpp
     src/semantic.cpp
     src/ir.cpp
+    src/target_layout.cpp
     src/lowering.cpp
     src/backend.cpp
     src/c_backend.cpp
