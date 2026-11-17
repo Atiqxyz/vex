@@ -23,7 +23,8 @@ enum class IRType {
     Bool,
     String,
     Array,
-    Struct
+    Struct,
+    Enum
 };
 
 [[nodiscard]] const char* ir_type_name(IRType type) noexcept;
@@ -77,7 +78,10 @@ enum class IROp {
     ArrayPop,
     StructMake,
     StructGet,
-    StructSet
+    StructSet,
+    EnumMake,
+    EnumTag,
+    EnumPayloadGet
 };
 
 [[nodiscard]] const char* ir_op_name(IROp op) noexcept;
@@ -93,6 +97,8 @@ struct IRValue {
     std::uint32_t struct_type_id{0};
     std::uint32_t element_struct_type_id{0};
     std::vector<std::uint32_t> array_dimensions;
+    // Nominal identity when type is Enum.
+    std::uint32_t enum_type_id{0};
 };
 
 // Older IR construction sites may only populate array_length. Treat that as
@@ -106,13 +112,15 @@ struct IRValue {
 
 [[nodiscard]] inline IRValue ir_make_array_value(
     const IRType leaf_type, std::vector<std::uint32_t> dimensions,
-    const std::uint32_t leaf_struct_type_id = 0, const SourceSpan span = {}) {
+    const std::uint32_t leaf_struct_type_id = 0, const SourceSpan span = {},
+    const std::uint32_t leaf_enum_type_id = 0) {
     IRValue value;
     value.type = IRType::Array;
     value.span = span;
     value.element_type = leaf_type;
     value.array_length = dimensions.empty() ? 0u : dimensions.front();
     value.element_struct_type_id = leaf_struct_type_id;
+    value.enum_type_id = leaf_enum_type_id;
     value.array_dimensions = std::move(dimensions);
     return value;
 }
@@ -127,12 +135,13 @@ struct IRValue {
         return ir_make_array_value(
             array.element_type,
             std::vector<std::uint32_t>(dimensions.begin() + 1, dimensions.end()),
-            array.element_struct_type_id, span);
+            array.element_struct_type_id, span, array.enum_type_id);
     }
     IRValue value;
     value.type = array.element_type;
     value.span = span;
     value.struct_type_id = array.element_struct_type_id;
+    value.enum_type_id = array.enum_type_id;
     return value;
 }
 
@@ -141,6 +150,7 @@ struct IRValue {
     return left.type == IRType::Array && right.type == IRType::Array &&
            left.element_type == right.element_type &&
            left.element_struct_type_id == right.element_struct_type_id &&
+           left.enum_type_id == right.enum_type_id &&
            ir_array_dimensions(left) == ir_array_dimensions(right);
 }
 
@@ -152,6 +162,7 @@ struct IRStructField {
     std::uint32_t array_length{0};
     std::uint32_t element_struct_type_id{0};
     std::vector<std::uint32_t> array_dimensions;
+    std::uint32_t enum_type_id{0};
 };
 
 [[nodiscard]] inline IRValue ir_struct_field_value(const IRStructField& field) {
@@ -162,6 +173,7 @@ struct IRStructField {
     value.array_length = field.array_length;
     value.element_struct_type_id = field.element_struct_type_id;
     value.array_dimensions = field.array_dimensions;
+    value.enum_type_id = field.enum_type_id;
     return value;
 }
 
@@ -240,6 +252,7 @@ struct IRFunction {
     IRType return_element_type{IRType::Void};
     std::uint32_t return_array_length{0};
     std::uint32_t return_struct_type_id{0};
+    std::uint32_t return_enum_type_id{0};
     std::uint32_t return_element_struct_type_id{0};
     std::vector<std::uint32_t> return_array_dimensions;
     std::vector<IRBlock> blocks;
