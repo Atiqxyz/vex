@@ -1229,6 +1229,19 @@ private:
                     report("SEM014", "structure values cannot be compared until an explicit equality model is defined", expression.span);
                     return Type::Error;
                 }
+                if (left == Type::Enum && right == Type::Enum) {
+                    const std::uint32_t left_enum =
+                        model_.enum_expression_types.count(binary->left.get())
+                            ? model_.enum_expression_types.at(binary->left.get()) : 0u;
+                    const std::uint32_t right_enum =
+                        model_.enum_expression_types.count(binary->right.get())
+                            ? model_.enum_expression_types.at(binary->right.get()) : 0u;
+                    if (left_enum == 0u || left_enum != right_enum) {
+                        report("SEM014", "enum equality requires values of the same nominal enum type",
+                               expression.span);
+                        return Type::Error;
+                    }
+                }
                 if ((!is_numeric(left) || !is_numeric(right)) && left != right) {
                     report("SEM014", "equality operands must have compatible types; got " +
                            std::string(type_name(left)) + " and " + type_name(right),
@@ -1731,6 +1744,11 @@ private:
             if (builtin_name == "say" &&
                 std::find(argument_types.begin(), argument_types.end(), Type::Struct) != argument_types.end()) {
                 report("SEM056", "say does not accept structure values; select a printable field",
+                       expression.span);
+            }
+            if (builtin_name == "say" &&
+                std::find(argument_types.begin(), argument_types.end(), Type::Enum) != argument_types.end()) {
+                report("SEM069", "say does not accept enum values; match a variant first",
                        expression.span);
             }
             if (argument_types.size() != function->parameters.size()) {
