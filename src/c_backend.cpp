@@ -441,7 +441,7 @@ private:
                         << "u, \"VEX enum payload offset disagrees with target data layout\");\n";
             }
         }
-        output_ << '\\n';
+        output_ << '\n';
     }
 
     void emit_nested_fixed_stack_assertions() {
