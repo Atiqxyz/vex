@@ -14,6 +14,7 @@ The current C++20 development build has:
 - a lexer, parser, and initial abstract syntax tree;
 - a semantic checker that produces typed expression information, resolved bindings, and function signatures;
 - a typed SSA intermediate representation with basic-block parameters, a verifier, and AST-to-IR lowering;
+- nominal structures and inline tagged enums, including unit and positional-payload variants, typed constructors, payload projection, and exhaustive statement-form `match` with scoped immutable payload bindings;
 - fixed-size, one-dimensional arrays with inferred primitive element types (including unsigned `byte`), indexing, indexed updates, and by-value function parameters/returns;
 - a first-class unsigned 8-bit `byte` type (0–255), explicit checked `to_byte(int)` and zero-extending `to_int(byte)` conversions, byte-width bitwise operations, and unsigned byte comparisons;
 - mutable dynamic `byte[]` buffers, bounds-checked owning `byte_slice` copies, and checked 16-/32-bit unsigned little-/big-endian binary integer codecs;
@@ -30,7 +31,7 @@ Multiple source files are currently combined in command-line order into one tran
 
 The binary file helpers operate on complete files rather than exposing streaming handles. `read_file` appends to a mutable byte array and returns the appended byte count or `-1`; `write_file` replaces the destination file and returns the byte count or `-1`. The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
 
-VEX is an early language implementation. It supports nominal structures, fixed and dynamic one-dimensional arrays of primitive and structure values, nested aggregate updates, functions, control flow, and length-aware byte strings. Nested collections, modules, and a general-purpose ownership/borrowing system remain unfinished. Fixed arrays and structures have value semantics; dynamic arrays are heap-backed shared references whose aliases and function parameters/returns refer to the same collection. Dynamic-array and concatenated-string allocations are tracked by the generated program and reclaimed when its entry function returns. This program-lifetime strategy is an initial runtime contract, not the final memory model.
+VEX is an early language implementation. It supports nominal structures and enums, fixed and dynamic arrays (including supported nested jagged shapes) of primitive and aggregate values, exhaustive enum matching, nested aggregate updates, functions, control flow, and length-aware byte strings. Modules and a general-purpose ownership/borrowing system remain unfinished. Fixed arrays and structures have value semantics; dynamic arrays are heap-backed shared references whose aliases and function parameters/returns refer to the same collection. Dynamic-array and concatenated-string allocations are tracked by the generated program and reclaimed when its entry function returns. This program-lifetime strategy is an initial runtime contract, not the final memory model.
 
 ## Design direction
 
