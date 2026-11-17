@@ -53,3 +53,5 @@ Higher-level features (enums, tagged unions, collections, modules, graphics reso
 - Dynamic collections remain reference-backed, with allocator identity and element layout made explicit.
 - Never rely on C signed overflow or implementation-defined right shift of negative values.
 - Every new IR operation must be typed, verified, source-spanned, and supported by both backends before being marked complete.
+- The initial `TargetDataLayout` service computes primitive, string, fixed/dynamic nested-array, and structure layouts with checked size arithmetic. C emits size/alignment/field-offset assertions; LLVM uses the same expected alignment and validates target-computed nested aggregate sizes. The default data model is explicitly 64-bit, matching the current supported CI targets. Packed and C-ABI layout attributes remain future extensions.
+

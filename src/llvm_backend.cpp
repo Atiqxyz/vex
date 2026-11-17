@@ -1,5 +1,6 @@
 #include "vex/llvm_backend.hpp"
 #include "vex/stack_policy.hpp"
+#include "vex/target_layout.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -1230,9 +1231,16 @@ trap:
                 return left.first < right.first;
             });
         for (const auto& [id, type] : ordered_values) {
+            std::string layout_error;
+            const auto type_layout = target_layout_.layout_of(type, module_, &layout_error);
+            if (!type_layout) {
+                report("LLVM009", "cannot compute target alignment for value: " + layout_error,
+                       type.span);
+                return;
+            }
             output_ << "  " << value_slot(id) << " = alloca " << llvm_type(type);
             if (!allocation_count.empty()) output_ << ", i64 " << allocation_count;
-            output_ << ", align " << (type.type == IRType::Bool ? 1 : 8) << "\n";
+            output_ << ", align " << type_layout->alignment << "\n";
         }
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
             const IRValue& parameter = function.parameters[index].value;
@@ -1273,12 +1281,26 @@ trap:
         std::string valid = "true";
         std::string total = "0";
         for (const IRValue& value : values) {
+            std::string layout_error;
+            const auto expected_layout = target_layout_.layout_of(value, module_, &layout_error);
+            if (!expected_layout) {
+                report("LLVM009", "cannot compute nested aggregate layout: " + layout_error,
+                       value.span);
+                return {};
+            }
             const std::string size = emit_type_size(value);
+            const std::string target_size_ok = next_temp();
+            output_ << "  " << target_size_ok << " = icmp eq i64 " << size
+                    << ", " << expected_layout->size << "\\n";
             const std::string object_ok = next_temp();
             output_ << "  " << object_ok << " = icmp ule i64 " << size
                     << ", " << max_nested_fixed_aggregate_bytes << "\n";
             const std::string object_valid = next_temp();
-            output_ << "  " << object_valid << " = and i1 " << valid << ", " << object_ok << "\n";
+            const std::string size_matches_target = next_temp();
+            output_ << "  " << size_matches_target << " = and i1 " << target_size_ok
+                    << ", " << object_ok << "\n";
+            output_ << "  " << object_valid << " = and i1 " << valid << ", "
+                    << size_matches_target << "\n";
             valid = object_valid;
             const std::string pair = next_temp();
             const std::string next_total = next_temp();
@@ -2052,6 +2074,7 @@ trap:
     std::vector<StringGlobal> string_globals_;
     std::unordered_map<const IRInstruction*, std::string> string_symbols_;
     std::unordered_map<IRValueId, IRValue> value_types_;
+    TargetDataLayout target_layout_;
     const IRFunction* entry_{nullptr};
     const IRFunction* current_function_{nullptr};
     std::size_t next_temp_{0};
