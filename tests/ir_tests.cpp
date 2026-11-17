@@ -1375,6 +1375,9 @@ void test_end_to_end_enum_construction_and_matching(TestContext& tests) {
     const vex::BackendResult llvm_output = vex::LLVMBackend{}.emit(lowered.module);
     tests.check(!llvm_output.has_errors() && !llvm_output.output.empty(),
                 "LLVM backend emits enum constructors and match payload access");
+    tests.check(llvm_output.output.find("store i32 0, ptr") != std::string::npos &&
+                llvm_output.output.find("zext i32") != std::string::npos,
+                "LLVM backend writes the enum discriminant and widens tag reads to VEX int");
 }
 
 void test_nominal_type_and_function_names_share_namespace(TestContext& tests) {
