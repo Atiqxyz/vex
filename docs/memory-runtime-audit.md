@@ -6,7 +6,7 @@
 
 | Allocation | C backend | LLVM backend | Lifetime tracking |
 |---|---|---|---|
-| Dynamic-array header | Zero-initialized allocation with a null check | Heap allocation with a null check and explicit field initialization | Header is linked into the array registry only after successful allocation |
+| Dynamic-array header | Zero-initialized `calloc(1, sizeof(vex_array))` with a null check | Allocation size is derived from the target layout of `%vex.array`, with a null check and explicit field initialization | Header is linked into the array registry only after successful allocation |
 | Dynamic-array element buffer | `realloc` with checked element-size multiplication and a null check | `realloc` with checked unsigned multiplication and a null check | Owned by its registered header; successful reallocation updates the header |
 | Concatenated/joined string | One allocation for tracking node plus byte payload | One allocation for tracking node plus byte payload | Separate string registry |
 | Fixed array / fixed nested aggregate | Inline value aggregate | Inline LLVM aggregate / guarded stack slot | No heap registry entry |

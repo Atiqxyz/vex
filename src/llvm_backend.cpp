@@ -572,7 +572,9 @@ entry:
   %invalid = icmp eq i64 %element_size, 0
   br i1 %invalid, label %trap, label %allocate
 allocate:
-  %array = call ptr @malloc(i64 40)
+  %header_end = getelementptr %vex.array, ptr null, i32 1
+  %header_size = ptrtoint ptr %header_end to i64
+  %array = call ptr @malloc(i64 %header_size)
   %failed = icmp eq ptr %array, null
   br i1 %failed, label %trap, label %initialize
 initialize:

@@ -126,6 +126,10 @@ void test_llvm_backend_guards_nested_fixed_stack_storage(TestContext& tests) {
 void test_llvm_backend_checks_allocation_failures_and_exit_cleanup(TestContext& tests) {
     const vex::BackendResult result = vex::LLVMBackend{}.emit(integer_main_module());
     tests.check(!result.has_errors(), "LLVM backend accepts an integer-returning entry for cleanup verification");
+    tests.check(result.output.find("%header_size = ptrtoint ptr %header_end to i64") != std::string::npos &&
+                result.output.find("call ptr @malloc(i64 %header_size)") != std::string::npos &&
+                result.output.find("call ptr @malloc(i64 40)") == std::string::npos,
+                "LLVM derives dynamic-array header allocation size from the target data layout");
     tests.check(result.output.find("%failed = icmp eq ptr %array, null") != std::string::npos &&
                 result.output.find("%allocation_failed = icmp eq ptr %new_data, null") != std::string::npos &&
                 result.output.find("%allocation_failed = icmp eq ptr %node, null") != std::string::npos,
