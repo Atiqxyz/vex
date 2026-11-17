@@ -2075,6 +2075,126 @@ private:
         current_block_ = exit;
     }
 
+    [[nodiscard]] std::optional<IRValue> emit_enum_payload_get(
+        const IRValue& object, const std::uint32_t variant_index,
+        const std::uint32_t field_index, const SourceSpan span) {
+        const IREnumType* enumeration = get_enum_type(object.enum_type_id);
+        if (object.type != IRType::Enum || !enumeration ||
+            variant_index >= enumeration->variants.size() ||
+            field_index >= enumeration->variants[variant_index].fields.size()) {
+            report("IR153", "enum payload projection has an invalid type, variant, or field",
+                   span);
+            return std::nullopt;
+        }
+        IRValue result = ir_struct_field_value(
+            enumeration->variants[variant_index].fields[field_index]);
+        result.id = next_value_id_++;
+        result.span = span;
+        IRInstruction instruction;
+        instruction.op = IROp::EnumPayloadGet;
+        instruction.operands = {object.id};
+        instruction.immediate = std::to_string(variant_index) + ":" +
+                                std::to_string(field_index);
+        instruction.result = result;
+        instruction.span = span;
+        emit(std::move(instruction));
+        return result;
+    }
+
+    void lower_match(const MatchStmt& matched, const SourceSpan span) {
+        const auto info = semantic_model_.match_statements.find(&matched);
+        if (info == semantic_model_.match_statements.end() || !matched.value) {
+            report("IR153", "match statement is missing semantic pattern information",
+                   span);
+            return;
+        }
+        const auto scrutinee = lower_expression(*matched.value);
+        if (!scrutinee || scrutinee->type != IRType::Enum ||
+            scrutinee->enum_type_id != info->second.enum_type_id || !current_block_) {
+            report("IR153", "match scrutinee does not match its resolved enum type",
+                   matched.value->span);
+            return;
+        }
+
+        IRInstruction tag_instruction;
+        tag_instruction.op = IROp::EnumTag;
+        tag_instruction.operands = {scrutinee->id};
+        tag_instruction.result = make_value(IRType::Int, matched.value->span);
+        tag_instruction.span = matched.value->span;
+        const IRValue tag = *tag_instruction.result;
+        emit(std::move(tag_instruction));
+
+        const Environment base = environment_;
+        IRBlockId test_block = *current_block_;
+        std::vector<FlowPath> paths;
+        const IREnumType* enumeration = get_enum_type(info->second.enum_type_id);
+        if (!enumeration) {
+            report("IR153", "match references an unavailable enum descriptor", span);
+            return;
+        }
+
+        const std::size_t arm_count = std::min(
+            matched.arms.size(), info->second.arms.size());
+        for (std::size_t arm_index = 0; arm_index < arm_count; ++arm_index) {
+            const MatchArm& arm = matched.arms[arm_index];
+            const SemanticMatchArmInfo& arm_info = info->second.arms[arm_index];
+            const IRBlockId arm_block = create_block("match.arm");
+            IRBlockId next_test = 0u;
+
+            current_block_ = test_block;
+            environment_ = base;
+            if (arm_index + 1u == arm_count) {
+                set_terminator(test_block,
+                    IRTerminator{IRBranch{arm_block, {}}, span});
+            } else {
+                next_test = create_block("match.next");
+                if (arm_info.wildcard) {
+                    set_terminator(test_block,
+                        IRTerminator{IRBranch{arm_block, {}}, span});
+                } else {
+                    const IRValue expected_tag = emit_constant(
+                        IRType::Int, std::to_string(arm_info.variant_index), arm.variant_name);
+                    const IRValue condition = emit_operation(
+                        IROp::Equal, IRType::Bool, {tag.id, expected_tag.id},
+                        arm.variant_name);
+                    set_terminator(test_block, IRTerminator{
+                        IRConditionalBranch{condition.id, arm_block, {},
+                                            next_test, {}}, arm.variant_name
+                    });
+                }
+            }
+
+            current_block_ = arm_block;
+            environment_ = base;
+            if (!arm_info.wildcard && arm_info.variant_index < enumeration->variants.size()) {
+                const auto& fields = enumeration->variants[arm_info.variant_index].fields;
+                const std::size_t binding_count = std::min(
+                    arm_info.payload_bindings.size(), fields.size());
+                for (std::size_t field_index = 0; field_index < binding_count; ++field_index) {
+                    const auto payload = emit_enum_payload_get(
+                        *scrutinee, arm_info.variant_index,
+                        static_cast<std::uint32_t>(field_index), arm.bindings[field_index]);
+                    if (payload)
+                        environment_[arm_info.payload_bindings[field_index]] = *payload;
+                }
+            }
+            if (arm.body) lower_statement(*arm.body);
+            if (current_block_)
+                paths.push_back(FlowPath{*current_block_, environment_});
+
+            if (arm_index + 1u < arm_count) {
+                if (arm_info.wildcard) {
+                    // Semantic analysis rejects arms after a wildcard; retain a
+                    // deterministic unreachable continuation for malformed trees.
+                    current_block_ = next_test;
+                    terminate_current(IRTerminator{IRUnreachable{}, span});
+                }
+                test_block = next_test;
+            }
+        }
+        merge_paths(base, paths, span, "match.end");
+    }
+
     void lower_statement(const Statement& statement) {
         if (!current_block_) return;
 
@@ -2117,6 +2237,10 @@ private:
         }
         if (const auto* conditional = std::get_if<IfStmt>(&statement.data)) {
             lower_if(*conditional, statement.span);
+            return;
+        }
+        if (const auto* matched = std::get_if<MatchStmt>(&statement.data)) {
+            lower_match(*matched, statement.span);
             return;
         }
         if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
