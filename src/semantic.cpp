@@ -625,17 +625,19 @@ private:
             signature.type = function->return_type
                 ? annotation_type(*function->return_type, true,
                                   &signature.return_array_type,
-                                  &signature.return_struct_type_id)
+                                  &signature.return_struct_type_id,
+                                  &signature.return_enum_type_id)
                 : Type::Void;
 
             for (const Parameter& parameter : function->parameters) {
                 Type parameter_type = Type::Unknown;
                 std::optional<SemanticArrayType> parameter_array_type;
                 std::uint32_t parameter_struct_type_id = 0;
+                std::uint32_t parameter_enum_type_id = 0;
                 if (parameter.type_annotation) {
                     parameter_type = annotation_type(
                         *parameter.type_annotation, false, &parameter_array_type,
-                        &parameter_struct_type_id);
+                        &parameter_struct_type_id, &parameter_enum_type_id);
                 } else {
                     report("SEM004",
                            "function parameters require an explicit type annotation",
@@ -644,6 +646,7 @@ private:
                 signature.parameters.push_back(parameter_type);
                 signature.parameter_array_types.push_back(parameter_array_type);
                 signature.parameter_struct_type_ids.push_back(parameter_struct_type_id);
+                signature.parameter_enum_type_ids.push_back(parameter_enum_type_id);
             }
 
             const std::string name = spelling(function->name);
@@ -661,7 +664,9 @@ private:
             public_signature.return_type = signature.type;
             public_signature.return_array_type = signature.return_array_type;
             public_signature.parameter_struct_type_ids = signature.parameter_struct_type_ids;
+            public_signature.parameter_enum_type_ids = signature.parameter_enum_type_ids;
             public_signature.return_struct_type_id = signature.return_struct_type_id;
+            public_signature.return_enum_type_id = signature.return_enum_type_id;
             public_signature.declaration = function->name;
             model_.functions.emplace(function, std::move(public_signature));
             signatures_.emplace(function, std::move(signature));
@@ -740,6 +745,8 @@ private:
                 model_.array_expression_types[&expression] = *symbol->array_type;
             if (symbol->type == Type::Struct)
                 model_.struct_expression_types[&expression] = symbol->struct_type_id;
+            if (symbol->type == Type::Enum)
+                model_.enum_expression_types[&expression] = symbol->enum_type_id;
             return symbol->type;
         }
 
@@ -752,6 +759,9 @@ private:
             const auto structure = model_.struct_expression_types.find(group->expression.get());
             if (structure != model_.struct_expression_types.end())
                 model_.struct_expression_types[&expression] = structure->second;
+            const auto enumeration = model_.enum_expression_types.find(group->expression.get());
+            if (enumeration != model_.enum_expression_types.end())
+                model_.enum_expression_types[&expression] = enumeration->second;
             return grouped_type;
         }
 
@@ -1635,9 +1645,11 @@ private:
         Type declared = Type::Unknown;
         std::optional<SemanticArrayType> declared_array_type;
         std::uint32_t declared_struct_type_id = 0;
+        std::uint32_t declared_enum_type_id = 0;
         if (variable.type_annotation) {
             declared = annotation_type(*variable.type_annotation, false,
-                                       &declared_array_type, &declared_struct_type_id);
+                                       &declared_array_type, &declared_struct_type_id,
+                                       &declared_enum_type_id);
         }
         const auto* array_initializer = variable.initializer
             ? std::get_if<ArrayLiteralExpr>(&variable.initializer->data) : nullptr;
@@ -1659,9 +1671,17 @@ private:
             const std::uint32_t inferred_struct =
                 model_.struct_expression_types.count(variable.initializer.get())
                     ? model_.struct_expression_types.at(variable.initializer.get()) : 0u;
+            const std::uint32_t inferred_enum =
+                model_.enum_expression_types.count(variable.initializer.get())
+                    ? model_.enum_expression_types.at(variable.initializer.get()) : 0u;
             if (declared == Type::Struct && inferred == Type::Struct &&
                 declared_struct_type_id != inferred_struct) {
                 report("SEM022", "initializer structure type does not match variable annotation",
+                       variable.initializer->span);
+            }
+            if (declared == Type::Enum && inferred == Type::Enum &&
+                declared_enum_type_id != inferred_enum) {
+                report("SEM022", "initializer enum type does not match variable annotation",
                        variable.initializer->span);
             }
         }
@@ -1687,6 +1707,14 @@ private:
         Symbol symbol;
         symbol.type = declared;
         if (declared == Type::Array) symbol.array_type = declared_array_type;
+        if (declared == Type::Enum) {
+            symbol.enum_type_id = declared_enum_type_id;
+            if (!variable.type_annotation && variable.initializer) {
+                const auto enumeration = model_.enum_expression_types.find(variable.initializer.get());
+                if (enumeration != model_.enum_expression_types.end())
+                    symbol.enum_type_id = enumeration->second;
+            }
+        }
         if (declared == Type::Struct) {
             symbol.struct_type_id = declared_struct_type_id;
             if (!variable.type_annotation && variable.initializer) {
@@ -1737,6 +1765,8 @@ private:
                 symbol.array_type = signature.parameter_array_types[index];
             if (index < signature.parameter_struct_type_ids.size())
                 symbol.struct_type_id = signature.parameter_struct_type_ids[index];
+            if (index < signature.parameter_enum_type_ids.size())
+                symbol.enum_type_id = signature.parameter_enum_type_ids[index];
             symbol.declaration = parameter.name;
             SemanticBindingId binding_id = 0;
             if (define(spelling(parameter.name), std::move(symbol),
@@ -1749,10 +1779,12 @@ private:
         const Type previous_return = current_return_type_;
         const auto previous_return_array_type = current_return_array_type_;
         const std::uint32_t previous_return_struct_type_id = current_return_struct_type_id_;
+        const std::uint32_t previous_return_enum_type_id = current_return_enum_type_id_;
         inside_function_ = true;
         current_return_type_ = signature.type;
         current_return_array_type_ = signature.return_array_type;
         current_return_struct_type_id_ = signature.return_struct_type_id;
+        current_return_enum_type_id_ = signature.return_enum_type_id;
 
         if (function.body) {
             analyze_block(*function.body, false);
@@ -1767,6 +1799,7 @@ private:
         current_return_type_ = previous_return;
         current_return_array_type_ = previous_return_array_type;
         current_return_struct_type_id_ = previous_return_struct_type_id;
+        current_return_enum_type_id_ = previous_return_enum_type_id;
         inside_function_ = was_in_function;
         scopes_.pop_back();
     }
@@ -2018,6 +2051,12 @@ private:
                     if (actual == Type::Struct && returned_struct != current_return_struct_type_id_)
                         report("SEM028", "returned structure type does not match function return type",
                                returned->value->span);
+                    const std::uint32_t returned_enum =
+                        model_.enum_expression_types.count(returned->value.get())
+                            ? model_.enum_expression_types.at(returned->value.get()) : 0u;
+                    if (actual == Type::Enum && returned_enum != current_return_enum_type_id_)
+                        report("SEM028", "returned enum type does not match function return type",
+                               returned->value->span);
                     if (actual == Type::Array && current_return_array_type_) {
                         const auto actual_shape =
                             model_.array_expression_types.find(returned->value.get());
@@ -2145,6 +2184,7 @@ private:
     Type current_return_type_{Type::Void};
     std::optional<SemanticArrayType> current_return_array_type_;
     std::uint32_t current_return_struct_type_id_{0};
+    std::uint32_t current_return_enum_type_id_{0};
 };
 
 } // namespace
