@@ -79,6 +79,10 @@ bool compatible_array_literal_context(
         expected.element_struct_type_id != actual.element_struct_type_id) {
         return false;
     }
+    if (expected.element_type == Type::Enum &&
+        expected.element_enum_type_id != actual.element_enum_type_id) {
+        return false;
+    }
     if (expected.dimensions.size() != actual.dimensions.size()) return false;
     for (std::size_t index = 0; index < expected.dimensions.size(); ++index) {
         if (expected.dimensions[index] != 0u &&
@@ -98,8 +102,11 @@ struct Symbol {
     std::optional<SemanticArrayType> array_type;
     std::optional<SemanticArrayType> return_array_type;
     std::uint32_t struct_type_id{0};
+    std::uint32_t enum_type_id{0};
     std::vector<std::uint32_t> parameter_struct_type_ids;
+    std::vector<std::uint32_t> parameter_enum_type_ids;
     std::uint32_t return_struct_type_id{0};
+    std::uint32_t return_enum_type_id{0};
 };
 
 using Scope = std::unordered_map<std::string, Symbol>;
@@ -138,7 +145,8 @@ private:
     [[nodiscard]] Type annotation_type(
         const SourceSpan span, const bool allow_void,
         std::optional<SemanticArrayType>* array_shape = nullptr,
-        std::uint32_t* struct_type_id = nullptr) {
+        std::uint32_t* struct_type_id = nullptr,
+        std::uint32_t* enum_type_id = nullptr) {
         const std::string name = spelling(span);
         const std::size_t open = name.find('[');
         if (open != std::string::npos) {
@@ -155,6 +163,7 @@ private:
 
             Type element_type = Type::Error;
             std::uint32_t element_struct_type_id = 0;
+            std::uint32_t element_enum_type_id = 0;
             if (element_name == "int") element_type = Type::Int;
             else if (element_name == "byte") element_type = Type::Byte;
             else if (element_name == "float") element_type = Type::Float;
@@ -162,11 +171,15 @@ private:
             else if (element_name == "string") element_type = Type::String;
             else {
                 const auto structure = struct_ids_.find(element_name);
+                const auto enumeration = enum_ids_.find(element_name);
                 if (structure != struct_ids_.end()) {
                     element_type = Type::Struct;
                     element_struct_type_id = structure->second;
+                } else if (enumeration != enum_ids_.end()) {
+                    element_type = Type::Enum;
+                    element_enum_type_id = enumeration->second;
                 } else {
-                    report("SEM003", "array element type must be a primitive or a declared structure type", span);
+                    report("SEM003", "array element type must be a primitive or a declared nominal type", span);
                     return Type::Error;
                 }
             }
@@ -224,7 +237,8 @@ private:
             }
             if (array_shape) {
                 *array_shape = SemanticArrayType{
-                    element_type, std::move(dimensions), element_struct_type_id
+                    element_type, std::move(dimensions), element_struct_type_id,
+                    element_enum_type_id
                 };
             }
             return Type::Array;
@@ -238,6 +252,11 @@ private:
         if (structure != struct_ids_.end()) {
             if (struct_type_id) *struct_type_id = structure->second;
             return Type::Struct;
+        }
+        const auto enumeration = enum_ids_.find(name);
+        if (enumeration != enum_ids_.end()) {
+            if (enum_type_id) *enum_type_id = enumeration->second;
+            return Type::Enum;
         }
         if (allow_void && name == "void") return Type::Void;
         report("SEM003", "unknown or unsupported type name '" + name + "'", span);
@@ -535,8 +554,10 @@ private:
                 for (const SourceSpan payload_span : variant.payload_types) {
                     std::optional<SemanticArrayType> array_type;
                     std::uint32_t payload_struct_id = 0u;
+                    std::uint32_t payload_enum_id = 0u;
                     const Type payload_type = annotation_type(
-                        payload_span, false, &array_type, &payload_struct_id);
+                        payload_span, false, &array_type, &payload_struct_id,
+                        &payload_enum_id);
                     if (payload_type == Type::Error || payload_type == Type::Void ||
                         payload_type == Type::Unknown || payload_type == Type::Any ||
                         (payload_type == Type::Array && !array_type)) {
@@ -545,7 +566,8 @@ private:
                         continue;
                     }
                     semantic_variant.fields.push_back(SemanticEnumPayloadField{
-                        payload_type, payload_struct_id, std::move(array_type), payload_span
+                        payload_type, payload_struct_id, payload_enum_id,
+                        std::move(array_type), payload_span
                     });
                 }
                 enumeration.variants.push_back(std::move(semantic_variant));
@@ -675,7 +697,7 @@ private:
         if (assigned_id) *assigned_id = symbol.id;
         model_.bindings.emplace(symbol.id, SemanticBinding{
             symbol.id, name, symbol.type, !symbol.immutable && !symbol.is_function,
-            declaration, symbol.array_type, symbol.struct_type_id
+            declaration, symbol.array_type, symbol.struct_type_id, symbol.enum_type_id
         });
         current.emplace(name, std::move(symbol));
         return true;
@@ -2139,6 +2161,7 @@ const char* semantic_type_name(const SemanticType type) noexcept {
     case SemanticType::Bool: return "bool";
     case SemanticType::String: return "string";
     case SemanticType::Struct: return "struct";
+    case SemanticType::Enum: return "enum";
     case SemanticType::Array: return "array";
     case SemanticType::Range: return "range";
     }
