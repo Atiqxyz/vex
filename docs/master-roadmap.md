@@ -335,7 +335,7 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 2. Struct semantics: value behavior, copy behavior, parameters, returns, nested fields.
 3. [x] Arrays of structs and structs containing fixed/dynamic arrays, including nested field/index updates.
 4. Struct layout and alignment decisions that are consistent across C and LLVM.
-5. Enums and tagged unions, followed by exhaustive match/pattern support.
+5. [Design recorded](enum-and-tagged-union-design.md); implement inline tagged unions with exhaustive matching.
 6. Tuples and destructuring if they simplify multiple returns and data flow.
 
 ### Milestone 2 — Complete the core type and expression model
