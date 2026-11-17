@@ -758,6 +758,55 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
                 "unknown structure names are rejected in array element annotations");
 }
 
+void test_enum_match_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"valid_enum_match.vex",
+        "enum Result { Success(int), Failure(string), Cancelled }\n"
+        "make inspect(result: Result) {\n"
+        "    match result {\n"
+        "        Result.Success(value) => { say(value) }\n"
+        "        Result.Failure(reason) => { say(reason) }\n"
+        "        Result.Cancelled => { say(0) }\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult valid_result = analyze(valid);
+    tests.check(!valid_result.has_errors() &&
+                valid_result.model.match_statements.size() == 1u,
+                "exhaustive enum matches resolve all variants and payload bindings");
+    bool found_payload_binding = false;
+    for (const auto& entry : valid_result.model.bindings) {
+        if (entry.second.name == "value" && entry.second.type == vex::SemanticType::Int &&
+            !entry.second.mutable_binding) found_payload_binding = true;
+    }
+    tests.check(found_payload_binding,
+                "match payload bindings are immutable and retain their declared type");
+
+    const vex::SourceFile invalid{"invalid_enum_match.vex",
+        "enum Result { Success(int), Failure(string), Cancelled }\n"
+        "make inspect(result: Result) {\n"
+        "    match result {\n"
+        "        Result.Success(value) => { say(value) }\n"
+        "        Result.Success(other) => { say(other) }\n"
+        "        Result.Cancelled => { say(0) }\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult invalid_result = analyze(invalid);
+    tests.check(has_code(invalid_result, "SEM075"),
+                "duplicate enum match variants are rejected");
+    tests.check(has_code(invalid_result, "SEM077"),
+                "non-exhaustive enum matches are rejected");
+
+    const vex::SourceFile wrong_bindings{"wrong_match_bindings.vex",
+        "enum Result { Success(int), Failure(string) }\n"
+        "make inspect(result: Result) {\n"
+        "    match result {\n"
+        "        Result.Success => { say(0) }\n"
+        "        Result.Failure(reason, extra) => { say(reason) }\n"
+        "    }\n"
+        "}\n"};
+    tests.check(has_code(analyze(wrong_bindings), "SEM076"),
+                "match patterns must bind exactly the payload fields declared by a variant");
+}
+
 void test_enum_declaration_semantics(TestContext& tests) {
     const vex::SourceFile valid{"valid_enum_declarations.vex",
         "struct Point { x: int, y: float }\n"
@@ -948,6 +997,7 @@ void run_semantic_tests(TestContext& tests) {
     test_for_in_rejects_non_array_values(tests);
     test_structure_types_value_semantics_and_diagnostics(tests);
     test_enum_declaration_semantics(tests);
+    test_enum_match_semantics(tests);
     test_string_byte_length_semantics(tests);
     test_string_join_semantics(tests);
     test_bitwise_operator_semantics(tests);
