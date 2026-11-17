@@ -21,6 +21,7 @@ std::optional<IRType> to_ir_type(const SemanticType type) {
     case SemanticType::Bool: return IRType::Bool;
     case SemanticType::String: return IRType::String;
     case SemanticType::Struct: return IRType::Struct;
+    case SemanticType::Enum: return IRType::Enum;
     case SemanticType::Array: return IRType::Array;
     case SemanticType::Error:
     case SemanticType::Unknown:
@@ -41,11 +42,12 @@ public:
                     const std::unordered_map<std::string, SemanticFunctionSignature>& signatures,
                     const FunctionDeclStmt& declaration,
                     const std::vector<IRStructType>& struct_types,
+                    const std::vector<IREnumType>& enum_types,
                     std::vector<Diagnostic>& diagnostics,
                     const std::vector<const Statement*>* implicit_body = nullptr)
         : source_(source), semantic_model_(semantic_model), signatures_(signatures),
-          declaration_(declaration), struct_types_(struct_types), diagnostics_(diagnostics),
-          implicit_body_(implicit_body) {}
+          declaration_(declaration), struct_types_(struct_types), enum_types_(enum_types),
+          diagnostics_(diagnostics), implicit_body_(implicit_body) {}
 
     IRFunction lower() {
         const bool is_implicit_entry = implicit_body_ != nullptr;
@@ -71,6 +73,8 @@ public:
                     function_.return_type = *return_type;
                     if (function_.return_type == IRType::Struct)
                         function_.return_struct_type_id = signature->second.return_struct_type_id;
+                    if (function_.return_type == IRType::Enum)
+                        function_.return_enum_type_id = signature->second.return_enum_type_id;
                     if (function_.return_type == IRType::Array) {
                         if (!signature->second.return_array_type) {
                             report("IR101", "array return type is missing its fixed shape",
@@ -88,6 +92,8 @@ public:
                                     signature->second.return_array_type->length;
                                 function_.return_element_struct_type_id =
                                     signature->second.return_array_type->element_struct_type_id;
+                                function_.return_element_enum_type_id =
+                                    signature->second.return_array_type->element_enum_type_id;
                                 function_.return_array_dimensions =
                                     signature->second.return_array_type->dimensions;
                             }
@@ -122,6 +128,7 @@ public:
             }
             IRValue value = make_value(*type, parameter.name);
             if (*type == IRType::Struct) value.struct_type_id = info->struct_type_id;
+            if (*type == IRType::Enum) value.enum_type_id = info->enum_type_id;
             if (*type == IRType::Array) {
                 if (!info->array_type) {
                     report("IR104", "array parameter is missing its fixed shape",
@@ -137,7 +144,8 @@ public:
                 }
                 value = make_array_value(*element_type, info->array_type->dimensions,
                                           parameter.name,
-                                          info->array_type->element_struct_type_id);
+                                          info->array_type->element_struct_type_id,
+                                          info->array_type->element_enum_type_id);
             }
             function_.parameters.push_back(IRFunctionParameter{
                 std::string(source_.slice(parameter.name)), value
@@ -219,18 +227,21 @@ private:
     [[nodiscard]] IRValue make_array_value(const IRType element_type,
                                            const std::uint32_t length,
                                            const SourceSpan span,
-                                           const std::uint32_t element_struct_type_id = 0) {
+                                           const std::uint32_t element_struct_type_id = 0,
+                                           const std::uint32_t element_enum_type_id = 0) {
         return make_array_value(element_type, std::vector<std::uint32_t>{length},
-                                span, element_struct_type_id);
+                                span, element_struct_type_id, element_enum_type_id);
     }
 
     [[nodiscard]] IRValue make_array_value(
         const IRType element_type, std::vector<std::uint32_t> dimensions,
-        const SourceSpan span, const std::uint32_t element_struct_type_id = 0) {
+        const SourceSpan span, const std::uint32_t element_struct_type_id = 0,
+        const std::uint32_t element_enum_type_id = 0) {
         IRValue value = make_value(IRType::Array, span);
         value.element_type = element_type;
         value.array_length = dimensions.empty() ? 0u : dimensions.front();
         value.element_struct_type_id = element_struct_type_id;
+        value.enum_type_id = element_enum_type_id;
         value.array_dimensions = std::move(dimensions);
         return value;
     }
@@ -249,6 +260,13 @@ private:
         return value;
     }
 
+    [[nodiscard]] IRValue make_enum_value(const std::uint32_t enum_type_id,
+                                          const SourceSpan span) {
+        IRValue value = make_value(IRType::Enum, span);
+        value.enum_type_id = enum_type_id;
+        return value;
+    }
+
     [[nodiscard]] IRValue make_value_like(const IRValue& source,
                                           const SourceSpan span) {
         IRValue value = make_value(source.type, span);
@@ -257,6 +275,7 @@ private:
         value.struct_type_id = source.struct_type_id;
         value.element_struct_type_id = source.element_struct_type_id;
         value.array_dimensions = source.array_dimensions;
+        value.enum_type_id = source.enum_type_id;
         return value;
     }
 
