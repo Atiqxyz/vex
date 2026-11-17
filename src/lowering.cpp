@@ -387,6 +387,12 @@ private:
         return &struct_types_[id - 1u];
     }
 
+    [[nodiscard]] const IREnumType* get_enum_type(
+        const std::uint32_t id) const {
+        if (id == 0 || id > enum_types_.size()) return nullptr;
+        return &enum_types_[id - 1u];
+    }
+
     [[nodiscard]] std::optional<IRValue> emit_struct_get(
         const IRValue& object, const std::uint32_t field_index,
         const SourceSpan span) {
@@ -399,11 +405,13 @@ private:
         const IRStructField& field = structure->fields[field_index];
         IRValue result = make_value(field.type, span);
         if (field.type == IRType::Struct) result.struct_type_id = field.struct_type_id;
+        if (field.type == IRType::Enum) result.enum_type_id = field.enum_type_id;
         if (field.type == IRType::Array) {
             result.element_type = field.element_type;
             result.array_length = field.array_length;
             result.element_struct_type_id = field.element_struct_type_id;
             result.array_dimensions = field.array_dimensions;
+            result.enum_type_id = field.enum_type_id;
         }
         IRInstruction instruction;
         instruction.op = IROp::StructGet;
@@ -430,6 +438,8 @@ private:
         if (replacement.type != field.type ||
             (field.type == IRType::Struct &&
              replacement.struct_type_id != field.struct_type_id) ||
+            (field.type == IRType::Enum &&
+             replacement.enum_type_id != field.enum_type_id) ||
             !array_shape_matches) {
             report("IR146", "structure field update has incompatible value", span);
             return std::nullopt;
@@ -536,6 +546,54 @@ private:
             replacement = *updated;
         }
         return replacement;
+    }
+
+    [[nodiscard]] std::optional<IRValue> lower_enum_constructor(
+        const std::uint32_t enum_type_id, const std::uint32_t variant_index,
+        const std::vector<ExprPtr>* arguments, const SourceSpan span) {
+        const IREnumType* enumeration = get_enum_type(enum_type_id);
+        if (!enumeration || variant_index >= enumeration->variants.size()) {
+            report("IR152", "enum constructor has an invalid nominal type or variant", span);
+            return std::nullopt;
+        }
+        const auto& fields = enumeration->variants[variant_index].fields;
+        const std::size_t argument_count = arguments ? arguments->size() : 0u;
+        if (argument_count != fields.size()) {
+            report("IR152", "enum constructor argument count does not match its payload",
+                   span);
+            return std::nullopt;
+        }
+        std::vector<IRValueId> operands;
+        operands.reserve(argument_count);
+        for (std::size_t index = 0; index < argument_count; ++index) {
+            const ExprPtr& argument = (*arguments)[index];
+            if (!argument) return std::nullopt;
+            const auto value = lower_expression(*argument);
+            if (!value) return std::nullopt;
+            const IRValue expected = ir_struct_field_value(fields[index]);
+            const auto converted = convert(*value, expected.type, argument->span);
+            if (!converted) return std::nullopt;
+            if ((expected.type == IRType::Struct &&
+                 converted->struct_type_id != expected.struct_type_id) ||
+                (expected.type == IRType::Enum &&
+                 converted->enum_type_id != expected.enum_type_id) ||
+                (expected.type == IRType::Array &&
+                 !ir_same_array_shape(*converted, expected))) {
+                report("IR152", "enum constructor payload has the wrong type or nominal identity",
+                       argument->span);
+                return std::nullopt;
+            }
+            operands.push_back(converted->id);
+        }
+        IRInstruction instruction;
+        instruction.op = IROp::EnumMake;
+        instruction.result = make_enum_value(enum_type_id, span);
+        instruction.operands = std::move(operands);
+        instruction.immediate = std::to_string(variant_index);
+        instruction.span = span;
+        const IRValue result = *instruction.result;
+        emit(std::move(instruction));
+        return result;
     }
 
     [[nodiscard]] std::optional<IRValue> lower_struct_literal(
@@ -839,6 +897,13 @@ private:
 
     [[nodiscard]] std::optional<IRValue> lower_call(
         const CallExpr& call, const Expr& expression) {
+        const auto enum_type = semantic_model_.enum_expression_types.find(&expression);
+        const auto enum_variant = semantic_model_.enum_expression_variants.find(&expression);
+        if (enum_type != semantic_model_.enum_expression_types.end() &&
+            enum_variant != semantic_model_.enum_expression_variants.end()) {
+            return lower_enum_constructor(enum_type->second, enum_variant->second,
+                                          &call.arguments, expression.span);
+        }
         const auto target = semantic_model_.resolved_calls.find(&call);
         if (target == semantic_model_.resolved_calls.end()) {
             report("IR116", "function call is missing resolved target information",
@@ -1058,6 +1123,8 @@ private:
             if (!converted) return std::nullopt;
             if ((expected_element.type == IRType::Struct &&
                  converted->struct_type_id != expected_element.struct_type_id) ||
+                (expected_element.type == IRType::Enum &&
+                 converted->enum_type_id != expected_element.enum_type_id) ||
                 (expected_element.type == IRType::Array &&
                  !ir_same_array_shape(*converted, expected_element))) {
                 report("IR119", "push value has the wrong immediate element type or nested shape",
@@ -1162,6 +1229,14 @@ private:
                     return std::nullopt;
                 }
             }
+            if (*parameter_type == IRType::Enum &&
+                (index >= signature->second.parameter_enum_type_ids.size() ||
+                 arguments[index].type != IRType::Enum ||
+                 arguments[index].enum_type_id != signature->second.parameter_enum_type_ids[index])) {
+                report("IR122", "enum argument does not match the parameter's nominal enum type",
+                       call.arguments[index]->span);
+                return std::nullopt;
+            }
             if (*parameter_type == IRType::Array) {
                 if (index >= signature->second.parameter_array_types.size() ||
                     !signature->second.parameter_array_types[index]) {
@@ -1174,7 +1249,8 @@ private:
                 const auto expected_element = to_ir_type(expected.element_type);
                 const IRValue expected_array = make_array_value(
                     expected_element.value_or(IRType::Void), expected.dimensions,
-                    call.arguments[index]->span, expected.element_struct_type_id);
+                    call.arguments[index]->span, expected.element_struct_type_id,
+                    expected.element_enum_type_id);
                 if (!expected_element || arguments[index].type != IRType::Array ||
                     !ir_same_array_shape(arguments[index], expected_array)) {
                     report("IR122", "array argument does not match the parameter's fixed shape",
@@ -1217,10 +1293,14 @@ private:
                 instruction.result = make_array_value(
                     *element_type, signature->second.return_array_type->dimensions,
                     expression.span,
-                    signature->second.return_array_type->element_struct_type_id);
+                    signature->second.return_array_type->element_struct_type_id,
+                    signature->second.return_array_type->element_enum_type_id);
             } else if (*return_type == IRType::Struct) {
                 instruction.result = make_struct_value(
                     signature->second.return_struct_type_id, expression.span);
+            } else if (*return_type == IRType::Enum) {
+                instruction.result = make_enum_value(
+                    signature->second.return_enum_type_id, expression.span);
             } else {
                 instruction.result = make_value(*return_type, expression.span);
             }
@@ -1264,6 +1344,13 @@ private:
         if (const auto* structure = std::get_if<StructLiteralExpr>(&expression.data))
             return lower_struct_literal(*structure, expression);
         if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
+            const auto enum_type = semantic_model_.enum_expression_types.find(&expression);
+            const auto enum_variant = semantic_model_.enum_expression_variants.find(&expression);
+            if (enum_type != semantic_model_.enum_expression_types.end() &&
+                enum_variant != semantic_model_.enum_expression_variants.end()) {
+                return lower_enum_constructor(enum_type->second, enum_variant->second,
+                                              nullptr, expression.span);
+            }
             if (!member->object) return std::nullopt;
             const auto object = lower_expression(*member->object);
             const auto index = semantic_model_.member_field_indices.find(member);
@@ -1289,7 +1376,8 @@ private:
             instruction.span = expression.span;
             instruction.result = make_array_value(*element_type, shape->second.dimensions,
                                                    expression.span,
-                                                   shape->second.element_struct_type_id);
+                                                   shape->second.element_struct_type_id,
+                                                   shape->second.element_enum_type_id);
             const IRValue expected_element =
                 ir_array_element_value(*instruction.result, expression.span);
             instruction.operands.reserve(array->elements.size());
@@ -1308,6 +1396,11 @@ private:
                 if (expected_element.type == IRType::Struct &&
                     converted->struct_type_id != expected_element.struct_type_id) {
                     report("IR142", "array element has the wrong structure type", element->span);
+                    return std::nullopt;
+                }
+                if (expected_element.type == IRType::Enum &&
+                    converted->enum_type_id != expected_element.enum_type_id) {
+                    report("IR142", "array element has the wrong enum type", element->span);
                     return std::nullopt;
                 }
                 instruction.operands.push_back(converted->id);
@@ -1424,6 +1517,10 @@ private:
             if(!converted)return std::nullopt;
             if(*target_type==IRType::Struct&&converted->struct_type_id!=binding->struct_type_id) {
                 report("IR146","assigned structure value has the wrong structure type",expression.span);
+                return std::nullopt;
+            }
+            if(*target_type==IRType::Enum&&converted->enum_type_id!=binding->enum_type_id) {
+                report("IR152","assigned enum value has the wrong nominal enum type",expression.span);
                 return std::nullopt;
             }
             environment_[target->second]=*converted;
