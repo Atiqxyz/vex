@@ -2147,6 +2147,16 @@ private:
             return FlowSummary{true, body.returns, false, false};
         }
 
+        if (const auto* matched = std::get_if<MatchStmt>(&statement.data)) {
+            const auto info = model_.match_statements.find(matched);
+            if (info == model_.match_statements.end()) return FlowSummary{};
+            FlowSummary result{false, false, false, false};
+            for (const MatchArm& arm : matched->arms) {
+                if (arm.body) result = join_paths(result, control_flow(*arm.body));
+            }
+            return result;
+        }
+
         // Declarations, expressions and nested function declarations do not
         // terminate the current function's control flow.
         return FlowSummary{};
@@ -2161,6 +2171,114 @@ private:
             }
         }
         if (create_scope) scopes_.pop_back();
+    }
+
+    void analyze_match(const MatchStmt& matched, const SourceSpan span) {
+        const Type scrutinee_type = matched.value
+            ? analyze_expression(*matched.value) : Type::Error;
+        const std::uint32_t enum_id = matched.value &&
+            model_.enum_expression_types.count(matched.value.get())
+                ? model_.enum_expression_types.at(matched.value.get()) : 0u;
+        if (scrutinee_type != Type::Enum || enum_id == 0u ||
+            enum_id > model_.enum_types.size()) {
+            if (scrutinee_type != Type::Error && scrutinee_type != Type::Unknown)
+                report("SEM070", "match requires a value of a declared enum type", span);
+            for (const MatchArm& arm : matched.arms)
+                if (arm.body) analyze_statement(*arm.body);
+            return;
+        }
+
+        const SemanticEnumType& enumeration = model_.enum_types[enum_id - 1u];
+        std::vector<bool> seen(enumeration.variants.size(), false);
+        bool wildcard_seen = false;
+        SemanticMatchInfo info;
+        info.enum_type_id = enum_id;
+        info.arms.reserve(matched.arms.size());
+
+        if (matched.arms.empty())
+            report("SEM078", "match must contain at least one arm", span);
+
+        for (std::size_t arm_index = 0; arm_index < matched.arms.size(); ++arm_index) {
+            const MatchArm& arm = matched.arms[arm_index];
+            SemanticMatchArmInfo arm_info;
+            arm_info.wildcard = arm.wildcard;
+            const SemanticEnumVariant* variant = nullptr;
+
+            if (arm.wildcard) {
+                if (wildcard_seen || arm_index + 1u != matched.arms.size())
+                    report("SEM071", "a wildcard match arm must appear at most once and be final",
+                           arm.variant_name);
+                if (!arm.bindings.empty())
+                    report("SEM072", "a wildcard match arm cannot bind payload values",
+                           arm.bindings.front());
+                wildcard_seen = true;
+            } else {
+                if (wildcard_seen)
+                    report("SEM071", "no match arm may follow a wildcard arm", arm.enum_name);
+                const std::string named_enum = spelling(arm.enum_name);
+                if (named_enum != enumeration.name)
+                    report("SEM073", "match pattern names enum '" + named_enum +
+                           "' but the scrutinee has type '" + enumeration.name + "'",
+                           arm.enum_name);
+                const std::string variant_name = spelling(arm.variant_name);
+                const auto found = std::find_if(
+                    enumeration.variants.begin(), enumeration.variants.end(),
+                    [&](const SemanticEnumVariant& candidate) {
+                        return candidate.name == variant_name;
+                    });
+                if (found == enumeration.variants.end()) {
+                    report("SEM074", "enum '" + enumeration.name +
+                           "' has no variant named '" + variant_name + "'",
+                           arm.variant_name);
+                } else {
+                    variant = &*found;
+                    arm_info.variant_index = static_cast<std::uint32_t>(
+                        found - enumeration.variants.begin());
+                    if (seen[arm_info.variant_index])
+                        report("SEM075", "enum variant '" + enumeration.name + "." +
+                               variant_name + "' appears more than once in this match",
+                               arm.variant_name);
+                    seen[arm_info.variant_index] = true;
+                    if (arm.bindings.size() != variant->fields.size())
+                        report("SEM076", "match pattern for '" + enumeration.name + "." +
+                               variant_name + "' requires " +
+                               std::to_string(variant->fields.size()) +
+                               " payload binding(s), but got " +
+                               std::to_string(arm.bindings.size()), arm.variant_name);
+                }
+            }
+
+            scopes_.emplace_back();
+            if (variant) {
+                const std::size_t count = std::min(
+                    arm.bindings.size(), variant->fields.size());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const SemanticEnumPayloadField& field = variant->fields[index];
+                    Symbol payload;
+                    payload.type = field.type;
+                    payload.struct_type_id = field.struct_type_id;
+                    payload.enum_type_id = field.enum_type_id;
+                    payload.array_type = field.array_type;
+                    payload.immutable = true;
+                    payload.declaration = arm.bindings[index];
+                    SemanticBindingId binding_id = 0;
+                    if (define(spelling(arm.bindings[index]), std::move(payload),
+                               arm.bindings[index], &binding_id)) {
+                        arm_info.payload_bindings.push_back(binding_id);
+                    }
+                }
+            }
+            if (arm.body) analyze_statement(*arm.body);
+            scopes_.pop_back();
+            info.arms.push_back(std::move(arm_info));
+        }
+
+        if (!wildcard_seen &&
+            std::find(seen.begin(), seen.end(), false) != seen.end()) {
+            report("SEM077", "match is not exhaustive; add the missing enum variants or a final wildcard arm",
+                   span);
+        }
+        model_.match_statements[&matched] = std::move(info);
     }
 
     void analyze_statement(const Statement& statement) {
@@ -2282,6 +2400,10 @@ private:
             ++loop_depth_;
             if (repeat->body) analyze_statement(*repeat->body);
             --loop_depth_;
+            return;
+        }
+        if (const auto* matched = std::get_if<MatchStmt>(&statement.data)) {
+            analyze_match(*matched, statement.span);
             return;
         }
         if (const auto* loop = std::get_if<ForStmt>(&statement.data)) {
