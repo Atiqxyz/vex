@@ -319,14 +319,21 @@ ProcessResult compile_with_msvc(
     }
 
     const fs::path script = temporary_directory / "vex-compile.bat";
+    const fs::path compiler_output =
+        temporary_directory / "vex-msvc-compiler-output.txt";
     std::string contents =
         "@echo off\r\n"
         "call \"" + developer_command.string() +
         "\" -arch=x64 -host_arch=x64 >nul\r\n"
         "if errorlevel 1 exit /b 1\r\n"
         "\"" + compiler + "\" /nologo /std:c11 /TC \"" +
-        generated_c.string() + "\" \"/Fe:" + output.string() + "\"\r\n"
-        "exit /b %errorlevel%\r\n";
+        generated_c.string() + "\" \"/Fe:" + output.string() +
+        "\" > \"" + compiler_output.string() + "\" 2>&1\r\n"
+        "set \"compiler_status=%errorlevel%\"\r\n"
+        "if not \"%compiler_status%\"==\"0\" type \"" +
+        compiler_output.string() + "\"\r\n"
+        "del \"" + compiler_output.string() + "\" >nul 2>&1\r\n"
+        "exit /b %compiler_status%\r\n";
     if (!write_text_file(script, contents)) {
         return {false, -1, "could not create the MSVC compiler script"};
     }
