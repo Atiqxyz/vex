@@ -500,7 +500,7 @@ private:
                     continue;
                 }
                 structure.fields.push_back(SemanticStructField{
-                    field_name, field_type, field_struct_id, field_array_type, field.name
+                    field_name, field_type, field_struct_id, 0u, field_array_type, field.name
                 });
             }
         }
@@ -802,6 +802,7 @@ private:
             std::optional<SemanticArrayType> nested_element_shape;
             Type element_type = Type::Unknown;
             std::uint32_t element_struct_type_id = 0;
+            std::uint32_t element_enum_type_id = 0;
 
             for (const ExprPtr& element : array->elements) {
                 const Type actual = element ? analyze_expression(*element) : Type::Error;
@@ -852,18 +853,32 @@ private:
                     return Type::Error;
                 }
                 std::uint32_t actual_struct_type_id = 0;
+                std::uint32_t actual_enum_type_id = 0;
                 if (actual == Type::Struct && element) {
                     const auto found = model_.struct_expression_types.find(element.get());
                     if (found != model_.struct_expression_types.end())
                         actual_struct_type_id = found->second;
                 }
+                if (actual == Type::Enum && element) {
+                    const auto found = model_.enum_expression_types.find(element.get());
+                    if (found != model_.enum_expression_types.end())
+                        actual_enum_type_id = found->second;
+                }
                 if (element_type == Type::Unknown) {
                     element_type = actual;
                     element_struct_type_id = actual_struct_type_id;
+                    element_enum_type_id = actual_enum_type_id;
                 } else if (element_type == Type::Struct || actual == Type::Struct) {
                     if (element_type != actual ||
                         element_struct_type_id != actual_struct_type_id) {
                         report("SEM041", "all structure array elements must have the same nominal type",
+                               element ? element->span : expression.span);
+                        return Type::Error;
+                    }
+                } else if (element_type == Type::Enum || actual == Type::Enum) {
+                    if (element_type != actual ||
+                        element_enum_type_id != actual_enum_type_id) {
+                        report("SEM041", "all enum array elements must have the same nominal type",
                                element ? element->span : expression.span);
                         return Type::Error;
                     }
@@ -888,11 +903,12 @@ private:
                                   nested_element_shape->dimensions.end());
                 inferred_shape = SemanticArrayType{
                     nested_element_shape->element_type, std::move(dimensions),
-                    nested_element_shape->element_struct_type_id};
+                    nested_element_shape->element_struct_type_id,
+                    nested_element_shape->element_enum_type_id};
             } else {
                 inferred_shape = SemanticArrayType{
                     element_type, static_cast<std::uint32_t>(array->elements.size()),
-                    element_struct_type_id};
+                    element_struct_type_id, element_enum_type_id};
             }
 
             if (has_context) {
@@ -1107,6 +1123,9 @@ private:
             if (shape->second.element_type == Type::Struct)
                 model_.struct_expression_types[&expression] =
                     shape->second.element_struct_type_id;
+            if (shape->second.element_type == Type::Enum)
+                model_.enum_expression_types[&expression] =
+                    shape->second.element_enum_type_id;
             return shape->second.element_type;
         }
 
@@ -1324,10 +1343,15 @@ private:
             }
             const std::uint32_t assigned_struct=assignment->value&&model_.struct_expression_types.count(assignment->value.get())
                 ?model_.struct_expression_types.at(assignment->value.get()):0u;
-            if(!is_assignable(symbol->type,value)||(symbol->type==Type::Struct&&symbol->struct_type_id!=assigned_struct))
+            const std::uint32_t assigned_enum=assignment->value&&model_.enum_expression_types.count(assignment->value.get())
+                ?model_.enum_expression_types.at(assignment->value.get()):0u;
+            if(!is_assignable(symbol->type,value)||
+               (symbol->type==Type::Struct&&symbol->struct_type_id!=assigned_struct)||
+               (symbol->type==Type::Enum&&symbol->enum_type_id!=assigned_enum))
                 report("SEM018","cannot assign "+std::string(type_name(value))+" to "+type_name(symbol->type)+
                        " binding '"+identifier+"'",expression.span);
             if(symbol->type==Type::Struct)model_.struct_expression_types[&expression]=symbol->struct_type_id;
+            if(symbol->type==Type::Enum)model_.enum_expression_types[&expression]=symbol->enum_type_id;
             return symbol->type;
         }
 
@@ -1437,6 +1461,7 @@ private:
 
             std::vector<Type> argument_types;
             std::vector<std::uint32_t> argument_struct_type_ids;
+            std::vector<std::uint32_t> argument_enum_type_ids;
             argument_types.reserve(call->arguments.size());
             for (std::size_t index = 0; index < call->arguments.size(); ++index) {
                 const ExprPtr& argument = call->arguments[index];
@@ -1465,6 +1490,11 @@ private:
                     : model_.struct_expression_types.end();
                 argument_struct_type_ids.push_back(
                     structure == model_.struct_expression_types.end() ? 0u : structure->second);
+                const auto enumeration = argument
+                    ? model_.enum_expression_types.find(argument.get())
+                    : model_.enum_expression_types.end();
+                argument_enum_type_ids.push_back(
+                    enumeration == model_.enum_expression_types.end() ? 0u : enumeration->second);
             }
 
             if (!function) return Type::Error;
@@ -1661,9 +1691,15 @@ private:
                             model_.struct_expression_types.find(call->arguments[1].get()) !=
                                 model_.struct_expression_types.end()
                             ? model_.struct_expression_types.at(call->arguments[1].get()) : 0u;
+                        const std::uint32_t value_enum_type_id = call->arguments[1] &&
+                            model_.enum_expression_types.find(call->arguments[1].get()) !=
+                                model_.enum_expression_types.end()
+                            ? model_.enum_expression_types.at(call->arguments[1].get()) : 0u;
                         if (!is_assignable(shape->second.element_type, argument_types[1]) ||
                             (shape->second.element_type == Type::Struct &&
-                             shape->second.element_struct_type_id != value_struct_type_id)) {
+                             shape->second.element_struct_type_id != value_struct_type_id) ||
+                            (shape->second.element_type == Type::Enum &&
+                             shape->second.element_enum_type_id != value_enum_type_id)) {
                             report("SEM021", "push value has type " +
                                     std::string(type_name(argument_types[1])) +
                                     "; expected " + type_name(shape->second.element_type),
@@ -1681,6 +1717,9 @@ private:
                 if (shape->second.element_type == Type::Struct)
                     model_.struct_expression_types[&expression] =
                         shape->second.element_struct_type_id;
+                if (shape->second.element_type == Type::Enum)
+                    model_.enum_expression_types[&expression] =
+                        shape->second.element_enum_type_id;
                 return shape->second.element_type;
             }
 
@@ -1706,7 +1745,10 @@ private:
                 if (!is_assignable(function->parameters[index], argument_types[index]) ||
                     (function->parameters[index] == Type::Struct &&
                      index < function->parameter_struct_type_ids.size() &&
-                     function->parameter_struct_type_ids[index] != argument_struct_type_ids[index])) {
+                     function->parameter_struct_type_ids[index] != argument_struct_type_ids[index]) ||
+                    (function->parameters[index] == Type::Enum &&
+                     index < function->parameter_enum_type_ids.size() &&
+                     function->parameter_enum_type_ids[index] != argument_enum_type_ids[index])) {
                     report("SEM021", "argument " + std::to_string(index + 1) +
                            " has type " + type_name(argument_types[index]) +
                            "; expected " + type_name(function->parameters[index]),
@@ -1735,6 +1777,8 @@ private:
                     *function->return_array_type;
             if (function->type == Type::Struct && function->return_struct_type_id != 0)
                 model_.struct_expression_types[&expression] = function->return_struct_type_id;
+            if (function->type == Type::Enum && function->return_enum_type_id != 0)
+                model_.enum_expression_types[&expression] = function->return_enum_type_id;
             return function->type;
         }
 
@@ -2256,6 +2300,8 @@ private:
             iteration_variable.type = iteration_type;
             if (array_type && iteration_type == Type::Struct)
                 iteration_variable.struct_type_id = array_type->element_struct_type_id;
+            if (array_type && iteration_type == Type::Enum)
+                iteration_variable.enum_type_id = array_type->element_enum_type_id;
             if (array_type && iteration_type == Type::Array)
                 iteration_variable.array_type =
                     array_type->immediate_array_element_shape();
