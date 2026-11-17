@@ -1638,9 +1638,12 @@ private:
                 const auto descriptor = std::find_if(function_.places.begin(), function_.places.end(),
                     [&](const IRPlace& candidate) { return candidate.id == place; });
                 if (descriptor == function_.places.end()) return std::nullopt;
+                // Lowering the right-hand side may create more places and reallocate
+                // function_.places. Copy the target type before doing that work.
+                const IRType target_type = descriptor->value_type.type;
                 const auto value = lower_expression(*assignment->value);
                 if (!value) return std::nullopt;
-                const auto converted = convert(*value, descriptor->value_type.type, expression.span);
+                const auto converted = convert(*value, target_type, expression.span);
                 if (!converted) return std::nullopt;
                 emit_store(place, *converted, expression.span);
                 return *converted;
