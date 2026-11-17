@@ -33,6 +33,7 @@ const char* c_type(const IRType type) noexcept {
     case IRType::String: return "vex_string";
     case IRType::Array: return "void";
     case IRType::Struct: return "void";
+    case IRType::Enum: return "void";
     }
     return "void";
 }
@@ -45,12 +46,17 @@ std::string struct_field_name(const std::uint32_t index) {
     return "vex_field_" + std::to_string(index);
 }
 
+std::string enum_type_name(const std::uint32_t id) {
+    return "vex_enum_" + std::to_string(id);
+}
+
 std::string array_type_name(const IRValue& array) {
     const std::string element = array.element_type == IRType::Int ? "int" :
         array.element_type == IRType::Float ? "float" :
         array.element_type == IRType::Bool ? "bool" :
         array.element_type == IRType::Byte ? "byte" :
         array.element_type == IRType::String ? "string" :
+        array.element_type == IRType::Enum ? "enum_" + std::to_string(array.enum_type_id) :
         "struct_" + std::to_string(array.element_struct_type_id);
     std::string name = "vex_array_" + element;
     for (const std::uint32_t dimension : ir_array_dimensions(array)) {
@@ -66,6 +72,7 @@ IRValue array_element_value(const IRValue& array) {
 
 std::string c_type(const IRValue& value) {
     if (value.type == IRType::Struct) return struct_type_name(value.struct_type_id);
+    if (value.type == IRType::Enum) return enum_type_name(value.enum_type_id);
     if (value.type != IRType::Array) return c_type(value.type);
     return ir_array_dimensions(value).front() == 0u
         ? "vex_array *" : array_type_name(value);
@@ -74,11 +81,14 @@ std::string c_type(const IRValue& value) {
 std::string c_return_type(const IRFunction& function) {
     if (function.return_type == IRType::Struct)
         return struct_type_name(function.return_struct_type_id);
+    if (function.return_type == IRType::Enum)
+        return enum_type_name(function.return_enum_type_id);
     if (function.return_type != IRType::Array) return c_type(function.return_type);
     std::vector<std::uint32_t> dimensions = function.return_array_dimensions;
     if (dimensions.empty()) dimensions.push_back(function.return_array_length);
     return c_type(ir_make_array_value(function.return_element_type,
-        std::move(dimensions), function.return_element_struct_type_id, function.span));
+        std::move(dimensions), function.return_element_struct_type_id, function.span,
+        function.return_element_enum_type_id));
 }
 
 std::string value_name(const IRValueId id) {
@@ -193,6 +203,7 @@ public:
         }
 
         emit_preamble();
+        emit_enum_types();
         emit_struct_types();
         emit_array_types();
         emit_target_layout_assertions();
@@ -285,6 +296,33 @@ private:
                 << "} " << name << ";\n";
     }
 
+    void emit_enum_types() {
+        const TargetDataLayout layout;
+        for (const IREnumType& enumeration : module_.enum_types) {
+            output_ << "typedef struct " << enum_type_name(enumeration.id)
+                    << " " << enum_type_name(enumeration.id) << ";\\n";
+        }
+        if (!module_.enum_types.empty()) output_ << '\\n';
+        for (const IREnumType& enumeration : module_.enum_types) {
+            std::string error;
+            const auto enum_layout = layout.layout_of_enum(enumeration.id, module_, &error);
+            if (!enum_layout) {
+                report("CG011", "cannot compute target layout for enum " +
+                       enumeration.name + ": " + error);
+                continue;
+            }
+            output_ << "struct " << enum_type_name(enumeration.id) << " {\\n"
+                    << "    uint32_t tag;\\n";
+            if (enum_layout->payload_size != 0u) {
+                output_ << "    _Alignas(" << enum_layout->payload_alignment
+                        << ") unsigned char payload[" << enum_layout->payload_size
+                        << "u];\\n";
+            }
+            output_ << "};\\n";
+        }
+        if (!module_.enum_types.empty()) output_ << '\\n';
+    }
+
     void emit_struct_types() {
         if (module_.struct_types.empty()) return;
         for (const IRStructType& structure : module_.struct_types) {
@@ -320,7 +358,7 @@ private:
                 if (dimensions.empty()) dimensions.push_back(function.return_array_length);
                 emit_array_typedef(ir_make_array_value(function.return_element_type,
                     std::move(dimensions), function.return_element_struct_type_id,
-                    function.span));
+                    function.span, function.return_element_enum_type_id));
             }
             for (const IRFunctionParameter& parameter : function.parameters)
                 if (parameter.value.type == IRType::Array)
@@ -976,6 +1014,9 @@ private:
             return false;
         case IRType::Struct:
             report("CG010", "structure values must be constructed with struct_make", instruction.span);
+            return false;
+        case IRType::Enum:
+            report("CG010", "enum values must be constructed with enum_make", instruction.span);
             return false;
         }
         return false;
