@@ -487,6 +487,8 @@ private:
             replacement.type == expected_element.type &&
             (expected_element.type != IRType::Struct ||
              replacement.struct_type_id == expected_element.struct_type_id) &&
+            (expected_element.type != IRType::Enum ||
+             replacement.enum_type_id == expected_element.enum_type_id) &&
             (expected_element.type != IRType::Array ||
              ir_same_array_shape(replacement, expected_element));
         if (array.type != IRType::Array || index.type != IRType::Int ||
@@ -630,6 +632,12 @@ private:
             if (field.type == IRType::Struct &&
                 converted->struct_type_id != field.struct_type_id) {
                 report("IR146", "nested structure initializer has the wrong structure type",
+                       literal.fields[index].value->span);
+                return std::nullopt;
+            }
+            if (field.type == IRType::Enum &&
+                converted->enum_type_id != field.enum_type_id) {
+                report("IR152", "nested enum initializer has the wrong nominal enum type",
                        literal.fields[index].value->span);
                 return std::nullopt;
             }
@@ -1564,6 +1572,7 @@ private:
             case IRType::Void:
             case IRType::Array:
             case IRType::Struct:
+            case IRType::Enum:
                 report("IR151", "this type does not have a supported default initializer",
                        variable.name);
                 return;
@@ -1578,6 +1587,11 @@ private:
         if (converted && *target_type == IRType::Struct &&
             converted->struct_type_id != info->struct_type_id) {
             report("IR146", "variable initializer has the wrong structure type", variable.name);
+            return;
+        }
+        if (converted && *target_type == IRType::Enum &&
+            converted->enum_type_id != info->enum_type_id) {
+            report("IR152", "variable initializer has the wrong nominal enum type", variable.name);
             return;
         }
         if (converted) environment_[binding->second] = *converted;
@@ -2078,6 +2092,10 @@ private:
                     if (converted && function_.return_type == IRType::Struct &&
                         converted->struct_type_id != function_.return_struct_type_id) {
                         report("IR149", "returned structure has the wrong structure type",
+                               returned->value->span);
+                    } else if (converted && function_.return_type == IRType::Enum &&
+                               converted->enum_type_id != function_.return_enum_type_id) {
+                        report("IR152", "returned enum has the wrong nominal enum type",
                                returned->value->span);
                     } else if (converted) return_value = converted->id;
                 }
