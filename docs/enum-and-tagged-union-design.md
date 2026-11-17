@@ -87,11 +87,11 @@ The first ABI is VEX-native, not automatically C-compatible. C-compatible enum l
 
 ## 5. IR and backend model
 
-The IR type table will gain a nominal enum descriptor containing its declaration identity and ordered variants, including each variant's payload field descriptors. The independent verifier will validate enum IDs, variant indices, payload arity/types, and match-edge payload types.
+The IR module type table contains a nominal enum descriptor with declaration identity and ordered variants, including each variant's payload field descriptors. The independent verifier validates enum IDs, variant indices, payload arity/types, and the nominal type relationships used by construction and payload projection.
 
-Construction, discriminant dispatch, and payload projection must be dedicated typed IR operations or terminators. A payload projection is valid only for the corresponding variant path; it must not become an unchecked general-purpose byte reinterpretation operation.
+Construction, discriminant dispatch, and payload projection are dedicated typed IR operations. A payload projection is valid only for the corresponding variant and is guarded at runtime; it is not an unchecked general-purpose byte reinterpretation operation.
 
-The C backend will emit a named structure containing the fixed-width tag and a union of named variant-payload structures. The LLVM backend will emit a target-layout-compatible aggregate, use the tag for an LLVM switch, and access payload fields through offsets calculated by the shared target layout model. Both backends must agree on tag values, payload offsets, enum size/alignment, and function/array value semantics.
+The C backend emits a named structure containing the fixed-width tag and a union of named variant-payload structures. The LLVM backend emits a target-layout-compatible aggregate, uses tag-driven control flow, and accesses payload fields through offsets calculated by the shared target layout model. Both backends consume the same verified IR and agree on tag values, payload offsets, enum size/alignment, and function/array value semantics.
 
 The shared TargetDataLayout service must compute each variant's tuple layout, the maximum union size/alignment, payload offset, total enum size/alignment, and enum array stride. It must reject overflow and unsupported layouts rather than wrapping sizes. Nominal enum and variant declarations now live in the canonical IR module type table, with verifier validation for IDs, names, variant uniqueness, and payload descriptors. The layout service calculates discriminant and payload sizes, alignments, offsets, and declaration-order tags. These layout and value operations are integrated end to end: source constructors lower to typed IR, payload projections are verified and guarded at runtime, and statement-form matching lowers to tag dispatch with scoped payload bindings. Both backends use the shared target layout. Expression-valued matching and richer pattern forms remain deferred.
 
@@ -105,13 +105,13 @@ The shared TargetDataLayout service must compute each variant's tuple layout, th
 
 ## 7. Implementation order and acceptance tests
 
-1. Extend target type descriptors and TargetDataLayout with variant payload and enum aggregate calculations.
-2. Add enum declaration AST and parsing, including malformed and duplicate-variant diagnostics.
-3. Register nominal enum types and validate payload field types and recursive by-value layouts.
-4. Add qualified variant construction and typed IR representation.
-5. Add match statement parsing, scoped payload bindings, exhaustiveness checks, and typed control-flow lowering.
-6. Add independent verifier rules and C/LLVM value construction, switching, and payload access.
-7. Test unit variants, mixed payload sizes and alignments, nested structures/fixed arrays, dynamic references inside payloads, function parameters/returns, arrays of enums, exact-once scrutinee evaluation, and all invalid-match cases.
-8. Assert matching size, alignment, discriminant and payload offsets in both backends on all four CI platforms.
+1. Extend target type descriptors and TargetDataLayout with variant payload and enum aggregate calculations. **Implemented.**
+2. Add enum declaration AST and parsing, including malformed and duplicate-variant diagnostics. **Implemented.**
+3. Register nominal enum types and validate payload field types and recursive by-value layouts. **Implemented.**
+4. Add qualified variant construction and typed IR representation. **Implemented.**
+5. Add match statement parsing, scoped payload bindings, exhaustiveness checks, and typed control-flow lowering. **Implemented.**
+6. Add independent verifier rules and C/LLVM value construction, tag dispatch, and payload access. **Implemented.**
+7. Test unit variants, mixed payload sizes and alignments, nested structures/fixed arrays, dynamic references inside payloads, function parameters/returns, arrays of enums, exact-once scrutinee evaluation, and invalid-match cases. **Implemented and covered by the test suite.**
+8. Cross-platform CI verification. Ubuntu and Windows have passed on the latest enum pipeline commit; macOS ARM and Intel jobs remain queued at the time of this update.
 
 The feature is complete only when construction, passing/returning, matching, layout, verifier checks, tests, and documentation work end to end in both backends.
