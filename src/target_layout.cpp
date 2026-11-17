@@ -61,10 +61,25 @@ public:
 
     std::optional<EnumLayout> run_enum(const std::uint32_t id) {
         if (!valid_config()) return std::nullopt;
+        return layout_enum_type(id);
+    }
+
+private:
+    std::optional<EnumLayout> layout_enum_type(const std::uint32_t id) {
         if (id == 0u || id > module_.enum_types.size()) {
             fail("enum type identifier is outside the module type table");
             return std::nullopt;
         }
+        if (std::find(active_enums_.begin(), active_enums_.end(), id) != active_enums_.end()) {
+            fail("enum contains an illegal recursive by-value payload");
+            return std::nullopt;
+        }
+        struct ActiveEnumGuard {
+            std::vector<std::uint32_t>& active;
+            explicit ActiveEnumGuard(std::vector<std::uint32_t>& values, std::uint32_t value)
+                : active(values) { active.push_back(value); }
+            ~ActiveEnumGuard() { active.pop_back(); }
+        } guard(active_enums_, id);
         const IREnumType& enumeration = module_.enum_types[id - 1u];
         if (enumeration.id != id || enumeration.name.empty() || enumeration.variants.empty() ||
             enumeration.variants.size() > UINT32_MAX) {
@@ -208,6 +223,11 @@ private:
         }
         case IRType::Struct:
             return layout_struct_type(value.struct_type_id);
+        case IRType::Enum: {
+            const auto enumeration = layout_enum_type(value.enum_type_id);
+            if (!enumeration) return std::nullopt;
+            return finish(enumeration->size, enumeration->alignment);
+        }
         case IRType::Array:
             return layout_array(value);
         }
@@ -225,8 +245,14 @@ private:
         if (value.array_length != dimensions.front() || value.struct_type_id != 0u ||
             (value.element_type == IRType::Struct &&
              (value.element_struct_type_id == 0u ||
-              value.element_struct_type_id > module_.struct_types.size())) ||
-            (value.element_type != IRType::Struct && value.element_struct_type_id != 0u)) {
+              value.element_struct_type_id > module_.struct_types.size() ||
+              value.enum_type_id != 0u)) ||
+            (value.element_type == IRType::Enum &&
+             (value.element_struct_type_id != 0u || value.enum_type_id == 0u ||
+              value.enum_type_id > module_.enum_types.size())) ||
+            (value.element_type != IRType::Struct &&
+             value.element_type != IRType::Enum &&
+             (value.element_struct_type_id != 0u || value.enum_type_id != 0u))) {
             fail("array has inconsistent leaf type or outer-dimension metadata");
             return std::nullopt;
         }
@@ -318,6 +344,7 @@ private:
     const IRModule& module_;
     std::string* error_{nullptr};
     std::vector<std::uint32_t> active_structs_;
+    std::vector<std::uint32_t> active_enums_;
 };
 
 } // namespace
