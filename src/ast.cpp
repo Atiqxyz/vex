@@ -149,6 +149,17 @@ void print_statement(std::ostream& output, const SourceFile& source,
             if (node.iterable)
                 print_expression(output, source, *node.iterable, depth + 1);
             if (node.body) print_statement(output, source, *node.body, depth + 1);
+        } else if constexpr (std::is_same_v<Node, MatchStmt>) {
+            output << "Match\n";
+            if (node.value) print_expression(output, source, *node.value, depth + 1);
+            for (const MatchArm& arm : node.arms) {
+                indent(output, depth + 1);
+                if (arm.wildcard) output << "_";
+                else output << source.slice(arm.enum_name) << "."
+                            << source.slice(arm.variant_name);
+                output << '\n';
+                if (arm.body) print_statement(output, source, *arm.body, depth + 2);
+            }
         }
     }, statement.data);
 }
