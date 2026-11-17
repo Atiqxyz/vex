@@ -311,7 +311,7 @@ private:
                 output_ << ", [0 x " << alignment_type << "], ["
                         << enum_layout->payload_size << " x i8]";
             }
-            output_ << " }\\n";
+            output_ << " }\n";
         }
         for (const IRStructType& structure : module_.struct_types) {
             output_ << llvm_struct_type_name(structure.id) << " = type { ";
@@ -1853,9 +1853,9 @@ trap:
             const std::string type = llvm_type(enum_value);
             const std::string temporary = next_temp();
             output_ << "  " << temporary << " = alloca " << type
-                    << ", align " << enum_layout->alignment << "\\n"
+                    << ", align " << enum_layout->alignment << "\n"
                     << "  store " << type << " zeroinitializer, ptr " << temporary
-                    << ", align " << enum_layout->alignment << "\\n";
+                    << ", align " << enum_layout->alignment << "\n";
             const EnumVariantLayout& variant = enum_layout->variants[variant_index];
             for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
                 const IRValue& payload = value_types_.at(instruction.operands[index]);
@@ -1863,13 +1863,13 @@ trap:
                 const std::string pointer = next_temp();
                 const std::uint64_t offset = enum_layout->payload_offset + field.offset;
                 output_ << "  " << pointer << " = getelementptr i8, ptr "
-                        << temporary << ", i64 " << offset << "\\n"
+                        << temporary << ", i64 " << offset << "\n"
                         << "  store " << llvm_type(payload) << ' ' << operands[index]
-                        << ", ptr " << pointer << ", align " << field.type.alignment << "\\n";
+                        << ", ptr " << pointer << ", align " << field.type.alignment << "\n";
             }
             const std::string aggregate = next_temp();
             output_ << "  " << aggregate << " = load " << type << ", ptr "
-                    << temporary << ", align " << enum_layout->alignment << "\\n";
+                    << temporary << ", align " << enum_layout->alignment << "\n";
             store_result(instruction, aggregate);
             return;
         }
@@ -1877,7 +1877,7 @@ trap:
             const IRValue& object = value_types_.at(instruction.operands[0]);
             const std::string tag = next_temp();
             output_ << "  " << tag << " = extractvalue " << llvm_type(object)
-                    << ' ' << operands[0] << ", 0\\n";
+                    << ' ' << operands[0] << ", 0\n";
             store_result(instruction, tag);
             return;
         }
@@ -1905,24 +1905,24 @@ trap:
             const std::string bad_label = "vex_enum_payload_bad_" +
                 std::to_string(label_id);
             output_ << "  " << tag << " = extractvalue " << llvm_type(object)
-                    << ' ' << operands[0] << ", 0\\n"
+                    << ' ' << operands[0] << ", 0\n"
                     << "  " << valid << " = icmp eq i32 " << tag << ", "
-                    << variant_index << "\\n"
+                    << variant_index << "\n"
                     << "  br i1 " << valid << ", label %" << good_label
-                    << ", label %" << bad_label << "\\n"
-                    << bad_label << ":\\n"
-                    << "  call void @llvm.trap()\\n"
-                    << "  unreachable\\n"
-                    << good_label << ":\\n";
+                    << ", label %" << bad_label << "\n"
+                    << bad_label << ":\n"
+                    << "  call void @llvm.trap()\n"
+                    << "  unreachable\n"
+                    << good_label << ":\n";
             const FieldLayout& field =
                 enum_layout->variants[variant_index].fields[field_index];
             const std::uint64_t offset = enum_layout->payload_offset + field.offset;
             const std::string pointer = next_temp();
             const std::string payload = next_temp();
             output_ << "  " << pointer << " = getelementptr i8, ptr "
-                    << value_slot(instruction.operands[0]) << ", i64 " << offset << "\\n"
+                    << value_slot(instruction.operands[0]) << ", i64 " << offset << "\n"
                     << "  " << payload << " = load " << llvm_type(*instruction.result)
-                    << ", ptr " << pointer << ", align " << field.type.alignment << "\\n";
+                    << ", ptr " << pointer << ", align " << field.type.alignment << "\n";
             store_result(instruction, payload);
             return;
         }
