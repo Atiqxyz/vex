@@ -699,13 +699,20 @@ private:
 
         const std::vector<SemanticBindingId> ids = sorted_environment_ids(base);
         std::vector<SemanticBindingId> changed;
+        std::unordered_map<SemanticBindingId, IRValue> agreed_values;
         for (const SemanticBindingId id : ids) {
-            const IRValue before = base.at(id);
-            const IRValue first = environment_value(paths[0].environment, id, span);
-            const IRValue second = environment_value(paths[1].environment, id, span);
-            if (first.id != second.id) changed.push_back(id);
-            else if (first.id != before.id) {
-                // Both paths agree on the new SSA version; no block parameter is needed.
+            const IRValue first = environment_value(paths.front().environment, id, span);
+            bool all_paths_agree = true;
+            for (std::size_t path_index = 1; path_index < paths.size(); ++path_index) {
+                if (environment_value(paths[path_index].environment, id, span).id != first.id) {
+                    all_paths_agree = false;
+                    break;
+                }
+            }
+            if (!all_paths_agree) {
+                changed.push_back(id);
+            } else if (first.id != base.at(id).id) {
+                agreed_values.emplace(id, first);
             }
         }
 
@@ -727,6 +734,7 @@ private:
         }
 
         environment_ = base;
+        for (const auto& [id, value] : agreed_values) environment_[id] = value;
         for (std::size_t index = 0; index < changed.size(); ++index) {
             environment_[changed[index]] = parameters[index];
         }
