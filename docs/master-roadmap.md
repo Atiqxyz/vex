@@ -146,6 +146,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] References and borrowing rules
 - [ ] Raw pointers and pointer arithmetic behind clear safety rules
 - [ ] Ownership and move/copy semantics
+- [x] Program-exit cleanup of compiler-tracked dynamic-array headers/buffers and allocated string blocks in both backends
 - [ ] Deterministic destruction and resource cleanup
 - [ ] RAII-like resource management if it fits VEX's model
 - [ ] Arena, pool, and region allocation

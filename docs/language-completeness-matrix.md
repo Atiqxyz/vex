@@ -168,6 +168,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Value semantics for fixed arrays | Implemented | Aggregate values; no heap allocation required. |
 | Automatic local storage | Partial | Compiler/backend local representation exists; complete lifetime model is not defined. |
 | Stack allocation policy | Partial | Nested fixed aggregate storage has target-native 256 KiB per-object and 512 KiB per-function limits; the general stack/heap model, scalar-frame accounting, recursion limits, and configurable budgets remain undefined. |
+| Program-exit cleanup of compiler-tracked allocations | Implemented | C and LLVM track dynamic-array headers/buffers and allocated string blocks; both release them after normal entry return and before rejecting an out-of-range integer exit status. Traps terminate the process without language-level unwinding; the operating system reclaims memory. No per-scope, pop, replacement, or unreachable-alias release exists. |
 | Heap allocation | Not implemented as a VEX language API | Runtime/backend internals are not a user-facing allocator model. |
 | Explicit allocators | Not implemented | Important for predictable systems/scientific workloads. |
 | Deallocation | Not implemented | Requires ownership and lifetime rules. |
