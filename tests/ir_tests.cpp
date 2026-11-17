@@ -1422,6 +1422,115 @@ void test_nominal_type_and_function_names_share_namespace(TestContext& tests) {
                 "IR verifier rejects a function whose name collides with a structure");
 }
 
+void test_function_local_places_and_explicit_memory_operations(TestContext& tests) {
+    vex::IRModule module;
+    vex::IRFunction function;
+    function.name = "main";
+    function.return_type = vex::IRType::Void;
+    function.entry_block = 0u;
+
+    vex::IRPlace place;
+    place.id = 1u;
+    place.value_type = value(0u, vex::IRType::Int);
+    place.mutable_place = true;
+    function.places.push_back(place);
+
+    vex::IRBlock entry;
+    entry.id = 0u;
+    entry.name = "entry";
+    entry.instructions.push_back(constant(1u, vex::IRType::Int, "42"));
+
+    vex::IRInstruction store;
+    store.op = vex::IROp::Store;
+    store.place = 1u;
+    store.operands = {1u};
+    entry.instructions.push_back(store);
+
+    vex::IRInstruction load;
+    load.op = vex::IROp::Load;
+    load.place = 1u;
+    load.result = value(2u, vex::IRType::Int);
+    entry.instructions.push_back(load);
+
+    vex::IRInstruction say;
+    say.op = vex::IROp::Say;
+    say.operands = {2u};
+    entry.instructions.push_back(say);
+    entry.terminator = vex::IRTerminator{vex::IRReturn{std::nullopt}, {}};
+    function.blocks.push_back(std::move(entry));
+    module.functions.push_back(std::move(function));
+
+    const auto verified = vex::IRVerifier{}.verify(module);
+    tests.check(!verified.has_errors(),
+                "typed function-local place accepts explicit store and load operations");
+    if (verified.has_errors()) return;
+
+    const auto c = vex::CBackend{}.generate(module);
+    tests.check(!c.has_errors() &&
+                c.source.find("int64_t vex_place_1;") != std::string::npos &&
+                c.source.find("vex_place_1 = vex_v_1;") != std::string::npos &&
+                c.source.find("vex_v_2 = vex_place_1;") != std::string::npos,
+                "C backend lowers function places to typed local storage");
+
+    const auto llvm = vex::LLVMBackend{}.emit(module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("%vex_place_1 = alloca i64, align 8") != std::string::npos &&
+                llvm.output.find("load i64, ptr %vex_place_1, align 8") != std::string::npos &&
+                llvm.output.find("store i64") != std::string::npos,
+                "LLVM backend lowers function places to aligned stack storage");
+
+    vex::IRModule immutable_store = module;
+    immutable_store.functions[0].places[0].mutable_place = false;
+    const auto rejected = vex::IRVerifier{}.verify(immutable_store);
+    tests.check(has_code(rejected, "IR102"),
+                "IR verifier rejects stores to immutable places");
+}
+
+void test_source_mutable_bindings_lower_through_places(TestContext& tests) {
+    const vex::SourceFile source{"mutable_places.vex",
+        "make increment(input: int) -> int {\n"
+        "    let result = input\n"
+        "    result += 1\n"
+        "    return result\n"
+        "}\n"
+        "make main() {\n"
+        "    let counter = increment(4)\n"
+        "    counter = counter + 1\n"
+        "    say(counter)\n"
+        "}\n"};
+    const vex::LexResult lexed = vex::Lexer{source}.scan();
+    tests.check(!lexed.has_errors(), "mutable place source lexes");
+    if (lexed.has_errors()) return;
+    const vex::ParseResult parsed = vex::Parser{source, lexed.tokens}.parse();
+    tests.check(!parsed.has_errors(), "mutable place source parses");
+    if (parsed.has_errors()) return;
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer{source, parsed.program}.analyze();
+    tests.check(!semantic.has_errors(), "mutable place source passes semantic analysis");
+    if (semantic.has_errors()) return;
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer{source, parsed.program, semantic.model}.lower();
+    tests.check(!lowered.has_errors(), "mutable bindings lower into place-based memory operations");
+    if (lowered.has_errors()) return;
+
+    std::size_t places = 0u;
+    std::size_t loads = 0u;
+    std::size_t stores = 0u;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        places += function.places.size();
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::Load) ++loads;
+                if (instruction.op == vex::IROp::Store) ++stores;
+            }
+        }
+    }
+    tests.check(places >= 3u && loads >= 3u && stores >= 3u,
+                "mutable parameters and locals use stable places with explicit loads and stores");
+    tests.check(!vex::IRVerifier{}.verify(lowered.module).has_errors(),
+                "lowered mutable-place program satisfies independent IR verification");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -1445,4 +1554,6 @@ void run_ir_tests(TestContext& tests) {
     test_target_data_layout_service(tests);
     test_nominal_type_and_function_names_share_namespace(tests);
     test_end_to_end_enum_construction_and_matching(tests);
+    test_function_local_places_and_explicit_memory_operations(tests);
+    test_source_mutable_bindings_lower_through_places(tests);
 }

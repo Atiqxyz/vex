@@ -11,6 +11,7 @@ namespace vex {
 namespace {
 
 using Environment = std::unordered_map<SemanticBindingId, IRValue>;
+using MutablePlaces = std::unordered_map<SemanticBindingId, IRPlaceId>;
 
 std::optional<IRType> to_ir_type(const SemanticType type) {
     switch (type) {
@@ -150,7 +151,13 @@ public:
             function_.parameters.push_back(IRFunctionParameter{
                 std::string(source_.slice(parameter.name)), value
             });
-            environment_[binding->second] = value;
+            if (info->mutable_binding) {
+                const IRPlaceId place = create_place(value, parameter.name);
+                emit_store(place, value, parameter.name);
+                mutable_places_[binding->second] = place;
+            } else {
+                environment_[binding->second] = value;
+            }
         }
 
         if (implicit_body_) {
@@ -369,13 +376,56 @@ private:
         return std::nullopt;
     }
 
+    [[nodiscard]] IRPlaceId create_place(const IRValue& type, const SourceSpan span) {
+        IRPlace place;
+        place.id = next_place_id_++;
+        place.value_type = type;
+        place.value_type.id = 0u;
+        place.mutable_place = true;
+        place.span = span;
+        function_.places.push_back(place);
+        return place.id;
+    }
+
+    [[nodiscard]] IRValue emit_load(const IRPlaceId place_id,
+                                    const IRValue& type, const SourceSpan span) {
+        IRValue result = make_value_like(type, span);
+        IRInstruction instruction;
+        instruction.op = IROp::Load;
+        instruction.result = result;
+        instruction.place = place_id;
+        instruction.span = span;
+        emit(std::move(instruction));
+        return result;
+    }
+
+    void emit_store(const IRPlaceId place_id, const IRValue& value,
+                    const SourceSpan span) {
+        IRInstruction instruction;
+        instruction.op = IROp::Store;
+        instruction.operands = {value.id};
+        instruction.place = place_id;
+        instruction.span = span;
+        emit(std::move(instruction));
+    }
+
     [[nodiscard]] IRValue current_value(const SemanticBindingId id,
                                         const SourceSpan span) {
+        const auto place = mutable_places_.find(id);
+        if (place != mutable_places_.end()) {
+            const auto descriptor = std::find_if(function_.places.begin(), function_.places.end(),
+                [&](const IRPlace& candidate) { return candidate.id == place->second; });
+            if (descriptor == function_.places.end()) {
+                report("IR112", "binding has an invalid mutable place", span);
+                return IRValue{};
+            }
+            return emit_load(place->second, descriptor->value_type, span);
+        }
         const auto found = environment_.find(id);
         if (found == environment_.end()) {
             report("IR112", "binding '" +
                    (get_binding(id) ? get_binding(id)->name : std::string("<unknown>")) +
-                   "' has no current SSA value", span);
+                   "' has no current SSA value or mutable place", span);
             return IRValue{};
         }
         return found->second;
@@ -1350,12 +1400,9 @@ private:
                        name->name);
                 return std::nullopt;
             }
-            const auto current = environment_.find(binding->second);
-            if (current == environment_.end()) {
-                report("IR112", "variable has no current SSA value", name->name);
-                return std::nullopt;
-            }
-            return current->second;
+            const IRValue current = current_value(binding->second, name->name);
+            if (current.type == IRType::Void) return std::nullopt;
+            return current;
         }
         if (const auto* group = std::get_if<GroupExpr>(&expression.data)) {
             return group->expression ? lower_expression(*group->expression) : std::nullopt;
@@ -1504,7 +1551,11 @@ private:
                 }
                 const auto updated=rebuild_access_path(path,replacement,expression.span);
                 if(!updated)return std::nullopt;
-                environment_[target->second]=*updated;
+                const auto root_place = mutable_places_.find(target->second);
+                if (root_place != mutable_places_.end())
+                    emit_store(root_place->second, *updated, expression.span);
+                else
+                    environment_[target->second]=*updated;
                 return replacement;
             }
             const auto target=semantic_model_.assignment_targets.find(assignment);
@@ -1542,7 +1593,11 @@ private:
                 report("IR152","assigned enum value has the wrong nominal enum type",expression.span);
                 return std::nullopt;
             }
-            environment_[target->second]=*converted;
+            const auto target_place = mutable_places_.find(target->second);
+            if (target_place != mutable_places_.end())
+                emit_store(target_place->second, *converted, expression.span);
+            else
+                environment_[target->second]=*converted;
             return *converted;
         }
         if (const auto* call = std::get_if<CallExpr>(&expression.data)) {
@@ -1605,7 +1660,15 @@ private:
             report("IR152", "variable initializer has the wrong nominal enum type", variable.name);
             return;
         }
-        if (converted) environment_[binding->second] = *converted;
+        if (converted) {
+            if (info->mutable_binding) {
+                const IRPlaceId place = create_place(*converted, variable.name);
+                emit_store(place, *converted, variable.name);
+                mutable_places_[binding->second] = place;
+            } else {
+                environment_[binding->second] = *converted;
+            }
+        }
     }
 
     void lower_if(const IfStmt& conditional, const SourceSpan span) {
@@ -2290,10 +2353,12 @@ private:
     const std::vector<const Statement*>* implicit_body_{nullptr};
     IRFunction function_;
     Environment environment_;
+    MutablePlaces mutable_places_;
     std::vector<LoopContext> loops_;
     std::optional<IRBlockId> current_block_;
     IRValueId next_value_id_{1};
     IRBlockId next_block_id_{0};
+    IRPlaceId next_place_id_{1};
 };
 
 class LowererImpl {

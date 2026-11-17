@@ -82,6 +82,10 @@ std::string value_slot(const IRValueId id) {
     return "%vex_slot_" + std::to_string(id);
 }
 
+std::string place_slot(const IRPlaceId id) {
+    return "%vex_place_" + std::to_string(id);
+}
+
 std::string block_label(const IRBlockId id) {
     return "vex_bb_" + std::to_string(id);
 }
@@ -1270,6 +1274,19 @@ trap:
             if (!allocation_count.empty()) output_ << ", i64 " << allocation_count;
             output_ << ", align " << type_layout->alignment << "\n";
         }
+        for (const IRPlace& place : function.places) {
+            std::string layout_error;
+            const auto place_layout = target_layout_.layout_of(
+                place.value_type, module_, &layout_error);
+            if (!place_layout) {
+                report("LLVM013", "cannot compute target alignment for place: " +
+                       layout_error, place.span);
+                return;
+            }
+            output_ << "  " << place_slot(place.id) << " = alloca "
+                    << llvm_type(place.value_type) << ", align "
+                    << place_layout->alignment << "\n";
+        }
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
             const IRValue& parameter = function.parameters[index].value;
             output_ << "  store " << llvm_type(parameter) << " %arg_" << index
@@ -1610,6 +1627,37 @@ trap:
         }
 
         switch (instruction.op) {
+        case IROp::Load:
+        case IROp::Store: {
+            if (!instruction.place || !current_function_ ||
+                *instruction.place == 0u ||
+                *instruction.place > current_function_->places.size()) {
+                report("LLVM014", "memory operation references an unavailable place",
+                       instruction.span);
+                return;
+            }
+            const IRPlace& place = current_function_->places[*instruction.place - 1u];
+            std::string layout_error;
+            const auto place_layout = target_layout_.layout_of(
+                place.value_type, module_, &layout_error);
+            if (!place_layout) {
+                report("LLVM013", "cannot compute target alignment for place: " +
+                       layout_error, place.span);
+                return;
+            }
+            if (instruction.op == IROp::Load) {
+                const std::string loaded = next_temp();
+                output_ << "  " << loaded << " = load " << llvm_type(place.value_type)
+                        << ", ptr " << place_slot(place.id) << ", align "
+                        << place_layout->alignment << "\n";
+                store_result(instruction, loaded);
+            } else {
+                output_ << "  store " << llvm_type(place.value_type) << ' '
+                        << operands[0] << ", ptr " << place_slot(place.id)
+                        << ", align " << place_layout->alignment << "\n";
+            }
+            return;
+        }
         case IROp::Constant:
             return;
         case IROp::StringConcat: {

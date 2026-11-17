@@ -10,9 +10,9 @@ Backends must not infer language semantics from convenient host-language types. 
 
 ## Values, places, and memory
 
-SSA values are not sufficient to model arbitrary addressable storage. Introduce first-class places before raw pointers, references, borrowing, volatile memory, or user-controlled allocation. A place describes addressable storage, its type, alignment, mutability, and provenance.
+SSA values are not sufficient to model arbitrary addressable storage. The IR now has function-local typed places for stable storage, separate from SSA values. Each place has a canonical function-local identity, a complete value-type descriptor, mutability, and a function-activation lifetime. Explicit `load` and `store` operations are independently verified and lowered by both C and LLVM backends; stores to immutable places are rejected. Mutable local bindings and function parameters currently use these places, while immutable bindings remain SSA values.
 
-Memory operations must be explicit in IR: load, store, address calculation, field and element addressing, aggregate copy, allocation, reallocation, and deallocation. Alias-sensitive optimizations must preserve observable memory effects. Do not represent an addressable location as an ordinary SSA value merely because that is convenient for the current backend.
+This is the first storage layer, not the full place system. Field and element projections, address calculation, provenance tracking, volatile access, and explicit aggregate-copy operations remain to be added. Alias-sensitive optimizations must preserve observable memory effects. Do not represent an addressable location as an ordinary SSA value merely because that is convenient for the current backend.
 
 ## Pointers, references, and slices
 
@@ -37,7 +37,7 @@ Native struct layout is not portable serialization. Binary codecs remain explici
 ## Dependency order
 
 1. Canonical recursive type descriptors and target-aware size/alignment/offset queries.
-2. First-class places, load/store, address calculation, and verifier rules.
+2. [x] Function-local typed places, explicit load/store, and verifier rules. Field/element projections and address calculation remain future work.
 3. Typed raw pointers, address-of/dereference, pointer arithmetic, and explicit unsafe blocks.
 4. Allocator values, aligned allocation, reallocation, deallocation, and ownership transfer.
 5. References, slices, borrowing, lifetime checks, and invalidation rules.

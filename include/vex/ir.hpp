@@ -14,6 +14,7 @@ namespace vex {
 
 using IRValueId = std::uint32_t;
 using IRBlockId = std::uint32_t;
+using IRPlaceId = std::uint32_t;
 
 enum class IRType {
     Void,
@@ -81,7 +82,9 @@ enum class IROp {
     StructSet,
     EnumMake,
     EnumTag,
-    EnumPayloadGet
+    EnumPayloadGet,
+    Load,
+    Store
 };
 
 [[nodiscard]] const char* ir_op_name(IROp op) noexcept;
@@ -194,6 +197,14 @@ struct IREnumType {
     std::vector<IREnumVariant> variants;
 };
 
+struct IRPlace {
+    IRPlaceId id{0};
+    // A type descriptor, not an SSA value; its value id must remain zero.
+    IRValue value_type{};
+    bool mutable_place{true};
+    SourceSpan span{};
+};
+
 struct IRInstruction {
     IROp op{IROp::Constant};
     std::optional<IRValue> result;
@@ -202,6 +213,8 @@ struct IRInstruction {
     std::string immediate;
     std::string callee;
     SourceSpan span{};
+    // Present only for explicit memory operations.
+    std::optional<IRPlaceId> place;
 };
 
 struct IRReturn {
@@ -259,6 +272,8 @@ struct IRFunction {
     std::vector<IRBlock> blocks;
     IRBlockId entry_block{0};
     SourceSpan span{};
+    // Function-local addressable storage with activation lifetime.
+    std::vector<IRPlace> places;
 };
 
 struct IRModule {

@@ -63,6 +63,31 @@ bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count
     return value.element_struct_type_id == 0 && value.enum_type_id == 0;
 }
 
+bool valid_place_type(const IRValue& value, const std::size_t struct_count,
+                      const std::size_t enum_count) {
+    if (value.id != 0u || value.type == IRType::Void) return false;
+    if (value.type == IRType::Array)
+        return valid_array_descriptor(value, struct_count, enum_count);
+    if (value.type == IRType::Struct) {
+        return value.struct_type_id != 0u && value.struct_type_id <= struct_count &&
+               value.element_type == IRType::Void && value.array_length == 0u &&
+               value.element_struct_type_id == 0u && value.enum_type_id == 0u &&
+               value.array_dimensions.empty();
+    }
+    if (value.type == IRType::Enum) {
+        return value.enum_type_id != 0u && value.enum_type_id <= enum_count &&
+               value.struct_type_id == 0u && value.element_type == IRType::Void &&
+               value.array_length == 0u && value.element_struct_type_id == 0u &&
+               value.array_dimensions.empty();
+    }
+    return (value.type == IRType::Int || value.type == IRType::Byte ||
+            value.type == IRType::Float || value.type == IRType::Bool ||
+            value.type == IRType::String) &&
+           value.struct_type_id == 0u && value.enum_type_id == 0u &&
+           value.element_type == IRType::Void && value.array_length == 0u &&
+           value.element_struct_type_id == 0u && value.array_dimensions.empty();
+}
+
 bool has_dynamic_outer_dimension(const IRValue& value) {
     const auto dimensions = ir_array_dimensions(value);
     return value.type == IRType::Array && !dimensions.empty() &&
@@ -100,6 +125,7 @@ public:
 
     void run() {
         index_blocks();
+        index_places();
         collect_definitions();
         validate_blocks();
         validate_reachability_and_dominance();
@@ -176,6 +202,21 @@ private:
             if (!is_value_type(parameter.value.type)) {
                 report("IR005", "function parameters cannot have type void",
                        parameter.value.span);
+            }
+        }
+    }
+
+    void index_places() {
+        for (std::size_t index = 0; index < function_.places.size(); ++index) {
+            const IRPlace& place = function_.places[index];
+            if (place.id != index + 1u ||
+                !places_.emplace(place.id, &place).second) {
+                report("IR094", "function places must have unique sequential nonzero identifiers",
+                       place.span);
+            }
+            if (!valid_place_type(place.value_type, struct_types_.size(), enum_types_.size())) {
+                report("IR095", "function place has an invalid or incomplete storage type descriptor",
+                       place.span);
             }
         }
     }
@@ -318,7 +359,48 @@ private:
     void validate_instruction(const IRInstruction& instruction) {
         const auto left = operand_type(instruction, 0);
         const auto right = operand_type(instruction, 1);
+        const bool is_memory_operation = instruction.op == IROp::Load ||
+                                         instruction.op == IROp::Store;
+        if (!is_memory_operation && instruction.place)
+            report("IR096", "only load and store instructions may reference a place",
+                   instruction.span);
         switch (instruction.op) {
+        case IROp::Load: {
+            check_arity(instruction, 0u);
+            if (!instruction.place) {
+                report("IR097", "load must identify a function place", instruction.span);
+                break;
+            }
+            const auto found = places_.find(*instruction.place);
+            if (found == places_.end()) {
+                report("IR098", "load references an unknown function place", instruction.span);
+                break;
+            }
+            if (!instruction.result ||
+                !same_value_shape(*instruction.result, found->second->value_type)) {
+                report("IR099", "load result does not match the place storage type", instruction.span);
+            }
+            break;
+        }
+        case IROp::Store: {
+            check_arity(instruction, 1u);
+            check_no_result(instruction);
+            if (!instruction.place) {
+                report("IR100", "store must identify a function place", instruction.span);
+                break;
+            }
+            const auto found = places_.find(*instruction.place);
+            if (found == places_.end()) {
+                report("IR101", "store references an unknown function place", instruction.span);
+                break;
+            }
+            if (!found->second->mutable_place)
+                report("IR102", "store cannot modify an immutable function place", instruction.span);
+            const IRValue* stored = operand_value(instruction, 0u);
+            if (stored && !same_value_shape(*stored, found->second->value_type))
+                report("IR103", "stored value does not match the place storage type", instruction.span);
+            break;
+        }
         case IROp::Constant:
             check_arity(instruction, 0);
             if (!instruction.result) {
@@ -1058,6 +1140,7 @@ private:
     const std::vector<IREnumType>& enum_types_;
     std::vector<Diagnostic>& diagnostics_;
     std::unordered_map<IRBlockId, const IRBlock*> blocks_;
+    std::unordered_map<IRPlaceId, const IRPlace*> places_;
     std::unordered_map<IRValueId, Definition> definitions_;
     std::unordered_map<IRBlockId, std::vector<IRBlockId>> successors_;
     std::unordered_map<IRBlockId, std::unordered_set<IRBlockId>> dominators_;
@@ -1147,6 +1230,8 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::EnumMake: return "enum_make";
     case IROp::EnumTag: return "enum_tag";
     case IROp::EnumPayloadGet: return "enum_payload_get";
+    case IROp::Load: return "load";
+    case IROp::Store: return "store";
     }
     return "unknown";
 }
@@ -1198,6 +1283,7 @@ std::vector<IRValue> ir_function_nested_fixed_stack_values(
     const auto add = [&](const IRValue& value) {
         if (ir_value_has_nested_fixed_storage(value, module)) result.push_back(value);
     };
+    for (const IRPlace& place : function.places) add(place.value_type);
     std::unordered_map<IRValueId, IRValue> known;
     for (const auto& parameter : function.parameters) {
         known.emplace(parameter.value.id, parameter.value);
@@ -1459,6 +1545,7 @@ void print_ir(std::ostream& output, const IRModule& module) {
                 } else if (instruction.op == IROp::StructGet || instruction.op == IROp::StructSet) {
                     output << ' ' << instruction.immediate;
                 }
+                if (instruction.place) output << " place#" << *instruction.place;
                 for (const IRValueId operand : instruction.operands) {
                     output << ' ';
                     print_value(output, operand);

@@ -95,6 +95,10 @@ std::string value_name(const IRValueId id) {
     return "vex_v_" + std::to_string(id);
 }
 
+std::string place_name(const IRPlaceId id) {
+    return "vex_place_" + std::to_string(id);
+}
+
 std::string block_name(const IRBlockId id) {
     return "vex_bb_" + std::to_string(id);
 }
@@ -363,6 +367,9 @@ private:
             for (const IRFunctionParameter& parameter : function.parameters)
                 if (parameter.value.type == IRType::Array)
                     emit_array_typedef(parameter.value);
+            for (const IRPlace& place : function.places)
+                if (place.value_type.type == IRType::Array)
+                    emit_array_typedef(place.value_type);
             for (const IRBlock& block : function.blocks) {
                 for (const IRValue& parameter : block.parameters)
                     if (parameter.type == IRType::Array) emit_array_typedef(parameter);
@@ -909,6 +916,11 @@ private:
     void emit_function(const IRFunction& function) {
         emit_function_signature(function);
         output_ << " {\n";
+        for (const IRPlace& place : function.places) {
+            output_ << "    " << c_type(place.value_type) << ' '
+                    << place_name(place.id) << ";\n";
+        }
+        if (!function.places.empty()) output_ << '\n';
 
         std::unordered_set<IRValueId> parameter_ids;
         for (const IRFunctionParameter& parameter : function.parameters) {
@@ -1055,6 +1067,16 @@ private:
             ? value_name(instruction.result->id) : std::string{};
 
         switch (instruction.op) {
+        case IROp::Load: {
+            const IRPlaceId id = instruction.place.value();
+            output_ << "    " << result << " = " << place_name(id) << ";\n";
+            return;
+        }
+        case IROp::Store: {
+            const IRPlaceId id = instruction.place.value();
+            output_ << "    " << place_name(id) << " = " << operand(0) << ";\n";
+            return;
+        }
         case IROp::StringConcat:
             output_ << "    " << result << " = vex_string_concat("
                     << operand(0) << ", " << operand(1) << ");\n";
