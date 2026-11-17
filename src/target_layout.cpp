@@ -210,12 +210,12 @@ private:
         case IRType::Pointer:
             if (value.pointer_pointee_type == IRType::Void ||
                 value.pointer_pointee_type == IRType::Array ||
-                value.pointer_pointee_type == IRType::Struct ||
-                value.pointer_pointee_type == IRType::Enum ||
                 value.pointer_pointee_type == IRType::Pointer) {
                 fail("pointer has an unsupported pointee type");
                 return std::nullopt;
             }
+            // Pointer storage has target pointer size/alignment regardless of
+            // whether its pointee is primitive or a nominal aggregate.
             return finish(config_.pointer_size, config_.pointer_alignment);
         case IRType::String: {
             // VEX string is { pointer, uint64 byte_length }.

@@ -1191,6 +1191,13 @@ void test_target_data_layout_service(TestContext& tests) {
                 fixed->stride == 48u,
                 "target layout recursively computes inline nested fixed-array size and stride");
 
+    const auto structure_pointer = layout.layout_of(
+        vex::ir_make_pointer_value(vex::IRType::Struct, {}, 1u), module);
+    tests.check(structure_pointer && structure_pointer->size == 8u &&
+                structure_pointer->alignment == 8u &&
+                structure_pointer->stride == 8u,
+                "typed pointers to nominal structures use target pointer size and alignment");
+
     const auto dynamic = layout.layout_of(vex::ir_make_array_value(
         vex::IRType::Int, {0u, 3u}), module);
     tests.check(dynamic && dynamic->size == 8u && dynamic->alignment == 8u,
