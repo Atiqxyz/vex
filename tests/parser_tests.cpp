@@ -320,6 +320,39 @@ void test_enum_declarations(TestContext& tests) {
     tests.check(parse(nested).has_errors(), "enum declarations are restricted to file scope");
 }
 
+void test_enum_match_statement_parsing(TestContext& tests) {
+    const vex::SourceFile source{"enum_match.vex",
+        "enum Result { Success(int), Failure(string), Cancelled }\n"
+        "make main() {\n"
+        "    let result = Result.Success(7)\n"
+        "    match result {\n"
+        "        Result.Success(value) => { say(value) }\n"
+        "        Result.Failure(reason) => { say(reason) }\n"
+        "        Result.Cancelled => { say(0) }\n"
+        "    }\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(), "qualified enum match arms and payload bindings parse");
+    if (parsed.program.statements.size() < 2u) return;
+    const auto* function = std::get_if<vex::FunctionDeclStmt>(
+        &parsed.program.statements[1]->data);
+    if (!function || !function->body) return;
+    const auto* block = std::get_if<vex::BlockStmt>(&function->body->data);
+    if (!block || block->statements.size() < 2u) return;
+    const auto* matched = std::get_if<vex::MatchStmt>(&block->statements[1]->data);
+    tests.check(matched && matched->arms.size() == 3u,
+                "match AST retains every source-ordered arm");
+    if (matched && matched->arms.size() == 3u) {
+        tests.check(!matched->arms[0].wildcard &&
+                    source.slice(matched->arms[0].enum_name) == "Result" &&
+                    source.slice(matched->arms[0].variant_name) == "Success" &&
+                    matched->arms[0].bindings.size() == 1u,
+                    "match AST preserves qualified variant and positional binding spans");
+        tests.check(matched->arms[2].bindings.empty(),
+                    "unit variants parse without payload bindings");
+    }
+}
+
 void test_multiline_structure_literal_with_array_fields(TestContext& tests) {
     const vex::SourceFile source{"multiline_structure_literal.vex",
         "struct Point { x: int, y: int }\n"
@@ -456,6 +489,7 @@ void run_parser_tests(TestContext& tests) {
     test_integer_range_expressions(tests);
     test_structure_declarations_literals_and_members(tests);
     test_enum_declarations(tests);
+    test_enum_match_statement_parsing(tests);
     test_multiline_structure_literal_with_array_fields(tests);
     test_multidimensional_type_annotation_spans(tests);
     test_typed_declarations_may_omit_initializer(tests);
