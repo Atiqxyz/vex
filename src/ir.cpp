@@ -495,7 +495,6 @@ private:
             check_result(instruction, IRType::Bool);
             break;
         }
-            break;
         case IROp::Less:
         case IROp::LessEqual:
         case IROp::Greater:
