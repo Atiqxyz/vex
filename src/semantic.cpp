@@ -700,25 +700,12 @@ private:
                                element->span);
                         return Type::Error;
                     }
-                    if (nested_element_shape) {
-                        bool compatible_nested_shapes =
-                            nested_element_shape->same_shape(nested_shape->second);
-                        if (!compatible_nested_shapes && has_context &&
-                            expected.dimensions.size() > 1u) {
-                            const SemanticArrayType nested_expected =
-                                expected.immediate_array_element_shape();
-                            compatible_nested_shapes =
-                                compatible_array_literal_context(
-                                    nested_expected, *nested_element_shape) &&
-                                compatible_array_literal_context(
-                                    nested_expected, nested_shape->second);
-                        }
-                        if (!compatible_nested_shapes) {
-                            report("SEM041",
-                                   "nested array elements must have compatible element types and remaining dimensions",
-                                   element->span);
-                            return Type::Error;
-                        }
+                    if (nested_element_shape &&
+                        !nested_element_shape->same_shape(nested_shape->second)) {
+                        report("SEM041",
+                               "nested array elements must have the same element type and remaining dimensions",
+                               element->span);
+                        return Type::Error;
                     }
                     if (has_context && expected.dimensions.size() > 1u &&
                         !std::holds_alternative<ArrayLiteralExpr>(element->data) &&

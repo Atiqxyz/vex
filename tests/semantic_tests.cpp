@@ -481,7 +481,7 @@ void test_nested_array_annotations_and_semantics(TestContext& tests) {
 
     const vex::SourceFile deep_jagged{"deep_jagged_nested_arrays.vex",
         "make main() {\n"
-        "    let cubes: int[][][] = [[[1, 2], [3,]], [[4,]]]\n"
+        "    let cubes: int[][][] = [[[1, 2], [3,]], [[4,],]]\n"
         "}\n"};
     const vex::SemanticResult deep_accepted = analyze(deep_jagged);
     tests.check(!deep_accepted.has_errors(),

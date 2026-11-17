@@ -94,7 +94,7 @@ make main() {
     let removed_fixed = pop(fixed_rows)
     say(removed_fixed[0])
 
-    let cubes: int[][][] = [[[1, 2], [3,]], [[4,]]]
+    let cubes: int[][][] = [[[1, 2], [3,]], [[4,],]]
     say(length(cubes[0][1]))
     push(cubes[0][1], 5)
     say(cubes[0][1][1])
