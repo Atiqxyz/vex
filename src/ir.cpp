@@ -293,8 +293,11 @@ private:
             report("IR006", "SSA values cannot have type void", value.span);
         }
         if (value.type == IRType::Array &&
-            !valid_array_descriptor(value, struct_types_.size(), enum_types_.size())) {
-            report("IR050", "SSA array value has an invalid element type or aggregate identity",
+            (!valid_array_descriptor(value, struct_types_.size(), enum_types_.size()) ||
+             value.pointer_pointee_type != IRType::Void ||
+             value.pointer_pointee_struct_type_id != 0u ||
+             value.pointer_pointee_enum_type_id != 0u)) {
+            report("IR050", "SSA array value has an invalid element type, aggregate identity, or pointer metadata",
                    value.span);
         } else if (value.type == IRType::Struct) {
             if (value.pointer_pointee_type != IRType::Void ||
