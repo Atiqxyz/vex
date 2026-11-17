@@ -1226,6 +1226,57 @@ private:
                     << " = " << operand(1) << ";\n";
             return;
         }
+        case IROp::EnumMake: {
+            if (!instruction.result) return;
+            const IRValue& enum_value = *instruction.result;
+            const std::uint32_t variant_index =
+                static_cast<std::uint32_t>(std::stoul(instruction.immediate));
+            const auto enum_layout = TargetDataLayout{}.layout_of_enum(
+                enum_value.enum_type_id, module_);
+            if (!enum_layout || variant_index >= enum_layout->variants.size()) {
+                report("CG012", "enum constructor cannot resolve its target layout", instruction.span);
+                return;
+            }
+            output_ << "    " << result << " = (" << enum_type_name(enum_value.enum_type_id)
+                    << "){0};\\n"
+                    << "    " << result << ".tag = " << variant_index << "u;\\n";
+            const EnumVariantLayout& variant = enum_layout->variants[variant_index];
+            for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
+                const std::string source = operand(index);
+                const std::uint64_t offset =
+                    enum_layout->payload_offset + variant.fields[index].offset;
+                output_ << "    memcpy((unsigned char *)&" << result << " + "
+                        << offset << "u, &" << source << ", sizeof(" << source << "));\\n";
+            }
+            return;
+        }
+        case IROp::EnumTag: {
+            output_ << "    " << result << " = (int64_t)" << operand(0) << ".tag;\\n";
+            return;
+        }
+        case IROp::EnumPayloadGet: {
+            const auto object = value_type(function, instruction.operands[0]);
+            if (!object) return;
+            const std::size_t separator = instruction.immediate.find(':');
+            const std::uint32_t variant_index = static_cast<std::uint32_t>(
+                std::stoul(instruction.immediate.substr(0, separator)));
+            const std::uint32_t field_index = static_cast<std::uint32_t>(
+                std::stoul(instruction.immediate.substr(separator + 1u)));
+            const auto enum_layout = TargetDataLayout{}.layout_of_enum(
+                object->enum_type_id, module_);
+            if (!enum_layout || variant_index >= enum_layout->variants.size() ||
+                field_index >= enum_layout->variants[variant_index].fields.size()) {
+                report("CG012", "enum payload selector cannot resolve its target layout", instruction.span);
+                return;
+            }
+            const std::uint64_t offset = enum_layout->payload_offset +
+                enum_layout->variants[variant_index].fields[field_index].offset;
+            output_ << "    if (" << operand(0) << ".tag != " << variant_index
+                    << "u) vex_runtime_trap(\\\"enum payload accessed for the wrong variant\\\");\\n"
+                    << "    memcpy(&" << result << ", (const unsigned char *)&"
+                    << operand(0) << " + " << offset << "u, sizeof(" << result << "));\\n";
+            return;
+        }
         case IROp::ArrayMake: {
             const IRValue& array = *instruction.result;
             const IRValue element = array_element_value(array);
