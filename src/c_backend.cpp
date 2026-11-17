@@ -300,9 +300,9 @@ private:
         const TargetDataLayout layout;
         for (const IREnumType& enumeration : module_.enum_types) {
             output_ << "typedef struct " << enum_type_name(enumeration.id)
-                    << " " << enum_type_name(enumeration.id) << ";\\n";
+                    << " " << enum_type_name(enumeration.id) << ";\n";
         }
-        if (!module_.enum_types.empty()) output_ << '\\n';
+        if (!module_.enum_types.empty()) output_ << '\n';
         for (const IREnumType& enumeration : module_.enum_types) {
             std::string error;
             const auto enum_layout = layout.layout_of_enum(enumeration.id, module_, &error);
@@ -311,16 +311,16 @@ private:
                        enumeration.name + ": " + error);
                 continue;
             }
-            output_ << "struct " << enum_type_name(enumeration.id) << " {\\n"
-                    << "    uint32_t tag;\\n";
+            output_ << "struct " << enum_type_name(enumeration.id) << " {\n"
+                    << "    uint32_t tag;\n";
             if (enum_layout->payload_size != 0u) {
                 output_ << "    _Alignas(" << enum_layout->payload_alignment
                         << ") unsigned char payload[" << enum_layout->payload_size
-                        << "u];\\n";
+                        << "u];\n";
             }
-            output_ << "};\\n";
+            output_ << "};\n";
         }
-        if (!module_.enum_types.empty()) output_ << '\\n';
+        if (!module_.enum_types.empty()) output_ << '\n';
     }
 
     void emit_struct_types() {
@@ -432,16 +432,16 @@ private:
             }
             const std::string type = enum_type_name(enumeration.id);
             output_ << "_Static_assert(sizeof(" << type << ") == " << enum_layout->size
-                    << "u, \\"VEX enum size disagrees with target data layout\\");\\n"
+                    << "u, \"VEX enum size disagrees with target data layout\");\n"
                     << "_Static_assert(_Alignof(" << type << ") == " << enum_layout->alignment
-                    << "u, \\"VEX enum alignment disagrees with target data layout\\");\\n";
+                    << "u, \"VEX enum alignment disagrees with target data layout\");\n";
             if (enum_layout->payload_size != 0u) {
                 output_ << "_Static_assert(offsetof(" << type << ", payload) == "
                         << enum_layout->payload_offset
-                        << "u, \\"VEX enum payload offset disagrees with target data layout\\");\\n";
+                        << "u, \"VEX enum payload offset disagrees with target data layout\");\n";
             }
         }
-        output_ << '\n';
+        output_ << 'n';
     }
 
     void emit_nested_fixed_stack_assertions() {
@@ -1238,20 +1238,20 @@ private:
                 return;
             }
             output_ << "    " << result << " = (" << enum_type_name(enum_value.enum_type_id)
-                    << "){0};\\n"
-                    << "    " << result << ".tag = " << variant_index << "u;\\n";
+                    << "){0};\n"
+                    << "    " << result << ".tag = " << variant_index << "u;\n";
             const EnumVariantLayout& variant = enum_layout->variants[variant_index];
             for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
                 const std::string source = operand(index);
                 const std::uint64_t offset =
                     enum_layout->payload_offset + variant.fields[index].offset;
                 output_ << "    memcpy((unsigned char *)&" << result << " + "
-                        << offset << "u, &" << source << ", sizeof(" << source << "));\\n";
+                        << offset << "u, &" << source << ", sizeof(" << source << "));\n";
             }
             return;
         }
         case IROp::EnumTag: {
-            output_ << "    " << result << " = (int64_t)" << operand(0) << ".tag;\\n";
+            output_ << "    " << result << " = (int64_t)" << operand(0) << ".tag;\n";
             return;
         }
         case IROp::EnumPayloadGet: {
@@ -1272,9 +1272,9 @@ private:
             const std::uint64_t offset = enum_layout->payload_offset +
                 enum_layout->variants[variant_index].fields[field_index].offset;
             output_ << "    if (" << operand(0) << ".tag != " << variant_index
-                    << "u) vex_runtime_trap(\\\"enum payload accessed for the wrong variant\\\");\\n"
+                    << "u) vex_runtime_trap(\"enum payload accessed for the wrong variant\");\n"
                     << "    memcpy(&" << result << ", (const unsigned char *)&"
-                    << operand(0) << " + " << offset << "u, sizeof(" << result << "));\\n";
+                    << operand(0) << " + " << offset << "u, sizeof(" << result << "));\n";
             return;
         }
         case IROp::ArrayMake: {
