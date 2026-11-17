@@ -1401,16 +1401,32 @@ private:
                 const auto pointer = dereference->operand
                     ? model_.pointer_expression_types.find(dereference->operand.get())
                     : model_.pointer_expression_types.end();
+                const bool mutable_pointer = pointer != model_.pointer_expression_types.end() &&
+                    pointer->second.mutable_pointee;
                 const Type value_type = assignment->value
                     ? analyze_expression(*assignment->value) : Type::Error;
-                if (compound) {
-                    report("SEM070", "compound assignment through a pointer is not supported yet; use an explicit read and write", expression.span);
+                if (!mutable_pointer) {
+                    report("SEM071", "dereferenced pointer assignment requires a mutable typed pointer",
+                           expression.span);
                     return Type::Error;
                 }
-                if (pointer == model_.pointer_expression_types.end() ||
-                    !pointer->second.mutable_pointee || !is_assignable(target_type, value_type)) {
-                    report("SEM071", "dereferenced pointer assignment has an incompatible pointee value", expression.span);
-                    return Type::Error;
+                if (compound) {
+                    const Type operation_type =
+                        compound_assignment_result(assignment->op, target_type, value_type);
+                    if (operation_type == Type::Error && target_type != Type::Error &&
+                        value_type != Type::Error && target_type != Type::Unknown &&
+                        value_type != Type::Unknown) {
+                        report("SEM012", "compound assignment has incompatible pointer-pointee operands",
+                               expression.span);
+                    } else if (operation_type != Type::Error &&
+                               operation_type != Type::Unknown &&
+                               !is_assignable(target_type, operation_type)) {
+                        report("SEM018", "compound pointer assignment result cannot be stored in the pointee type",
+                               expression.span);
+                    }
+                } else if (!is_assignable(target_type, value_type)) {
+                    report("SEM071", "dereferenced pointer assignment has an incompatible pointee value",
+                           expression.span);
                 }
                 return target_type;
             }

@@ -1013,7 +1013,7 @@ void test_typed_pointer_semantics(TestContext& tests) {
 
     const vex::SourceFile pointer_parameters{"pointer_parameters.vex", R"VEX(
 make increment(pointer: *int) -> int {
-    *pointer = *pointer + 1
+    *pointer += 1
     return *pointer
 }
 make main() {

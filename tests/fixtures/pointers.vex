@@ -5,7 +5,7 @@ make bump(value: int) -> int {
 }
 
 make add_one(pointer: *int) -> int {
-    *pointer = *pointer + 1
+    *pointer += 1
     return *pointer
 }
 
