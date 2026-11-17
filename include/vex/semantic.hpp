@@ -24,6 +24,7 @@ enum class SemanticType {
     Bool,
     String,
     Struct,
+    Enum,
     Array,
     Range
 };
@@ -34,20 +35,25 @@ struct SemanticArrayType {
     std::uint32_t length{0};
     // Nonzero only when element_type is Struct. Structure identity is nominal.
     std::uint32_t element_struct_type_id{0};
+    // Nonzero only when element_type is Enum. Enum identity is nominal.
+    std::uint32_t element_enum_type_id{0};
     // Ordered outermost-first. A zero entry denotes a dynamic dimension.
     std::vector<std::uint32_t> dimensions;
 
     SemanticArrayType() = default;
     SemanticArrayType(const SemanticType element, const std::uint32_t outer_length,
-                      const std::uint32_t struct_type_id = 0)
+                      const std::uint32_t struct_type_id = 0,
+                      const std::uint32_t enum_type_id = 0)
         : element_type(element), length(outer_length),
-          element_struct_type_id(struct_type_id), dimensions{outer_length} {}
+          element_struct_type_id(struct_type_id), element_enum_type_id(enum_type_id),
+          dimensions{outer_length} {}
     SemanticArrayType(const SemanticType element,
                       std::vector<std::uint32_t> dimension_lengths,
-                      const std::uint32_t struct_type_id = 0)
+                      const std::uint32_t struct_type_id = 0,
+                      const std::uint32_t enum_type_id = 0)
         : element_type(element),
           length(dimension_lengths.empty() ? 0u : dimension_lengths.front()),
-          element_struct_type_id(struct_type_id),
+          element_struct_type_id(struct_type_id), element_enum_type_id(enum_type_id),
           dimensions(std::move(dimension_lengths)) {}
 
     [[nodiscard]] bool is_nested() const noexcept {
@@ -57,6 +63,7 @@ struct SemanticArrayType {
     [[nodiscard]] bool same_shape(const SemanticArrayType& other) const noexcept {
         return element_type == other.element_type &&
                element_struct_type_id == other.element_struct_type_id &&
+               element_enum_type_id == other.element_enum_type_id &&
                dimensions == other.dimensions;
     }
 
@@ -73,7 +80,7 @@ struct SemanticArrayType {
         return SemanticArrayType(
             element_type,
             std::vector<std::uint32_t>(dimensions.begin() + 1, dimensions.end()),
-            element_struct_type_id);
+            element_struct_type_id, element_enum_type_id);
     }
 };
 
@@ -89,6 +96,7 @@ struct SemanticBinding {
     SourceSpan declaration{};
     std::optional<SemanticArrayType> array_type;
     std::uint32_t struct_type_id{0};
+    std::uint32_t enum_type_id{0};
 };
 
 struct SemanticFunctionSignature {
@@ -96,9 +104,11 @@ struct SemanticFunctionSignature {
     std::vector<SemanticType> parameter_types;
     std::vector<std::optional<SemanticArrayType>> parameter_array_types;
     std::vector<std::uint32_t> parameter_struct_type_ids;
+    std::vector<std::uint32_t> parameter_enum_type_ids;
     SemanticType return_type{SemanticType::Void};
     std::optional<SemanticArrayType> return_array_type;
     std::uint32_t return_struct_type_id{0};
+    std::uint32_t return_enum_type_id{0};
     SourceSpan declaration{};
 };
 
@@ -106,6 +116,7 @@ struct SemanticStructField {
     std::string name;
     SemanticType type{SemanticType::Error};
     std::uint32_t struct_type_id{0};
+    std::uint32_t enum_type_id{0};
     std::optional<SemanticArrayType> array_type;
     SourceSpan declaration{};
 };
@@ -120,6 +131,7 @@ struct SemanticStructType {
 struct SemanticEnumPayloadField {
     SemanticType type{SemanticType::Error};
     std::uint32_t struct_type_id{0};
+    std::uint32_t enum_type_id{0};
     std::optional<SemanticArrayType> array_type;
     SourceSpan declaration{};
 };
@@ -143,6 +155,8 @@ struct SemanticModel {
     std::unordered_map<const Expr*, SemanticType> expression_types;
     std::unordered_map<const Expr*, SemanticArrayType> array_expression_types;
     std::unordered_map<const Expr*, std::uint32_t> struct_expression_types;
+    std::unordered_map<const Expr*, std::uint32_t> enum_expression_types;
+    std::unordered_map<const Expr*, std::uint32_t> enum_expression_variants;
     std::unordered_map<const StructLiteralExpr*, std::vector<std::uint32_t>> struct_literal_field_indices;
     std::unordered_map<const MemberExpr*, std::uint32_t> member_field_indices;
     std::unordered_map<const NameExpr*, SemanticBindingId> resolved_names;
