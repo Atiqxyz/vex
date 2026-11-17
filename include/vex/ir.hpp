@@ -51,6 +51,8 @@ enum class IROp {
     BitwiseOr,
     BitwiseXor,
     BitwiseNot,
+    ShiftLeft,
+    ShiftRight,
     Equal,
     NotEqual,
     Less,

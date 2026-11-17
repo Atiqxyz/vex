@@ -548,6 +548,66 @@ done:
             << "}\n\n";
         emit_division_helper("div", "sdiv");
         emit_division_helper("rem", "srem");
+        emit_shift_helpers();
+    }
+
+    void emit_shift_helpers() {
+        output_ << R"IR(
+define internal i64 @vex_i64_shl(i64 %value, i64 %count) {
+entry:
+  %negative = icmp slt i64 %count, 0
+  %too_large = icmp sge i64 %count, 64
+  %invalid = or i1 %negative, %too_large
+  br i1 %invalid, label %trap, label %ok
+ok:
+  %result = shl i64 %value, %count
+  ret i64 %result
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+define internal i64 @vex_i64_shr(i64 %value, i64 %count) {
+entry:
+  %negative = icmp slt i64 %count, 0
+  %too_large = icmp sge i64 %count, 64
+  %invalid = or i1 %negative, %too_large
+  br i1 %invalid, label %trap, label %ok
+ok:
+  %result = ashr i64 %value, %count
+  ret i64 %result
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+define internal i8 @vex_u8_shl(i8 %value, i64 %count) {
+entry:
+  %negative = icmp slt i64 %count, 0
+  %too_large = icmp sge i64 %count, 8
+  %invalid = or i1 %negative, %too_large
+  br i1 %invalid, label %trap, label %ok
+ok:
+  %shift = trunc i64 %count to i8
+  %result = shl i8 %value, %shift
+  ret i8 %result
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+define internal i8 @vex_u8_shr(i8 %value, i64 %count) {
+entry:
+  %negative = icmp slt i64 %count, 0
+  %too_large = icmp sge i64 %count, 8
+  %invalid = or i1 %negative, %too_large
+  br i1 %invalid, label %trap, label %ok
+ok:
+  %shift = trunc i64 %count to i8
+  %result = lshr i8 %value, %shift
+  ret i8 %result
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+)IR";
     }
 
     void emit_checked_array_index_helper() {
@@ -1521,6 +1581,18 @@ trap:
             const std::string result = next_temp();
             output_ << "  " << result << " = xor " << llvm_type(type) << ' '
                     << operands[0] << ", -1\n";
+            store_result(instruction, result);
+            return;
+        }
+        case IROp::ShiftLeft:
+        case IROp::ShiftRight: {
+            const IRType type = value_types_.at(instruction.operands.front()).type;
+            const char* operation = instruction.op == IROp::ShiftLeft ? "shl" : "shr";
+            const std::string result = next_temp();
+            output_ << "  " << result << " = call " << llvm_type(type) << " @"
+                    << (type == IRType::Byte ? "vex_u8_" : "vex_i64_") << operation
+                    << '(' << llvm_type(type) << ' ' << operands[0]
+                    << ", i64 " << operands[1] << ")\n";
             store_result(instruction, result);
             return;
         }

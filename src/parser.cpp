@@ -449,7 +449,7 @@ ExprPtr Parser::parse_prefix(const bool allow_newlines) {
     if (match(TokenKind::Minus) || match(TokenKind::Plus) || match(TokenKind::Bang) ||
         match(TokenKind::BitNot)) {
         const Token op = previous();
-        ExprPtr operand = parse_expression(allow_newlines, 12);
+        ExprPtr operand = parse_expression(allow_newlines, 13);
         if (!operand) {
             report_current("PAR008", "expected an expression after the unary operator");
             return nullptr;
@@ -546,11 +546,13 @@ int Parser::precedence(const TokenKind kind) noexcept {
     case TokenKind::LessEqual:
     case TokenKind::Greater:
     case TokenKind::GreaterEqual: return 9;
+    case TokenKind::ShiftLeft:
+    case TokenKind::ShiftRight: return 10;
     case TokenKind::Plus:
-    case TokenKind::Minus: return 10;
+    case TokenKind::Minus: return 11;
     case TokenKind::Star:
     case TokenKind::Slash:
-    case TokenKind::Percent: return 11;
+    case TokenKind::Percent: return 12;
     default: return 0;
     }
 }

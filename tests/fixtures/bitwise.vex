@@ -9,6 +9,15 @@ make main() {
     let high_mix = high_bit | 3
     let precedence = 1 | 2 ^ 3 & 1
     let logical = true && false
+    let left_shift = 3 << 4
+    let signed_right_shift = -16 >> 2
+    let rounded_signed_shift = -5 >> 1
+    let high_bit_shift = 1 << 63
+    let byte_left_shift = to_byte(129) << 1
+    let byte_right_shift = to_byte(129) >> 1
+    let shift_precedence = 1 << 2 + 1
+    let addition_precedence = 1 + 2 << 1
+    let byte_edge_shift = to_byte(255) >> 7
 
     say(anded)
     say(ored)
@@ -20,4 +29,13 @@ make main() {
     say(high_mix)
     say(precedence)
     say(logical)
+    say(left_shift)
+    say(signed_right_shift)
+    say(rounded_signed_shift)
+    say(high_bit_shift)
+    say(byte_left_shift)
+    say(byte_right_shift)
+    say(shift_precedence)
+    say(addition_precedence)
+    say(byte_edge_shift)
 }

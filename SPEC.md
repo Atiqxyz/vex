@@ -202,8 +202,9 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 7 | ranges `..`, `..=` | non-associative |
 | 8 | equality `==`, `!=` | left |
 | 9 | comparison `<`, `<=`, `>`, `>=` | left |
-| 10 | addition `+`, `-` | left |
-| 11 | multiplication `*`, `/`, `%` | left |
+| 10 | shifts `<<`, `>>` | left |
+| 11 | addition `+`, `-` | left |
+| 12 | multiplication `*`, `/`, `%` | left |
 | 12 | unary `+`, `-`, `!`, `~` | prefix |
 | 13 | function call `(...)` | postfix |
 | 14 | array indexing `[...]` | postfix |
@@ -236,7 +237,8 @@ The implemented numeric representation is signed 64-bit `int` values and 64-bit 
 - Addition `+` accepts either two numeric operands or two strings. String concatenation preserves byte lengths, including embedded NUL bytes; it does not decode or normalize UTF-8. Subtraction, multiplication, division, and remainder require numeric operands. The remainder operator `%` requires two `int` operands and uses truncating signed-remainder semantics: the quotient is truncated toward zero and any non-zero remainder has the sign of the left operand (for example, `-7 % 3 == -1`, `7 % -3 == 1`, and `-7 % -3 == -1`). A zero divisor traps. The defined edge case `INT64_MIN % -1` returns `0`; `INT64_MIN / -1` remains a checked division overflow.
 - Relational comparisons require numeric operands or two `byte` operands; byte comparisons are unsigned. Equality supports compatible primitive types; whole-array equality is rejected.
 - Logical operators, `if` conditions, and `while` conditions require `bool`.
-- Bitwise `&`, `|`, and `^` operate on matching `int` or `byte` operands and preserve the operand type. Unary `~` inverts all 64 bits for `int` or all 8 bits for `byte`. They are distinct from short-circuit logical `&&` and `||`. Bit shifts and rotations are not yet implemented.
+- Bitwise `&`, `|`, and `^` operate on matching `int` or `byte` operands and preserve the operand type. Unary `~` inverts all 64 bits for `int` or all 8 bits for `byte`. They are distinct from short-circuit logical `&&` and `||`.
+- `<<` and `>>` accept an `int` or `byte` left operand and an `int` count. Counts outside `0..63` for `int` or `0..7` for `byte` trap. Left shift operates on the fixed-width bit pattern, shifts in zero bits, and discards high bits. `int >>` is arithmetic (sign-extending); `byte >>` is logical (zero-filling). The result retains the left operand's type. Shifts bind less tightly than addition and more tightly than comparisons. Rotations are not yet implemented.
 - `repeat` counts require `int`.
 - `for-in` accepts fixed arrays and dynamic arrays of primitives or structures, plus integer ranges. Fixed-array lengths are known at compile time; dynamic-array lengths are re-read at each loop header, so appending or removing elements during iteration can change the number of iterations. Range endpoints require `int`; `start..end` is half-open and `start..=end` is inclusive, both iterating upward by one. Endpoints are evaluated once before entering the loop.
 - `break` and `continue` are only valid inside loops and target the innermost enclosing loop.

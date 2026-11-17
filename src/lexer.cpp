@@ -137,8 +137,14 @@ void Lexer::scan_token() {
         break;
     case '=': add_token(match('=') ? TokenKind::EqualEqual : TokenKind::Equal); break;
     case '!': add_token(match('=') ? TokenKind::BangEqual : TokenKind::Bang); break;
-    case '<': add_token(match('=') ? TokenKind::LessEqual : TokenKind::Less); break;
-    case '>': add_token(match('=') ? TokenKind::GreaterEqual : TokenKind::Greater); break;
+    case '<':
+        if (match('<')) add_token(TokenKind::ShiftLeft);
+        else add_token(match('=') ? TokenKind::LessEqual : TokenKind::Less);
+        break;
+    case '>':
+        if (match('>')) add_token(TokenKind::ShiftRight);
+        else add_token(match('=') ? TokenKind::GreaterEqual : TokenKind::Greater);
+        break;
     case '&': add_token(match('&') ? TokenKind::AndAnd : TokenKind::BitAnd); break;
     case '|': add_token(match('|') ? TokenKind::OrOr : TokenKind::BitOr); break;
     case '^': add_token(TokenKind::BitXor); break;

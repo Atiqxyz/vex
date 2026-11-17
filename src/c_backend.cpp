@@ -601,6 +601,27 @@ private:
             << "static int64_t vex_i64_bit_or(int64_t left, int64_t right) { return vex_i64_from_bits((uint64_t)left | (uint64_t)right); }\n"
             << "static int64_t vex_i64_bit_xor(int64_t left, int64_t right) { return vex_i64_from_bits((uint64_t)left ^ (uint64_t)right); }\n"
             << "static int64_t vex_i64_bit_not(int64_t value) { return vex_i64_from_bits(~(uint64_t)value); }\n\n"
+            << "static int64_t vex_i64_shl(int64_t value, int64_t count) {\n"
+            << "    if (count < 0 || count >= 64) vex_runtime_trap(\"int shift count must be in 0..63\");\n"
+            << "    return vex_i64_from_bits((uint64_t)value << (unsigned)count);\n"
+            << "}\n"
+            << "static int64_t vex_i64_shr(int64_t value, int64_t count) {\n"
+            << "    if (count < 0 || count >= 64) vex_runtime_trap(\"int shift count must be in 0..63\");\n"
+            << "    const unsigned shift = (unsigned)count;\n"
+            << "    const uint64_t bits = (uint64_t)value;\n"
+            << "    if (shift == 0u) return value;\n"
+            << "    uint64_t result = bits >> shift;\n"
+            << "    if ((bits & (UINT64_C(1) << 63u)) != 0u) result |= UINT64_MAX << (64u - shift);\n"
+            << "    return vex_i64_from_bits(result);\n"
+            << "}\n"
+            << "static uint8_t vex_u8_shl(uint8_t value, int64_t count) {\n"
+            << "    if (count < 0 || count >= 8) vex_runtime_trap(\"byte shift count must be in 0..7\");\n"
+            << "    return (uint8_t)((uint16_t)value << (unsigned)count);\n"
+            << "}\n"
+            << "static uint8_t vex_u8_shr(uint8_t value, int64_t count) {\n"
+            << "    if (count < 0 || count >= 8) vex_runtime_trap(\"byte shift count must be in 0..7\");\n"
+            << "    return (uint8_t)(value >> (unsigned)count);\n"
+            << "}\n\n"
             << "static vex_string vex_string_concat(vex_string left, vex_string right) {\n"
             << "    if (left.length == 0u) return right;\n"
             << "    if (right.length == 0u) return left;\n"
@@ -963,6 +984,15 @@ private:
                 output_ << "    " << result << " = (uint8_t)(~" << operand(0) << ");\n";
             else
                 output_ << "    " << result << " = vex_i64_bit_not(" << operand(0) << ");\n";
+            return;
+        }
+        case IROp::ShiftLeft:
+        case IROp::ShiftRight: {
+            const auto type = value_type(function, instruction.operands[0]);
+            const bool is_byte = type && type->type == IRType::Byte;
+            output_ << "    " << result << " = " << (is_byte ? "vex_u8_" : "vex_i64_")
+                    << (instruction.op == IROp::ShiftLeft ? "shl" : "shr")
+                    << "(" << operand(0) << ", " << operand(1) << ");\n";
             return;
         }
         case IROp::LogicalNot:

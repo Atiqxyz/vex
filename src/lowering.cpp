@@ -802,6 +802,8 @@ private:
         case TokenKind::BitAnd: op = IROp::BitwiseAnd; break;
         case TokenKind::BitOr: op = IROp::BitwiseOr; break;
         case TokenKind::BitXor: op = IROp::BitwiseXor; break;
+        case TokenKind::ShiftLeft: op = IROp::ShiftLeft; break;
+        case TokenKind::ShiftRight: op = IROp::ShiftRight; break;
         case TokenKind::EqualEqual: op = IROp::Equal; break;
         case TokenKind::BangEqual: op = IROp::NotEqual; break;
         case TokenKind::Less: op = IROp::Less; break;

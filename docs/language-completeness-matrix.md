@@ -123,7 +123,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Array indexing expressions | Implemented | Checked indexing. |
 | Grouping / multiline expression form | Implemented | Explicit square-bracket grouping behavior is documented. |
 | Bitwise AND / OR / XOR / NOT | Implemented | `&`, `|`, `^`, and `~` operate on matching `int` or `byte` values; byte operations are exactly 8 bits. Lexer, precedence, semantic checks, typed IR verification, C/LLVM code generation, and integration execution tests cover both types. |
-| Bit shifts and rotates | Not implemented | Need defined behavior for negative counts and overflow. |
+| Bit shifts and rotates | Partial | `<<` and `>>` support `int` and `byte`; negative or width-exceeding counts trap. `int >>` is arithmetic, `byte >>` is logical, and left shifts operate on fixed-width bit patterns. Rotations remain unimplemented. |
 | Modulo semantics for negative operands | Implemented | Truncating signed remainder; non-zero result follows the dividend's sign; `INT64_MIN % -1` is defined as zero. |
 | Increment / decrement | Deferred | Avoid duplicating \`+= 1\` and \`-= 1\` unless a concrete need appears. |
 | Ternary / conditional expression | Not implemented | Could be unnecessary if expression-oriented \`if\` is later adopted. |

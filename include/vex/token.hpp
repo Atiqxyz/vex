@@ -69,6 +69,8 @@ enum class TokenKind {
     LessEqual,
     Greater,
     GreaterEqual,
+    ShiftLeft,
+    ShiftRight,
     AndAnd,
     OrOr,
     BitAnd,

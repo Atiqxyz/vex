@@ -1037,6 +1037,14 @@ private:
                     return Type::Error;
                 }
                 return left;
+            case TokenKind::ShiftLeft:
+            case TokenKind::ShiftRight:
+                if ((left != Type::Int && left != Type::Byte) || right != Type::Int) {
+                    report("SEM012", "bit shifts require an int or byte left operand and an int count",
+                           expression.span);
+                    return Type::Error;
+                }
+                return left;
             case TokenKind::Less:
             case TokenKind::LessEqual:
             case TokenKind::Greater:

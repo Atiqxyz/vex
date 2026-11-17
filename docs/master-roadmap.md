@@ -97,7 +97,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 **Why it matters:** The grammar determines how naturally users can express algorithms. Additions should improve capability without creating overlapping syntax.
 
 - [x] Bitwise AND, OR, XOR, NOT for matching `int` and `byte` operands
-- [ ] Bit shifts and rotations with defined edge behavior
+- [ ] Bit shifts and rotations with defined edge behavior (shifts implemented; rotations remain)
 - [x] Struct field access and nested field/index expressions
 - [x] Nested assignment targets across fields and indexes when rooted at a named aggregate binding
 - [x] Compound assignment operators on named bindings and nested fields/indexes, with exactly-once target evaluation
@@ -339,7 +339,7 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 6. Tuples and destructuring if they simplify multiple returns and data flow.
 
 ### Milestone 2 — Complete the core type and expression model
-1. [Nested-array design recorded](nested-array-design.md); implement recursive nested collections first, then design contiguous multidimensional arrays separately.
+1. [x] Recursive nested jagged collections implemented; design contiguous rectangular multidimensional arrays separately (see [nested-array design](nested-array-design.md)).
 2. Borrowed slices and views, after lifetime/aliasing rules are established (owning byte copies already exist).
 3. Additional integer widths and floating-point variants (the 8-bit `byte` type already exists).
 4. [x] Bitwise operators for `int` and `byte`; complete numeric conversion rules remain.
