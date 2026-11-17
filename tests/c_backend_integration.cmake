@@ -5,7 +5,8 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
    NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR
-   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED STRING_CONCAT_SOURCE_FILE OR
+   NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED PROJECTED_PLACES_SOURCE_FILE OR
+   NOT DEFINED STRING_CONCAT_SOURCE_FILE OR
    NOT DEFINED BITWISE_SOURCE_FILE OR NOT DEFINED BYTE_SOURCE_FILE OR
    NOT DEFINED BYTE_OVERFLOW_HIGH_SOURCE_FILE OR
    NOT DEFINED BYTE_OVERFLOW_NEGATIVE_SOURCE_FILE OR
@@ -185,6 +186,19 @@ string(REPLACE "\r\n" "\n" compound_output "${compound_output}")
 set(compound_expected "15\n8\n8\n2\n10\n20\n4\n7\n8\n14\n6\n-1\n-6\n15\n")
 if(NOT "${compound_output}" STREQUAL "${compound_expected}")
     message(FATAL_ERROR "Compound assignment behavior mismatch. Expected:${compound_expected}Actual:${compound_output}")
+endif()
+
+# Exercise nested field/element projections and a reallocating RHS through C.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${PROJECTED_PLACES_SOURCE_FILE}"
+    RESULT_VARIABLE projected_result OUTPUT_VARIABLE projected_output ERROR_VARIABLE projected_error
+)
+if(NOT projected_result EQUAL 0)
+    message(FATAL_ERROR "C backend projected-place test failed: ${projected_output}${projected_error}")
+endif()
+string(REPLACE "\r\n" "\n" projected_output "${projected_output}")
+if(NOT "${projected_output}" STREQUAL "7\n17\n")
+    message(FATAL_ERROR "C backend projected-place behavior mismatch. Actual:${projected_output}")
 endif()
 
 # Capacity is an absolute minimum; reservation preserves length, elements and aliases.

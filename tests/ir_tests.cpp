@@ -425,16 +425,19 @@ void test_struct_lowering_and_backend_aggregates(TestContext& tests) {
     const vex::IRVerificationResult verified = vex::IRVerifier{}.verify(lowered.module);
     tests.check(!verified.has_errors(), "structure aggregate IR passes the independent verifier");
     if (verified.has_errors()) return;
-    bool make = false, get = false, set = false;
+    bool make = false, get = false, projected_store = false;
     for (const auto& function : lowered.module.functions)
         for (const auto& block : function.blocks)
             for (const auto& instruction : block.instructions) {
                 make |= instruction.op == vex::IROp::StructMake;
                 get |= instruction.op == vex::IROp::StructGet;
-                set |= instruction.op == vex::IROp::StructSet;
+                if (instruction.op == vex::IROp::Store && instruction.place &&
+                    *instruction.place <= function.places.size())
+                    projected_store |= function.places[*instruction.place - 1u].projection ==
+                        vex::IRPlaceProjectionKind::StructField;
             }
-    tests.check(lowered.module.struct_types.size() == 1 && make && get && set,
-                "IR carries the named layout and all three structure operations");
+    tests.check(lowered.module.struct_types.size() == 1 && make && get && projected_store,
+                "IR carries the named layout, structure reads, and projected field stores");
     const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
     tests.check(!c.has_errors() &&
                 c.source.find("typedef struct vex_struct_1") != std::string::npos &&
@@ -551,18 +554,27 @@ void test_fixed_array_lowering_and_backends(TestContext& tests) {
 
     bool has_array_make = false;
     bool has_array_get = false;
-    bool has_array_set = false;
+    bool has_element_projection = false;
+    bool has_projected_store = false;
     for (const vex::IRFunction& function : lowered.module.functions) {
         for (const vex::IRBlock& block : function.blocks) {
             for (const vex::IRInstruction& instruction : block.instructions) {
                 has_array_make |= instruction.op == vex::IROp::ArrayMake;
                 has_array_get |= instruction.op == vex::IROp::ArrayGet;
-                has_array_set |= instruction.op == vex::IROp::ArraySet;
+                if (instruction.op == vex::IROp::Store && instruction.place &&
+                    *instruction.place <= function.places.size())
+                    has_projected_store |= function.places[*instruction.place - 1u].projection ==
+                        vex::IRPlaceProjectionKind::ArrayElement;
             }
         }
     }
-    tests.check(has_array_make && has_array_get && has_array_set,
-                "IR contains array construction, reads, and updates");
+    for (const auto& function : lowered.module.functions)
+        for (const auto& place : function.places)
+            has_element_projection |= place.projection ==
+                vex::IRPlaceProjectionKind::ArrayElement;
+    tests.check(has_array_make && has_array_get && has_element_projection &&
+                has_projected_store,
+                "IR contains array construction, reads, and projected element stores");
 
     const vex::CBackendResult c = vex::CBackend{}.generate(lowered.module);
     tests.check(!c.has_errors() && c.source.find("vex_array_int_3") != std::string::npos &&
@@ -1468,8 +1480,8 @@ void test_function_local_places_and_explicit_memory_operations(TestContext& test
     const auto c = vex::CBackend{}.generate(module);
     tests.check(!c.has_errors() &&
                 c.source.find("int64_t vex_place_1;") != std::string::npos &&
-                c.source.find("vex_place_1 = vex_v_1;") != std::string::npos &&
-                c.source.find("vex_v_2 = vex_place_1;") != std::string::npos,
+                c.source.find("*((") != std::string::npos &&
+                c.source.find("vex_v_2 = *(") != std::string::npos,
                 "C backend lowers function places to typed local storage");
 
     const auto llvm = vex::LLVMBackend{}.emit(module);
@@ -1542,7 +1554,12 @@ void test_projected_places_for_nested_fields_and_array_elements(TestContext& tes
         "    let group = Group { fixed: fixed, items: items }\n"
         "    group.fixed[1].x = 7\n"
         "    group.items[0].y += group.fixed[1].x\n"
+        "    group.items[0].y += expand(group.items)\n"
         "    say(group.items[0].y)\n"
+        "}\n"
+        "make expand(items: Point[]) -> int {\n"
+        "    reserve(items, 128)\n"
+        "    return 4\n"
         "}\n"};
     const auto lexed = vex::Lexer{source}.scan();
     const auto parsed = vex::Parser{source, lexed.tokens}.parse();

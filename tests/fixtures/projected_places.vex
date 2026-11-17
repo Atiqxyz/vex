@@ -1,0 +1,21 @@
+struct Point { x: int, y: int }
+struct Group { fixed: Point[2], items: Point[] }
+
+make main() {
+    let fixed: Point[2] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]
+    let items: Point[] = []
+    push(items, Point { x: 5, y: 6 })
+    let group = Group { fixed: fixed, items: items }
+
+    group.fixed[1].x = 7
+    group.items[0].y += group.fixed[1].x
+    group.items[0].y += expand(group.items)
+
+    say(group.fixed[1].x)
+    say(group.items[0].y)
+}
+
+make expand(items: Point[]) -> int {
+    reserve(items, 128)
+    return 4
+}
