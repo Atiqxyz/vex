@@ -1597,6 +1597,7 @@ private:
                     *pointee, expression.span,
                     pointer_type->second.pointee_struct_type_id,
                     pointer_type->second.pointee_enum_type_id);
+                instruction.result->id = next_value_id_++;
                 instruction.place = root_place->second;
                 instruction.span = expression.span;
                 const IRValue result = *instruction.result;
