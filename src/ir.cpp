@@ -478,14 +478,23 @@ private:
             check_result(instruction, IRType::Bool);
             break;
         case IROp::Equal:
-        case IROp::NotEqual:
+        case IROp::NotEqual: {
             check_arity(instruction, 2);
             if (left && right && (*left != *right ||
                 !is_value_type(*left) || !is_value_type(*right))) {
                 report("IR018", "equality operands must have the same non-void type",
                        instruction.span);
             }
+            const IRValue* left_value = operand_value(instruction, 0);
+            const IRValue* right_value = operand_value(instruction, 1);
+            if (left_value && right_value &&
+                !same_value_shape(*left_value, *right_value)) {
+                report("IR018", "equality operands must have identical nominal aggregate types",
+                       instruction.span);
+            }
             check_result(instruction, IRType::Bool);
+            break;
+        }
             break;
         case IROp::Less:
         case IROp::LessEqual:
@@ -664,7 +673,7 @@ private:
         case IROp::Say:
             check_arity(instruction, 1);
             if (left && (!is_value_type(*left) || *left == IRType::Array ||
-                         *left == IRType::Struct)) {
+                         *left == IRType::Struct || *left == IRType::Enum)) {
                 report("IR024", "say requires a printable primitive value", instruction.span);
             }
             check_no_result(instruction);
