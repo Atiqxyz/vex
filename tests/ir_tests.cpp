@@ -1313,6 +1313,48 @@ void test_target_data_layout_service(TestContext& tests) {
                 "LLVM backend consumes target layout for structure stack-slot alignment");
 }
 
+void test_nominal_type_and_function_names_share_namespace(TestContext& tests) {
+    vex::IRModule module;
+
+    vex::IRStructType record;
+    record.id = 1u;
+    record.name = "Record";
+    record.fields.push_back(vex::IRStructField{"value", vex::IRType::Int});
+    module.struct_types.push_back(std::move(record));
+
+    vex::IREnumType state;
+    state.id = 1u;
+    state.name = "State";
+    state.variants.push_back(vex::IREnumVariant{"Ready", {}});
+    module.enum_types.push_back(std::move(state));
+
+    vex::IRFunction function = simple_integer_function();
+    function.name = "run";
+    module.functions.push_back(std::move(function));
+
+    const auto valid = vex::IRVerifier{}.verify(module);
+    tests.check(!valid.has_errors(),
+                "distinct struct, enum, and function names pass IR verification");
+
+    vex::IRModule duplicate_nominal_name = module;
+    duplicate_nominal_name.enum_types[0].name = "Record";
+    const auto duplicate_type = vex::IRVerifier{}.verify(duplicate_nominal_name);
+    tests.check(has_code(duplicate_type, "IR082"),
+                "IR verifier rejects an enum whose name collides with a structure");
+
+    vex::IRModule function_matches_enum = module;
+    function_matches_enum.functions[0].name = "State";
+    const auto enum_function = vex::IRVerifier{}.verify(function_matches_enum);
+    tests.check(has_code(enum_function, "IR085"),
+                "IR verifier rejects a function whose name collides with an enum");
+
+    vex::IRModule function_matches_struct = module;
+    function_matches_struct.functions[0].name = "Record";
+    const auto struct_function = vex::IRVerifier{}.verify(function_matches_struct);
+    tests.check(has_code(struct_function, "IR085"),
+                "IR verifier rejects a function whose name collides with a structure");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -1334,4 +1376,5 @@ void run_ir_tests(TestContext& tests) {
     test_byte_lowering_and_backends(tests);
     test_source_enum_declarations_lower_to_ir(tests);
     test_target_data_layout_service(tests);
+    test_nominal_type_and_function_names_share_namespace(tests);
 }
