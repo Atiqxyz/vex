@@ -1837,6 +1837,95 @@ trap:
             store_result(instruction, inserted);
             return;
         }
+        case IROp::EnumMake: {
+            if (!instruction.result) return;
+            const IRValue& enum_value = *instruction.result;
+            const std::uint32_t variant_index =
+                static_cast<std::uint32_t>(std::stoul(instruction.immediate));
+            std::string layout_error;
+            const auto enum_layout = target_layout_.layout_of_enum(
+                enum_value.enum_type_id, module_, &layout_error);
+            if (!enum_layout || variant_index >= enum_layout->variants.size()) {
+                report("LLVM011", "enum constructor cannot resolve its target layout: " +
+                       layout_error, instruction.span);
+                return;
+            }
+            const std::string type = llvm_type(enum_value);
+            const std::string temporary = next_temp();
+            output_ << "  " << temporary << " = alloca " << type
+                    << ", align " << enum_layout->alignment << "\\n"
+                    << "  store " << type << " zeroinitializer, ptr " << temporary
+                    << ", align " << enum_layout->alignment << "\\n";
+            const EnumVariantLayout& variant = enum_layout->variants[variant_index];
+            for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
+                const IRValue& payload = value_types_.at(instruction.operands[index]);
+                const FieldLayout& field = variant.fields[index];
+                const std::string pointer = next_temp();
+                const std::uint64_t offset = enum_layout->payload_offset + field.offset;
+                output_ << "  " << pointer << " = getelementptr i8, ptr "
+                        << temporary << ", i64 " << offset << "\\n"
+                        << "  store " << llvm_type(payload) << ' ' << operands[index]
+                        << ", ptr " << pointer << ", align " << field.type.alignment << "\\n";
+            }
+            const std::string aggregate = next_temp();
+            output_ << "  " << aggregate << " = load " << type << ", ptr "
+                    << temporary << ", align " << enum_layout->alignment << "\\n";
+            store_result(instruction, aggregate);
+            return;
+        }
+        case IROp::EnumTag: {
+            const IRValue& object = value_types_.at(instruction.operands[0]);
+            const std::string tag = next_temp();
+            output_ << "  " << tag << " = extractvalue " << llvm_type(object)
+                    << ' ' << operands[0] << ", 0\\n";
+            store_result(instruction, tag);
+            return;
+        }
+        case IROp::EnumPayloadGet: {
+            const IRValue& object = value_types_.at(instruction.operands[0]);
+            const std::size_t separator = instruction.immediate.find(':');
+            const std::uint32_t variant_index = static_cast<std::uint32_t>(
+                std::stoul(instruction.immediate.substr(0, separator)));
+            const std::uint32_t field_index = static_cast<std::uint32_t>(
+                std::stoul(instruction.immediate.substr(separator + 1u)));
+            std::string layout_error;
+            const auto enum_layout = target_layout_.layout_of_enum(
+                object.enum_type_id, module_, &layout_error);
+            if (!enum_layout || variant_index >= enum_layout->variants.size() ||
+                field_index >= enum_layout->variants[variant_index].fields.size()) {
+                report("LLVM011", "enum payload selector cannot resolve its target layout: " +
+                       layout_error, instruction.span);
+                return;
+            }
+            const std::string tag = next_temp();
+            const std::string valid = next_temp();
+            const std::size_t label_id = next_label_++;
+            const std::string good_label = "vex_enum_payload_good_" +
+                std::to_string(label_id);
+            const std::string bad_label = "vex_enum_payload_bad_" +
+                std::to_string(label_id);
+            output_ << "  " << tag << " = extractvalue " << llvm_type(object)
+                    << ' ' << operands[0] << ", 0\\n"
+                    << "  " << valid << " = icmp eq i32 " << tag << ", "
+                    << variant_index << "\\n"
+                    << "  br i1 " << valid << ", label %" << good_label
+                    << ", label %" << bad_label << "\\n"
+                    << bad_label << ":\\n"
+                    << "  call void @llvm.trap()\\n"
+                    << "  unreachable\\n"
+                    << good_label << ":\\n";
+            const FieldLayout& field =
+                enum_layout->variants[variant_index].fields[field_index];
+            const std::uint64_t offset = enum_layout->payload_offset + field.offset;
+            const std::string pointer = next_temp();
+            const std::string payload = next_temp();
+            output_ << "  " << pointer << " = getelementptr i8, ptr "
+                    << value_slot(instruction.operands[0]) << ", i64 " << offset << "\\n"
+                    << "  " << payload << " = load " << llvm_type(*instruction.result)
+                    << ", ptr " << pointer << ", align " << field.type.alignment << "\\n";
+            store_result(instruction, payload);
+            return;
+        }
         case IROp::ArrayMake: {
             const IRValue& array = *instruction.result;
             const IRValue element = array_element_value(array);
