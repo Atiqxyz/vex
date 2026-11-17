@@ -98,6 +98,7 @@ struct Symbol {
     bool is_function{false};
     std::vector<Type> parameters;
     std::vector<std::optional<SemanticArrayType>> parameter_array_types;
+    std::vector<std::optional<SemanticPointerType>> parameter_pointer_types;
     SourceSpan declaration{};
     std::optional<SemanticArrayType> array_type;
     std::optional<SemanticArrayType> return_array_type;
@@ -706,10 +707,12 @@ private:
                 std::optional<SemanticArrayType> parameter_array_type;
                 std::uint32_t parameter_struct_type_id = 0;
                 std::uint32_t parameter_enum_type_id = 0;
+                std::optional<SemanticPointerType> parameter_pointer_type;
                 if (parameter.type_annotation) {
                     parameter_type = annotation_type(
                         *parameter.type_annotation, false, &parameter_array_type,
-                        &parameter_struct_type_id, &parameter_enum_type_id);
+                        &parameter_struct_type_id, &parameter_enum_type_id,
+                        &parameter_pointer_type);
                 } else {
                     report("SEM004",
                            "function parameters require an explicit type annotation",
@@ -719,6 +722,7 @@ private:
                 signature.parameter_array_types.push_back(parameter_array_type);
                 signature.parameter_struct_type_ids.push_back(parameter_struct_type_id);
                 signature.parameter_enum_type_ids.push_back(parameter_enum_type_id);
+                signature.parameter_pointer_types.push_back(parameter_pointer_type);
             }
 
             const std::string name = spelling(function->name);
@@ -739,6 +743,7 @@ private:
             public_signature.return_array_type = signature.return_array_type;
             public_signature.parameter_struct_type_ids = signature.parameter_struct_type_ids;
             public_signature.parameter_enum_type_ids = signature.parameter_enum_type_ids;
+            public_signature.parameter_pointer_types = signature.parameter_pointer_types;
             public_signature.return_struct_type_id = signature.return_struct_type_id;
             public_signature.return_enum_type_id = signature.return_enum_type_id;
             public_signature.declaration = function->name;
@@ -1951,6 +1956,21 @@ private:
                            call->arguments[index]->span);
                     continue;
                 }
+                if (function->parameters[index] == Type::Pointer) {
+                    const auto actual_pointer = call->arguments[index]
+                        ? model_.pointer_expression_types.find(call->arguments[index].get())
+                        : model_.pointer_expression_types.end();
+                    const auto expected_pointer = index < function->parameter_pointer_types.size()
+                        ? function->parameter_pointer_types[index] : std::nullopt;
+                    if (!expected_pointer || actual_pointer == model_.pointer_expression_types.end() ||
+                        expected_pointer->pointee_type != actual_pointer->second.pointee_type ||
+                        expected_pointer->pointee_struct_type_id != actual_pointer->second.pointee_struct_type_id ||
+                        expected_pointer->pointee_enum_type_id != actual_pointer->second.pointee_enum_type_id) {
+                        report("SEM021", "pointer argument " + std::to_string(index + 1) +
+                               " does not match the parameter's exact pointee type",
+                               call->arguments[index]->span);
+                    }
+                }
                 if (function->parameters[index] == Type::Array &&
                     index < function->parameter_array_types.size() &&
                     function->parameter_array_types[index]) {
@@ -2145,6 +2165,8 @@ private:
                 symbol.struct_type_id = signature.parameter_struct_type_ids[index];
             if (index < signature.parameter_enum_type_ids.size())
                 symbol.enum_type_id = signature.parameter_enum_type_ids[index];
+            if (index < signature.parameter_pointer_types.size())
+                symbol.pointer_type = signature.parameter_pointer_types[index];
             symbol.declaration = parameter.name;
             SemanticBindingId binding_id = 0;
             if (define(spelling(parameter.name), std::move(symbol),

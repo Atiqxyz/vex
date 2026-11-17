@@ -131,6 +131,24 @@ public:
             IRValue value = make_value(*type, parameter.name);
             if (*type == IRType::Struct) value.struct_type_id = info->struct_type_id;
             if (*type == IRType::Enum) value.enum_type_id = info->enum_type_id;
+            if (*type == IRType::Pointer) {
+                if (!info->pointer_type) {
+                    report("IR104", "pointer parameter is missing its pointee type",
+                           parameter.name);
+                    continue;
+                }
+                const auto pointee = to_ir_type(info->pointer_type->pointee_type);
+                if (!pointee || *pointee == IRType::Void || *pointee == IRType::Array) {
+                    report("IR104", "pointer parameter has an unsupported pointee type",
+                           parameter.name);
+                    continue;
+                }
+                value.pointer_pointee_type = *pointee;
+                value.pointer_pointee_struct_type_id =
+                    info->pointer_type->pointee_struct_type_id;
+                value.pointer_pointee_enum_type_id =
+                    info->pointer_type->pointee_enum_type_id;
+            }
             if (*type == IRType::Array) {
                 if (!info->array_type) {
                     report("IR104", "array parameter is missing its fixed shape",
@@ -1355,6 +1373,25 @@ private:
                 report("IR122", "enum argument does not match the parameter's nominal enum type",
                        call.arguments[index]->span);
                 return std::nullopt;
+            }
+            if (*parameter_type == IRType::Pointer) {
+                if (index >= signature->second.parameter_pointer_types.size() ||
+                    !signature->second.parameter_pointer_types[index]) {
+                    report("IR122", "pointer parameter is missing its pointee type",
+                           call.arguments[index]->span);
+                    return std::nullopt;
+                }
+                const SemanticPointerType& expected =
+                    *signature->second.parameter_pointer_types[index];
+                const auto expected_pointee = to_ir_type(expected.pointee_type);
+                if (!expected_pointee || arguments[index].type != IRType::Pointer ||
+                    arguments[index].pointer_pointee_type != *expected_pointee ||
+                    arguments[index].pointer_pointee_struct_type_id != expected.pointee_struct_type_id ||
+                    arguments[index].pointer_pointee_enum_type_id != expected.pointee_enum_type_id) {
+                    report("IR122", "pointer argument does not match the parameter's exact pointee type",
+                           call.arguments[index]->span);
+                    return std::nullopt;
+                }
             }
             if (*parameter_type == IRType::Array) {
                 if (index >= signature->second.parameter_array_types.size() ||

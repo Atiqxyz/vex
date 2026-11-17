@@ -4,12 +4,19 @@ make bump(value: int) -> int {
     return value
 }
 
+make add_one(pointer: *int) -> int {
+    *pointer = *pointer + 1
+    return *pointer
+}
+
 make main() {
     let value = 41
     let pointer: *int = &value
     *pointer = 42
     say(value)
     say(bump(value))
+    say(add_one(pointer))
+    say(value)
 
     let outer = Outer { inner: Inner { value: 1 }, values: [3, 4] }
     let outer_pointer: *Outer = &outer
@@ -17,6 +24,8 @@ make main() {
     (*outer_pointer).values[0] = 8
     say(outer.inner.value)
     say(update(outer))
+    say(set_outer_value(outer_pointer))
+    say(outer.inner.value)
 }
 
 struct Inner {
@@ -26,6 +35,11 @@ struct Inner {
 struct Outer {
     inner: Inner,
     values: int[2],
+}
+
+make set_outer_value(pointer: *Outer) -> int {
+    (*pointer).inner.value = 11
+    return (*pointer).inner.value
 }
 
 make update(point: Outer) -> int {

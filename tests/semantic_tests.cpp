@@ -1011,6 +1011,22 @@ void test_typed_pointer_semantics(TestContext& tests) {
     tests.check(!accepted.has_errors(),
                 "typed pointers support mutable locals, parameters, reads, and writes");
 
+    const vex::SourceFile pointer_parameters{"pointer_parameters.vex", R"VEX(
+make increment(pointer: *int) -> int {
+    *pointer = *pointer + 1
+    return *pointer
+}
+make main() {
+    let value = 4
+    let pointer: *int = &value
+    say(increment(pointer))
+    say(value)
+}
+)VEX"};
+    const pointer_parameters_result = analyze(pointer_parameters);
+    tests.check(!pointer_parameters_result.has_errors(),
+                "typed pointers may be passed to functions as typed pointer parameters");
+
     const vex::SourceFile immutable{"pointer_to_const.vex",
         "make main() {\n"
         "    const value = 1\n"

@@ -117,6 +117,7 @@ struct SemanticFunctionSignature {
     std::vector<std::optional<SemanticArrayType>> parameter_array_types;
     std::vector<std::uint32_t> parameter_struct_type_ids;
     std::vector<std::uint32_t> parameter_enum_type_ids;
+    std::vector<std::optional<SemanticPointerType>> parameter_pointer_types;
     SemanticType return_type{SemanticType::Void};
     std::optional<SemanticArrayType> return_array_type;
     std::uint32_t return_struct_type_id{0};

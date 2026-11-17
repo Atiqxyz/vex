@@ -366,6 +366,6 @@ execute_process(
 if(NOT pointer_result EQUAL 0)
     message(FATAL_ERROR "LLVM backend pointer fixture failed: ${pointer_error}")
 endif()
-if(NOT pointer_output STREQUAL "42\n43\n10\n16\n")
+if(NOT pointer_output STREQUAL "42\n43\n43\n43\n10\n16\n11\n11\n")
     message(FATAL_ERROR "LLVM backend pointer fixture produced unexpected output: [${pointer_output}]")
 endif()
