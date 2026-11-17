@@ -207,6 +207,16 @@ private:
             return finish(1u, 1u);
         case IRType::Float:
             return finish(8u, config_.float_alignment);
+        case IRType::Pointer:
+            if (value.pointer_pointee_type == IRType::Void ||
+                value.pointer_pointee_type == IRType::Array ||
+                value.pointer_pointee_type == IRType::Struct ||
+                value.pointer_pointee_type == IRType::Enum ||
+                value.pointer_pointee_type == IRType::Pointer) {
+                fail("pointer has an unsupported pointee type");
+                return std::nullopt;
+            }
+            return finish(config_.pointer_size, config_.pointer_alignment);
         case IRType::String: {
             // VEX string is { pointer, uint64 byte_length }.
             const auto length_offset = align_up(config_.pointer_size, config_.int_alignment);

@@ -476,6 +476,27 @@ void test_invalid_syntax_and_newline_rules(TestContext& tests) {
                 "expression cannot continue across newline without brackets");
 }
 
+void test_pointer_expression_syntax(TestContext& tests) {
+    const vex::SourceFile source{"pointers.vex",
+        "make main() {\n"
+        "    let value: int = 1\n"
+        "    let pointer: *int = &value\n"
+        "    *pointer = 2\n"
+        "    say(*pointer)\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors(), "pointer annotations, address-of, and dereference parse");
+    if (parsed.has_errors() || parsed.program.statements.empty()) return;
+    const auto* function = std::get_if<vex::FunctionDeclStmt>(&parsed.program.statements.front()->data);
+    const auto* body = function && function->body
+        ? std::get_if<vex::BlockStmt>(&function->body->data) : nullptr;
+    const auto* pointer = body && body->statements.size() > 1u
+        ? std::get_if<vex::VariableDeclStmt>(&body->statements[1]->data) : nullptr;
+    tests.check(pointer && pointer->type_annotation &&
+                source.slice(*pointer->type_annotation) == "*int",
+                "pointer type annotation preserves the leading star");
+}
+
 } // namespace
 
 void run_parser_tests(TestContext& tests) {
@@ -493,6 +514,7 @@ void run_parser_tests(TestContext& tests) {
     test_multiline_structure_literal_with_array_fields(tests);
     test_multidimensional_type_annotation_spans(tests);
     test_typed_declarations_may_omit_initializer(tests);
+    test_pointer_expression_syntax(tests);
     test_import_declarations(tests);
     test_if_without_else_preserves_next_statement(tests);
     test_invalid_syntax_and_newline_rules(tests);

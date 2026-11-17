@@ -34,6 +34,7 @@ const char* c_type(const IRType type) noexcept {
     case IRType::Array: return "void";
     case IRType::Struct: return "void";
     case IRType::Enum: return "void";
+    case IRType::Pointer: return "void *";
     }
     return "void";
 }
@@ -71,6 +72,8 @@ IRValue array_element_value(const IRValue& array) {
 }
 
 std::string c_type(const IRValue& value) {
+    if (value.type == IRType::Pointer)
+        return std::string(c_type(value.pointer_pointee_type)) + " *";
     if (value.type == IRType::Struct) return struct_type_name(value.struct_type_id);
     if (value.type == IRType::Enum) return enum_type_name(value.enum_type_id);
     if (value.type != IRType::Array) return c_type(value.type);
@@ -1063,6 +1066,8 @@ private:
         const IRPlace& place = function.places[place_id - 1u];
         if (place.projection == IRPlaceProjectionKind::Root)
             return "&" + place_name(place.id);
+        if (place.projection == IRPlaceProjectionKind::PointerTarget)
+            return value_name(place.pointer_value);
         if (place.parent == 0u || place.parent >= place.id) return "NULL";
         const IRPlace& parent = function.places[place.parent - 1u];
         const std::string parent_pointer = place_pointer_expression(function, place.parent);
@@ -1096,6 +1101,10 @@ private:
             ? value_name(instruction.result->id) : std::string{};
 
         switch (instruction.op) {
+        case IROp::AddressOf:
+            output_ << "    " << result << " = "
+                    << place_pointer_expression(function, instruction.place.value()) << ";\n";
+            return;
         case IROp::Load: {
             output_ << "    " << result << " = *("
                     << place_pointer_expression(function, instruction.place.value())

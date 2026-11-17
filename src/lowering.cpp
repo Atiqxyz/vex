@@ -24,6 +24,7 @@ std::optional<IRType> to_ir_type(const SemanticType type) {
     case SemanticType::Struct: return IRType::Struct;
     case SemanticType::Enum: return IRType::Enum;
     case SemanticType::Array: return IRType::Array;
+    case SemanticType::Pointer: return IRType::Pointer;
     case SemanticType::Error:
     case SemanticType::Unknown:
     case SemanticType::Any:
@@ -283,6 +284,7 @@ private:
         value.element_struct_type_id = source.element_struct_type_id;
         value.array_dimensions = source.array_dimensions;
         value.enum_type_id = source.enum_type_id;
+        value.pointer_pointee_type = source.pointer_pointee_type;
         return value;
     }
 
@@ -407,6 +409,24 @@ private:
         place.projection = projection;
         place.field_index = field_index;
         place.index_value = index_value;
+        function_.places.push_back(place);
+        return place.id;
+    }
+
+    [[nodiscard]] IRPlaceId create_pointer_target_place(
+        const IRValue& pointer, const SourceSpan span) {
+        if (pointer.type != IRType::Pointer || pointer.id == 0u) {
+            report("IR154", "pointer target requires a typed pointer value", span);
+            return 0u;
+        }
+        IRPlace place;
+        place.id = next_place_id_++;
+        place.value_type.type = pointer.pointer_pointee_type;
+        place.value_type.span = span;
+        place.mutable_place = true;
+        place.span = span;
+        place.projection = IRPlaceProjectionKind::PointerTarget;
+        place.pointer_value = pointer.id;
         function_.places.push_back(place);
         return place.id;
     }
@@ -1510,8 +1530,43 @@ private:
         }
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
             if (!unary->operand) return std::nullopt;
+            if (unary->op == TokenKind::BitAnd) {
+                const auto* named = std::get_if<NameExpr>(&unary->operand->data);
+                const auto binding = named
+                    ? semantic_model_.resolved_names.find(named)
+                    : semantic_model_.resolved_names.end();
+                const auto pointer_type = semantic_model_.pointer_expression_types.find(&expression);
+                if (!named || binding == semantic_model_.resolved_names.end() ||
+                    pointer_type == semantic_model_.pointer_expression_types.end()) {
+                    report("IR154", "address-of is missing its resolved addressable binding", expression.span);
+                    return std::nullopt;
+                }
+                const auto root_place = mutable_places_.find(binding->second);
+                if (root_place == mutable_places_.end()) {
+                    report("IR154", "address-of target has no mutable storage place", expression.span);
+                    return std::nullopt;
+                }
+                const auto pointee = to_ir_type(pointer_type->second.pointee_type);
+                if (!pointee) return std::nullopt;
+                IRInstruction instruction;
+                instruction.op = IROp::AddressOf;
+                instruction.result = ir_make_pointer_value(*pointee, expression.span);
+                instruction.place = root_place->second;
+                instruction.span = expression.span;
+                const IRValue result = *instruction.result;
+                emit(std::move(instruction));
+                return result;
+            }
             const auto operand = lower_expression(*unary->operand);
             if (!operand) return std::nullopt;
+            if (unary->op == TokenKind::Star) {
+                const IRPlaceId place = create_pointer_target_place(*operand, expression.span);
+                if (place == 0u) return std::nullopt;
+                const auto descriptor = std::find_if(function_.places.begin(), function_.places.end(),
+                    [&](const IRPlace& candidate) { return candidate.id == place; });
+                if (descriptor == function_.places.end()) return std::nullopt;
+                return emit_load(place, descriptor->value_type, expression.span);
+            }
             if (unary->op == TokenKind::Plus) return operand;
             const auto type = expression_type(expression);
             if (!type) return std::nullopt;
@@ -1525,6 +1580,24 @@ private:
         }
         if (const auto* assignment = std::get_if<AssignmentExpr>(&expression.data)) {
             const bool compound=assignment->op!=TokenKind::Equal;
+            if (const auto* dereference = assignment->target
+                    ? std::get_if<UnaryExpr>(&assignment->target->data) : nullptr;
+                dereference && dereference->op == TokenKind::Star) {
+                if (compound || !dereference->operand || !assignment->value) return std::nullopt;
+                const auto pointer = lower_expression(*dereference->operand);
+                if (!pointer) return std::nullopt;
+                const IRPlaceId place = create_pointer_target_place(*pointer, expression.span);
+                if (place == 0u) return std::nullopt;
+                const auto descriptor = std::find_if(function_.places.begin(), function_.places.end(),
+                    [&](const IRPlace& candidate) { return candidate.id == place; });
+                if (descriptor == function_.places.end()) return std::nullopt;
+                const auto value = lower_expression(*assignment->value);
+                if (!value) return std::nullopt;
+                const auto converted = convert(*value, descriptor->value_type.type, expression.span);
+                if (!converted) return std::nullopt;
+                emit_store(place, *converted, expression.span);
+                return *converted;
+            }
             if(assignment->target&&(std::holds_alternative<MemberExpr>(assignment->target->data)||
                                     std::holds_alternative<IndexExpr>(assignment->target->data))) {
                 const auto target=semantic_model_.assignment_targets.find(assignment);
@@ -1651,6 +1724,12 @@ private:
                 report("IR152","assigned enum value has the wrong nominal enum type",expression.span);
                 return std::nullopt;
             }
+            if (*target_type == IRType::Pointer &&
+                (!binding->pointer_type || converted->pointer_pointee_type !=
+                 to_ir_type(binding->pointer_type->pointee_type).value_or(IRType::Void))) {
+                report("IR154", "assigned pointer has an incompatible pointee type", expression.span);
+                return std::nullopt;
+            }
             const auto target_place = mutable_places_.find(target->second);
             if (target_place != mutable_places_.end())
                 emit_store(target_place->second, *converted, expression.span);
@@ -1697,6 +1776,7 @@ private:
             case IRType::Array:
             case IRType::Struct:
             case IRType::Enum:
+            case IRType::Pointer:
                 report("IR151", "this type does not have a supported default initializer",
                        variable.name);
                 return;
@@ -1716,6 +1796,12 @@ private:
         if (converted && *target_type == IRType::Enum &&
             converted->enum_type_id != info->enum_type_id) {
             report("IR152", "variable initializer has the wrong nominal enum type", variable.name);
+            return;
+        }
+        if (converted && *target_type == IRType::Pointer &&
+            (!info->pointer_type || converted->pointer_pointee_type !=
+             to_ir_type(info->pointer_type->pointee_type).value_or(IRType::Void))) {
+            report("IR154", "pointer initializer has an incompatible pointee type", variable.name);
             return;
         }
         if (converted) {

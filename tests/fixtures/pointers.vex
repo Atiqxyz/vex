@@ -1,0 +1,13 @@
+make bump(value: int) -> int {
+    let pointer: *int = &value
+    *pointer = *pointer + 1
+    return value
+}
+
+make main() {
+    let value = 41
+    let pointer: *int = &value
+    *pointer = 42
+    say(value)
+    say(bump(value))
+}

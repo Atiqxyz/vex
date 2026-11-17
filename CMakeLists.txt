@@ -205,6 +205,7 @@ if(BUILD_TESTING)
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
                 -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
                 -DPROJECTED_PLACES_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/projected_places.vex
+                -DPOINTERS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pointers.vex
                 -DSTRING_CONCAT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/string_concat.vex
                 -DBITWISE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/bitwise.vex
                 -DBYTE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/byte_binary.vex

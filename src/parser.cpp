@@ -371,6 +371,9 @@ StmtPtr Parser::parse_block_after_open(const Token& opening) {
         SourceSpan{opening.span.begin, closing.span.end}, BlockStmt{std::move(statements)}});
 }
 std::optional<SourceSpan> Parser::parse_type_annotation() {
+    const std::size_t annotation_begin = current().span.begin;
+    std::size_t pointer_depth = 0u;
+    while (match(TokenKind::Star)) ++pointer_depth;
     if (!(check(TokenKind::Identifier) || check(TokenKind::KwInt) || check(TokenKind::KwByte) ||
           check(TokenKind::KwFloat) || check(TokenKind::KwBool) ||
           check(TokenKind::KwString))) {
@@ -403,8 +406,8 @@ std::optional<SourceSpan> Parser::parse_type_annotation() {
         end = closing.span.end;
     }
 
-    return saw_array_dimension
-        ? std::optional<SourceSpan>{SourceSpan{type.span.begin, end}}
+    return (saw_array_dimension || pointer_depth != 0u)
+        ? std::optional<SourceSpan>{SourceSpan{annotation_begin, end}}
         : std::optional<SourceSpan>{type.span};
 }
 ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_precedence) {
@@ -541,7 +544,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
 }
 ExprPtr Parser::parse_prefix(const bool allow_newlines) {
     if (match(TokenKind::Minus) || match(TokenKind::Plus) || match(TokenKind::Bang) ||
-        match(TokenKind::BitNot)) {
+        match(TokenKind::BitNot) || match(TokenKind::BitAnd) || match(TokenKind::Star)) {
         const Token op = previous();
         ExprPtr operand = parse_expression(allow_newlines, 13);
         if (!operand) {

@@ -993,6 +993,47 @@ void test_import_declarations_are_rejected_until_module_resolution(TestContext& 
                 "parsed import declarations are rejected until module resolution exists");
 }
 
+void test_typed_pointer_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"typed_pointers.vex",
+        "make bump(value: int) -> int {\n"
+        "    let pointer: *int = &value\n"
+        "    *pointer = *pointer + 1\n"
+        "    return value\n"
+        "}\n"
+        "make main() {\n"
+        "    let value = 41\n"
+        "    let pointer = &value\n"
+        "    *pointer = 42\n"
+        "    say(value)\n"
+        "    say(bump(value))\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "typed pointers support mutable locals, parameters, reads, and writes");
+
+    const vex::SourceFile immutable{"pointer_to_const.vex",
+        "make main() {\n"
+        "    const value = 1\n"
+        "    let pointer = &value\n"
+        "}\n"};
+    const vex::SemanticResult immutable_result = analyze(immutable);
+    tests.check(has_code(immutable_result, "SEM070"),
+                "address-of rejects immutable bindings");
+
+    const vex::SourceFile escaping{"pointer_escape.vex",
+        "make main() {\n"
+        "    let outer = 1\n"
+        "    let pointer = &outer\n"
+        "    if (true) {\n"
+        "        let inner = 2\n"
+        "        pointer = &inner\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult escaping_result = analyze(escaping);
+    tests.check(has_code(escaping_result, "SEM072"),
+                "pointer assignment rejects a pointer to a shorter-lived local");
+}
+
 } // namespace
 
 void run_semantic_tests(TestContext& tests) {
@@ -1024,4 +1065,5 @@ void run_semantic_tests(TestContext& tests) {
     test_string_join_semantics(tests);
     test_bitwise_operator_semantics(tests);
     test_byte_type_and_checked_conversions(tests);
+    test_typed_pointer_semantics(tests);
 }

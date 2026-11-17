@@ -103,6 +103,7 @@ struct Symbol {
     std::optional<SemanticArrayType> return_array_type;
     std::uint32_t struct_type_id{0};
     std::uint32_t enum_type_id{0};
+    std::optional<SemanticPointerType> pointer_type;
     std::vector<std::uint32_t> parameter_struct_type_ids;
     std::vector<std::uint32_t> parameter_enum_type_ids;
     std::uint32_t return_struct_type_id{0};
@@ -148,8 +149,39 @@ private:
         const SourceSpan span, const bool allow_void,
         std::optional<SemanticArrayType>* array_shape = nullptr,
         std::uint32_t* struct_type_id = nullptr,
-        std::uint32_t* enum_type_id = nullptr) {
+        std::uint32_t* enum_type_id = nullptr,
+        std::optional<SemanticPointerType>* pointer_type = nullptr) {
         const std::string name = spelling(span);
+        if (!name.empty() && name.front() == '*') {
+            std::size_t depth = 0u;
+            while (depth < name.size() && name[depth] == '*') ++depth;
+            std::string pointee_name = name.substr(depth);
+            const auto trim = [](std::string& value) {
+                while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) value.erase(value.begin());
+                while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) value.pop_back();
+            };
+            trim(pointee_name);
+            Type pointee = Type::Error;
+            if (depth != 1u || pointee_name.empty()) {
+                report("SEM070", "only single-level pointer types are supported", span);
+                return Type::Error;
+            }
+            if (pointee_name == "int") pointee = Type::Int;
+            else if (pointee_name == "byte") pointee = Type::Byte;
+            else if (pointee_name == "float") pointee = Type::Float;
+            else if (pointee_name == "bool") pointee = Type::Bool;
+            else if (pointee_name == "string") pointee = Type::String;
+            else {
+                report("SEM070", "the initial pointer implementation supports scalar primitive pointees only", span);
+                return Type::Error;
+            }
+            if (!pointer_type) {
+                report("SEM070", "pointer parameters, return types, and aggregate fields are not supported yet", span);
+                return Type::Error;
+            }
+            *pointer_type = SemanticPointerType{pointee, 0u, true};
+            return Type::Pointer;
+        }
         const std::size_t open = name.find('[');
         if (open != std::string::npos) {
             std::string element_name = name.substr(0, open);
@@ -712,7 +744,8 @@ private:
         if (assigned_id) *assigned_id = symbol.id;
         model_.bindings.emplace(symbol.id, SemanticBinding{
             symbol.id, name, symbol.type, !symbol.immutable && !symbol.is_function,
-            declaration, symbol.array_type, symbol.struct_type_id, symbol.enum_type_id
+            declaration, symbol.array_type, symbol.struct_type_id, symbol.enum_type_id,
+            symbol.pointer_type, static_cast<std::uint32_t>(scopes_.size()), false
         });
         current.emplace(name, std::move(symbol));
         return true;
@@ -757,6 +790,8 @@ private:
                 model_.struct_expression_types[&expression] = symbol->struct_type_id;
             if (symbol->type == Type::Enum)
                 model_.enum_expression_types[&expression] = symbol->enum_type_id;
+            if (symbol->pointer_type)
+                model_.pointer_expression_types[&expression] = *symbol->pointer_type;
             return symbol->type;
         }
 
@@ -772,6 +807,9 @@ private:
             const auto enumeration = model_.enum_expression_types.find(group->expression.get());
             if (enumeration != model_.enum_expression_types.end())
                 model_.enum_expression_types[&expression] = enumeration->second;
+            const auto pointer = model_.pointer_expression_types.find(group->expression.get());
+            if (pointer != model_.pointer_expression_types.end())
+                model_.pointer_expression_types[&expression] = pointer->second;
             return grouped_type;
         }
 
@@ -1150,6 +1188,32 @@ private:
             if (!unary->operand) return Type::Error;
             const Type operand = analyze_expression(*unary->operand);
             if (operand == Type::Error || operand == Type::Unknown) return operand;
+            if (unary->op == TokenKind::BitAnd) {
+                const auto* named = std::get_if<NameExpr>(&unary->operand->data);
+                if (!named) {
+                    report("SEM070", "address-of currently requires a mutable named local or parameter", unary->operand->span);
+                    return Type::Error;
+                }
+                const auto resolved = model_.resolved_names.find(named);
+                const auto binding = resolved == model_.resolved_names.end()
+                    ? model_.bindings.end() : model_.bindings.find(resolved->second);
+                if (binding == model_.bindings.end() || !binding->second.addressable ||
+                    !binding->second.mutable_binding) {
+                    report("SEM070", "address-of requires a mutable, addressable scalar local or parameter", unary->operand->span);
+                    return Type::Error;
+                }
+                model_.pointer_expression_types[&expression] =
+                    SemanticPointerType{binding->second.type, binding->second.id, true};
+                return Type::Pointer;
+            }
+            if (unary->op == TokenKind::Star) {
+                const auto pointer = model_.pointer_expression_types.find(unary->operand.get());
+                if (operand != Type::Pointer || pointer == model_.pointer_expression_types.end()) {
+                    report("SEM070", "dereference requires a supported typed pointer", unary->operand->span);
+                    return Type::Error;
+                }
+                return pointer->second.pointee_type;
+            }
             if (unary->op == TokenKind::Bang) {
                 if (operand != Type::Bool) {
                     report("SEM011", "operator '!' requires a bool operand; got " +
@@ -1285,6 +1349,26 @@ private:
 
         if (const auto* assignment = std::get_if<AssignmentExpr>(&expression.data)) {
             const bool compound=assignment->op!=TokenKind::Equal;
+            if (const auto* dereference = assignment->target
+                    ? std::get_if<UnaryExpr>(&assignment->target->data) : nullptr;
+                dereference && dereference->op == TokenKind::Star) {
+                const Type target_type = analyze_expression(*assignment->target);
+                const auto pointer = dereference->operand
+                    ? model_.pointer_expression_types.find(dereference->operand.get())
+                    : model_.pointer_expression_types.end();
+                const Type value_type = assignment->value
+                    ? analyze_expression(*assignment->value) : Type::Error;
+                if (compound) {
+                    report("SEM070", "compound assignment through a pointer is not supported yet; use an explicit read and write", expression.span);
+                    return Type::Error;
+                }
+                if (pointer == model_.pointer_expression_types.end() ||
+                    !pointer->second.mutable_pointee || !is_assignable(target_type, value_type)) {
+                    report("SEM071", "dereferenced pointer assignment has an incompatible pointee value", expression.span);
+                    return Type::Error;
+                }
+                return target_type;
+            }
             if(assignment->target&&(std::holds_alternative<MemberExpr>(assignment->target->data)||
                                     std::holds_alternative<IndexExpr>(assignment->target->data))) {
                 const Type target_type=analyze_expression(*assignment->target);
@@ -1355,6 +1439,22 @@ private:
                 model_.array_expression_types[assignment->value.get()] = *symbol->array_type;
             }
             const Type value=assignment->value?analyze_expression(*assignment->value):Type::Error;
+            if (symbol->type == Type::Pointer) {
+                const auto pointer = assignment->value
+                    ? model_.pointer_expression_types.find(assignment->value.get())
+                    : model_.pointer_expression_types.end();
+                if (pointer == model_.pointer_expression_types.end() || !symbol->pointer_type ||
+                    pointer->second.pointee_type != symbol->pointer_type->pointee_type) {
+                    report("SEM071", "pointer assignment requires a pointer with the same pointee type", expression.span);
+                } else {
+                    const auto origin = model_.bindings.find(pointer->second.pointee_binding_id);
+                    const auto destination = model_.bindings.find(symbol->id);
+                    if (origin != model_.bindings.end() && destination != model_.bindings.end() &&
+                        origin->second.scope_depth > destination->second.scope_depth)
+                        report("SEM072", "pointer assignment would outlive the local variable it points to", expression.span);
+                    model_.pointer_expression_types[&expression] = pointer->second;
+                }
+            }
             if(symbol->immutable)report("SEM017","cannot assign to immutable binding '"+identifier+"'",target->name);
             if(compound) {
                 const Type operation_type=compound_assignment_result(assignment->op,symbol->type,value);
@@ -1834,10 +1934,11 @@ private:
         std::optional<SemanticArrayType> declared_array_type;
         std::uint32_t declared_struct_type_id = 0;
         std::uint32_t declared_enum_type_id = 0;
+        std::optional<SemanticPointerType> declared_pointer_type;
         if (variable.type_annotation) {
             declared = annotation_type(*variable.type_annotation, false,
                                        &declared_array_type, &declared_struct_type_id,
-                                       &declared_enum_type_id);
+                                       &declared_enum_type_id, &declared_pointer_type);
         }
         const auto* array_initializer = variable.initializer
             ? std::get_if<ArrayLiteralExpr>(&variable.initializer->data) : nullptr;
@@ -1873,6 +1974,24 @@ private:
                        variable.initializer->span);
             }
         }
+
+        if (has_initializer && inferred == Type::Pointer) {
+            const auto inferred_pointer = model_.pointer_expression_types.find(variable.initializer.get());
+            if (inferred_pointer == model_.pointer_expression_types.end()) {
+                report("SEM070", "pointer initializer is missing its pointee type", variable.initializer->span);
+            } else if (declared_pointer_type &&
+                       declared_pointer_type->pointee_type != inferred_pointer->second.pointee_type) {
+                report("SEM071", "pointer initializer has a different pointee type than its annotation", variable.initializer->span);
+            } else {
+                // Retain origin information even when the source wrote an explicit *T annotation.
+                declared_pointer_type = inferred_pointer->second;
+                const auto origin = model_.bindings.find(inferred_pointer->second.pointee_binding_id);
+                if (origin != model_.bindings.end() && origin->second.scope_depth > scopes_.size())
+                    report("SEM072", "pointer would outlive the local variable it points to", variable.initializer->span);
+            }
+        }
+        if (declared == Type::Pointer && !declared_pointer_type)
+            report("SEM070", "pointer declaration is missing a supported pointee type", variable.name);
 
         if (!has_initializer) {
             if (variable.immutable) {
@@ -1928,11 +2047,18 @@ private:
                 }
             }
         }
+        if (declared == Type::Pointer) symbol.pointer_type = declared_pointer_type;
         symbol.immutable = variable.immutable;
         symbol.declaration = variable.name;
         SemanticBindingId binding_id = 0;
-        if (define(spelling(variable.name), std::move(symbol), variable.name, &binding_id))
+        if (define(spelling(variable.name), std::move(symbol), variable.name, &binding_id)) {
             model_.variable_bindings[&variable] = binding_id;
+            SemanticBinding& binding = model_.bindings.at(binding_id);
+            binding.addressable = !variable.immutable &&
+                (binding.type == Type::Int || binding.type == Type::Byte ||
+                 binding.type == Type::Float || binding.type == Type::Bool ||
+                 binding.type == Type::String);
+        }
     }
 
     void analyze_function(const FunctionDeclStmt& function,
@@ -1960,6 +2086,11 @@ private:
             if (define(spelling(parameter.name), std::move(symbol),
                        parameter.name, &binding_id)) {
                 model_.parameter_bindings[&parameter] = binding_id;
+                SemanticBinding& binding = model_.bindings.at(binding_id);
+                binding.addressable = binding.mutable_binding &&
+                    (binding.type == Type::Int || binding.type == Type::Byte ||
+                     binding.type == Type::Float || binding.type == Type::Bool ||
+                     binding.type == Type::String);
             }
         }
 
@@ -2518,6 +2649,7 @@ const char* semantic_type_name(const SemanticType type) noexcept {
     case SemanticType::Enum: return "enum";
     case SemanticType::Array: return "array";
     case SemanticType::Range: return "range";
+    case SemanticType::Pointer: return "pointer";
     }
     return "<unknown>";
 }

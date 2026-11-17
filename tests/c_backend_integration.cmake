@@ -14,7 +14,7 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED C_COMPILER OR
    NOT DEFINED BINARY_READ_BOUNDS_SOURCE_FILE OR
    NOT DEFINED BINARY_WRITE_OVERFLOW_SOURCE_FILE OR
    NOT DEFINED BINARY_SLICE_BOUNDS_SOURCE_FILE OR
-   NOT DEFINED BINARY_IMMUTABLE_BUFFER_SOURCE_FILE OR NOT DEFINED WORK_DIR)
+   NOT DEFINED BINARY_IMMUTABLE_BUFFER_SOURCE_FILE OR NOT DEFINED POINTERS_SOURCE_FILE OR NOT DEFINED WORK_DIR)
     message(FATAL_ERROR "Missing VEX C backend integration-test argument")
 endif()
 
@@ -405,3 +405,17 @@ foreach(case IN ITEMS "int_negative" "int_width" "byte_width")
         message(FATAL_ERROR "C backend did not trap for invalid shift count: ${case}")
     endif()
 endforeach()
+
+# First-class typed pointers must preserve aliasing across an addressable local.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${POINTERS_SOURCE_FILE}"
+    RESULT_VARIABLE pointer_result
+    OUTPUT_VARIABLE pointer_output
+    ERROR_VARIABLE pointer_error
+)
+if(NOT pointer_result EQUAL 0)
+    message(FATAL_ERROR "C backend pointer fixture failed: ${pointer_error}")
+endif()
+if(NOT pointer_output STREQUAL "42\n43\n")
+    message(FATAL_ERROR "C backend pointer fixture produced unexpected output: [${pointer_output}]")
+endif()

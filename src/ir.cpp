@@ -80,12 +80,22 @@ bool valid_place_type(const IRValue& value, const std::size_t struct_count,
                value.array_length == 0u && value.element_struct_type_id == 0u &&
                value.array_dimensions.empty();
     }
+    if (value.type == IRType::Pointer)
+        return (value.pointer_pointee_type == IRType::Int ||
+                value.pointer_pointee_type == IRType::Byte ||
+                value.pointer_pointee_type == IRType::Float ||
+                value.pointer_pointee_type == IRType::Bool ||
+                value.pointer_pointee_type == IRType::String) &&
+               value.struct_type_id == 0u && value.enum_type_id == 0u &&
+               value.element_type == IRType::Void && value.array_length == 0u &&
+               value.element_struct_type_id == 0u && value.array_dimensions.empty();
     return (value.type == IRType::Int || value.type == IRType::Byte ||
             value.type == IRType::Float || value.type == IRType::Bool ||
             value.type == IRType::String) &&
            value.struct_type_id == 0u && value.enum_type_id == 0u &&
            value.element_type == IRType::Void && value.array_length == 0u &&
-           value.element_struct_type_id == 0u && value.array_dimensions.empty();
+           value.element_struct_type_id == 0u && value.array_dimensions.empty() &&
+           value.pointer_pointee_type == IRType::Void;
 }
 
 bool has_dynamic_outer_dimension(const IRValue& value) {
@@ -219,10 +229,18 @@ private:
                        place.span);
             }
             if (place.projection == IRPlaceProjectionKind::Root) {
-                if (place.parent != 0u || place.field_index != 0u || place.index_value != 0u)
+                if (place.parent != 0u || place.field_index != 0u || place.index_value != 0u || place.pointer_value != 0u)
                     report("IR104", "root place cannot carry projection metadata", place.span);
                 continue;
             }
+            if (place.projection == IRPlaceProjectionKind::PointerTarget) {
+                if (place.parent != 0u || place.field_index != 0u || place.index_value != 0u ||
+                    place.pointer_value == 0u || !place.mutable_place)
+                    report("IR113", "pointer-target place must identify one mutable pointer value", place.span);
+                continue;
+            }
+            if (place.pointer_value != 0u)
+                report("IR113", "only pointer-target places may carry a pointer value", place.span);
             const auto parent = places_.find(place.parent);
             if (place.parent == 0u || place.parent >= place.id || parent == places_.end()) {
                 report("IR105", "projected place must reference an earlier valid parent place",
@@ -268,6 +286,17 @@ private:
                 value.element_struct_type_id != 0 || value.enum_type_id != 0 ||
                 !value.array_dimensions.empty())
                 report("IR051", "structure SSA value cannot carry array shape metadata", value.span);
+        } else if (value.type == IRType::Pointer) {
+            if (value.pointer_pointee_type != IRType::Int &&
+                value.pointer_pointee_type != IRType::Byte &&
+                value.pointer_pointee_type != IRType::Float &&
+                value.pointer_pointee_type != IRType::Bool &&
+                value.pointer_pointee_type != IRType::String)
+                report("IR112", "SSA pointer has an unsupported pointee type", value.span);
+            if (value.struct_type_id != 0 || value.enum_type_id != 0 ||
+                value.element_type != IRType::Void || value.array_length != 0 ||
+                value.element_struct_type_id != 0 || !value.array_dimensions.empty())
+                report("IR112", "pointer SSA value carries invalid aggregate metadata", value.span);
         } else if (value.type == IRType::Enum) {
             if (value.enum_type_id == 0 || value.enum_type_id > enum_types_.size())
                 report("IR086", "SSA value has an invalid enum type", value.span);
@@ -339,6 +368,7 @@ private:
         if (left.type == IRType::Array) return same_array_shape(left, right);
         if (left.type == IRType::Struct) return left.struct_type_id == right.struct_type_id;
         if (left.type == IRType::Enum) return left.enum_type_id == right.enum_type_id;
+        if (left.type == IRType::Pointer) return left.pointer_pointee_type == right.pointer_pointee_type;
         return true;
     }
 
@@ -391,11 +421,30 @@ private:
         const auto left = operand_type(instruction, 0);
         const auto right = operand_type(instruction, 1);
         const bool is_memory_operation = instruction.op == IROp::Load ||
-                                         instruction.op == IROp::Store;
+                                         instruction.op == IROp::Store ||
+                                         instruction.op == IROp::AddressOf;
         if (!is_memory_operation && instruction.place)
-            report("IR096", "only load and store instructions may reference a place",
+            report("IR096", "only load, store, and address-of instructions may reference a place",
                    instruction.span);
         switch (instruction.op) {
+        case IROp::AddressOf: {
+            check_arity(instruction, 0u);
+            if (!instruction.place) {
+                report("IR114", "address-of must identify a function place", instruction.span);
+                break;
+            }
+            const auto found = places_.find(*instruction.place);
+            if (found == places_.end()) {
+                report("IR114", "address-of references an unknown function place", instruction.span);
+                break;
+            }
+            if (!found->second->mutable_place)
+                report("IR114", "address-of currently requires a mutable place", instruction.span);
+            if (!instruction.result || instruction.result->type != IRType::Pointer ||
+                instruction.result->pointer_pointee_type != found->second->value_type.type)
+                report("IR114", "address-of result must point to the place value type", instruction.span);
+            break;
+        }
         case IROp::Load: {
             check_arity(instruction, 0u);
             if (!instruction.place) {
@@ -1067,6 +1116,15 @@ private:
         const auto found = places_.find(place_id);
         if (found == places_.end()) return;
         const IRPlace& place = *found->second;
+        if (place.projection == IRPlaceProjectionKind::PointerTarget) {
+            const auto definition = definitions_.find(place.pointer_value);
+            if (definition == definitions_.end())
+                report("IR115", "pointer-target place references an undefined pointer value", span);
+            else if (definition->second.value.type != IRType::Pointer ||
+                     definition->second.value.pointer_pointee_type != place.value_type.type)
+                report("IR115", "pointer-target place has a pointer with the wrong pointee type", span);
+            validate_use(place.pointer_value, use_block, use_position, span);
+        }
         if (place.projection == IRPlaceProjectionKind::ArrayElement) {
             const auto definition = definitions_.find(place.index_value);
             if (definition == definitions_.end())
@@ -1156,7 +1214,8 @@ private:
                                  instruction.span);
                 }
                 if (instruction.place &&
-                    (instruction.op == IROp::Load || instruction.op == IROp::Store))
+                    (instruction.op == IROp::Load || instruction.op == IROp::Store ||
+                     instruction.op == IROp::AddressOf))
                     validate_projected_place_index_uses(
                         *instruction.place, block.id, static_cast<std::int64_t>(index),
                         instruction.span);
@@ -1226,6 +1285,7 @@ const char* ir_type_name(const IRType type) noexcept {
     case IRType::Array: return "array";
     case IRType::Struct: return "struct";
     case IRType::Enum: return "enum";
+    case IRType::Pointer: return "pointer";
     }
     return "unknown";
 }
@@ -1286,6 +1346,7 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::EnumPayloadGet: return "enum_payload_get";
     case IROp::Load: return "load";
     case IROp::Store: return "store";
+    case IROp::AddressOf: return "address_of";
     }
     return "unknown";
 }

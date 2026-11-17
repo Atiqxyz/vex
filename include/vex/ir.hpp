@@ -25,7 +25,8 @@ enum class IRType {
     String,
     Array,
     Struct,
-    Enum
+    Enum,
+    Pointer
 };
 
 [[nodiscard]] const char* ir_type_name(IRType type) noexcept;
@@ -84,7 +85,8 @@ enum class IROp {
     EnumTag,
     EnumPayloadGet,
     Load,
-    Store
+    Store,
+    AddressOf
 };
 
 [[nodiscard]] const char* ir_op_name(IROp op) noexcept;
@@ -102,6 +104,7 @@ struct IRValue {
     std::vector<std::uint32_t> array_dimensions;
     // Nominal identity when type is Enum.
     std::uint32_t enum_type_id{0};
+    IRType pointer_pointee_type{IRType::Void};
 };
 
 // Older IR construction sites may only populate array_length. Treat that as
@@ -111,6 +114,15 @@ struct IRValue {
     return value.array_dimensions.empty()
         ? std::vector<std::uint32_t>{value.array_length}
         : value.array_dimensions;
+}
+
+[[nodiscard]] inline IRValue ir_make_pointer_value(
+    const IRType pointee_type, const SourceSpan span = {}) {
+    IRValue value;
+    value.type = IRType::Pointer;
+    value.span = span;
+    value.pointer_pointee_type = pointee_type;
+    return value;
 }
 
 [[nodiscard]] inline IRValue ir_make_array_value(
@@ -197,7 +209,7 @@ struct IREnumType {
     std::vector<IREnumVariant> variants;
 };
 
-enum class IRPlaceProjectionKind { Root, StructField, ArrayElement };
+enum class IRPlaceProjectionKind { Root, StructField, ArrayElement, PointerTarget };
 
 struct IRPlace {
     IRPlaceId id{0};
@@ -211,6 +223,8 @@ struct IRPlace {
     std::uint32_t field_index{0};
     // Array-element projections retain the already-evaluated SSA index.
     IRValueId index_value{0};
+    // Pointer-target projections retain the already-evaluated pointer SSA value.
+    IRValueId pointer_value{0};
 };
 
 struct IRInstruction {

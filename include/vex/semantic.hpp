@@ -26,7 +26,8 @@ enum class SemanticType {
     Struct,
     Enum,
     Array,
-    Range
+    Range,
+    Pointer
 };
 
 struct SemanticArrayType {
@@ -88,6 +89,12 @@ struct SemanticArrayType {
 
 using SemanticBindingId = std::uint32_t;
 
+struct SemanticPointerType {
+    SemanticType pointee_type{SemanticType::Error};
+    SemanticBindingId pointee_binding_id{0};
+    bool mutable_pointee{true};
+};
+
 struct SemanticBinding {
     SemanticBindingId id{0};
     std::string name;
@@ -97,6 +104,9 @@ struct SemanticBinding {
     std::optional<SemanticArrayType> array_type;
     std::uint32_t struct_type_id{0};
     std::uint32_t enum_type_id{0};
+    std::optional<SemanticPointerType> pointer_type;
+    std::uint32_t scope_depth{0};
+    bool addressable{false};
 };
 
 struct SemanticFunctionSignature {
@@ -167,6 +177,7 @@ struct SemanticModel {
     std::unordered_map<const Expr*, SemanticArrayType> array_expression_types;
     std::unordered_map<const Expr*, std::uint32_t> struct_expression_types;
     std::unordered_map<const Expr*, std::uint32_t> enum_expression_types;
+    std::unordered_map<const Expr*, SemanticPointerType> pointer_expression_types;
     std::unordered_map<const Expr*, std::uint32_t> enum_expression_variants;
     std::unordered_map<const StructLiteralExpr*, std::vector<std::uint32_t>> struct_literal_field_indices;
     std::unordered_map<const MemberExpr*, std::uint32_t> member_field_indices;

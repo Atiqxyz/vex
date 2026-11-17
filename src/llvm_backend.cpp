@@ -33,6 +33,7 @@ std::string llvm_type(const IRType type) {
     case IRType::Array: return "[0 x i8]";
     case IRType::Struct: return "%vex.struct.0";
     case IRType::Enum: return "%vex.enum.0";
+    case IRType::Pointer: return "ptr";
     }
     return "void";
 }
@@ -1623,6 +1624,8 @@ trap:
         }
         const IRPlace& place = function.places[place_id - 1u];
         if (place.projection == IRPlaceProjectionKind::Root) return place_slot(place.id);
+        if (place.projection == IRPlaceProjectionKind::PointerTarget)
+            return load_value(place.pointer_value);
         if (place.parent == 0u || place.parent >= place.id) {
             report("LLVM014", "projected place references an invalid parent", place.span);
             return "null";
@@ -1676,6 +1679,16 @@ trap:
         }
 
         switch (instruction.op) {
+        case IROp::AddressOf: {
+            if (!instruction.place || !current_function_ ||
+                *instruction.place == 0u || *instruction.place > current_function_->places.size()) {
+                report("LLVM014", "address-of references an unavailable place", instruction.span);
+                return;
+            }
+            const std::string address = emit_place_address(*current_function_, *instruction.place);
+            store_result(instruction, address);
+            return;
+        }
         case IROp::Load:
         case IROp::Store: {
             if (!instruction.place || !current_function_ ||

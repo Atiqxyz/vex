@@ -167,7 +167,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Value semantics for primitives | Implemented | Primitive values flow through SSA. |
 | Value semantics for fixed arrays | Implemented | Aggregate values; no heap allocation required. |
 | Automatic local storage | Partial | Compiler/backend local representation exists; complete lifetime model is not defined. |
-| Function-local typed places, field/element projections, and explicit load/store | Implemented | Mutable local bindings and parameters have stable typed root places. Parent-linked structure-field and array-element projections preserve exact nominal/array shapes and inherited mutability; the verifier checks projection structure, field/element types, int index definitions, and index dominance. C and LLVM compute checked addresses at each load/store; only roots allocate local storage. First-class addresses, pointers, provenance, and general aliasing rules remain future work. |
+| Function-local typed places, field/element projections, explicit load/store, and scalar pointer targets | Implemented | Mutable local bindings and parameters have stable typed root places. Structure-field and array-element projections are verified. Single-level typed pointers to mutable primitive locals/parameters support `&value`, `*pointer` reads, and `*pointer = value` writes in C and LLVM through pointer-target places. Pointer parameters/returns, aggregate pointees, nulls, arithmetic, borrowing, lifetime/provenance, and general aliasing rules remain unimplemented. |
 | Stack allocation policy | Partial | Nested fixed aggregate storage has target-native 256 KiB per-object and 512 KiB per-function limits; the general stack/heap model, scalar-frame accounting, recursion limits, and configurable budgets remain undefined. |
 | Program-exit cleanup of compiler-tracked allocations | Implemented | C and LLVM track dynamic-array headers/buffers and allocated string blocks; both release them after normal entry return and before rejecting an out-of-range integer exit status. Traps terminate the process without language-level unwinding; the operating system reclaims memory. No per-scope, pop, replacement, or unreachable-alias release exists. |
 | Heap allocation | Not implemented as a VEX language API | Runtime/backend internals are not a user-facing allocator model. |
@@ -175,7 +175,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Deallocation | Not implemented | Requires ownership and lifetime rules. |
 | Ownership | Design undecided | Hybrid direction selected, exact rules open. |
 | Borrowing / references | Design undecided | Aliasing and mutability rules required. |
-| Raw pointers | Not implemented | Safety boundaries and pointer arithmetic need explicit design. |
+| Raw pointers | Partial | Single-level typed pointers to mutable primitive locals/parameters support address-of and dereference read/write. No pointer parameters/returns, aggregate pointees, null values, arithmetic, integer casts, general lifetime/provenance or unsafe boundary yet. |
 | Deterministic destruction | Design undecided | Must define drop order and control-flow interactions. |
 | RAII / resource guards | Not implemented | Depends on destruction semantics. |
 | Arena / pool allocation | Not implemented | Should be possible without making ordinary code verbose. |

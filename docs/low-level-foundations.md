@@ -14,7 +14,7 @@ SSA values are not sufficient to model arbitrary addressable storage. The IR now
 
 Places now form typed projection chains. A root place owns function-local storage; a structure-field projection records its parent and field index; an array-element projection records its parent and an already-evaluated integer SSA index. The verifier checks parent ordering, projected result shape, inherited mutability, field validity, index type, and index-definition dominance at every load/store use. The C backend computes native lvalue addresses; LLVM uses target-typed GEPs for fields and fixed arrays, and checked runtime element access for dynamic arrays. Addresses are recomputed at each memory operation rather than cached across intervening code, so a dynamic-array reallocation cannot leave a projected place holding a stale element pointer.
 
-This still is not the full pointer or aliasing model. Address-of expressions, first-class pointer values, provenance rules, volatile access, explicit aggregate-copy policy, and alias-sensitive optimization contracts remain to be designed. Do not represent an addressable location as an ordinary SSA value merely because that is convenient for the current backend.
+VEX now has an initial, deliberately narrow raw-pointer slice: a single-level typed pointer may target a mutable primitive local or parameter; `&value` produces a native pointer, `*pointer` loads through it, and `*pointer = value` stores through it. Pointer-target places retain the pointer SSA value and are verified for pointee type and dominance. Pointer parameters/returns, aggregate pointees, nulls, arithmetic, integer conversions, provenance, lifetime/borrowing rules, volatile access, and alias-sensitive optimization contracts remain open. Do not mistake this first slice for the complete pointer or aliasing model.
 
 ## Pointers, references, and slices
 
@@ -39,8 +39,8 @@ Native struct layout is not portable serialization. Binary codecs remain explici
 ## Dependency order
 
 1. Canonical recursive type descriptors and target-aware size/alignment/offset queries.
-2. [x] Function-local typed places, explicit load/store, and verifier rules. Field/element projections and address calculation remain future work.
-3. Typed raw pointers, address-of/dereference, pointer arithmetic, and explicit unsafe blocks.
+2. [x] Function-local typed places, explicit load/store, projected places, and verifier rules.
+3. [ ] Expand the initial scalar-pointer slice into aggregate pointers, pointer parameters/returns, arithmetic, unsafe boundaries, and explicit provenance/lifetime rules.
 4. Allocator values, aligned allocation, reallocation, deallocation, and ownership transfer.
 5. References, slices, borrowing, lifetime checks, and invalidation rules.
 6. Deterministic scope cleanup and destruction across all structured control-flow exits.
