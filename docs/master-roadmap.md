@@ -97,7 +97,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 **Why it matters:** The grammar determines how naturally users can express algorithms. Additions should improve capability without creating overlapping syntax.
 
 - [x] Bitwise AND, OR, XOR, NOT for matching `int` and `byte` operands
-- [ ] Bit shifts and rotations with defined edge behavior (shifts implemented; rotations remain)
+- [x] Bit shifts and rotations with defined edge behavior: checked shift counts, arithmetic signed right shift, logical byte right shift, fixed-width wraparound left shift, and modulo-width rotations
 - [x] Struct field access and nested field/index expressions
 - [x] Nested assignment targets across fields and indexes when rooted at a named aggregate binding
 - [x] Compound assignment operators on named bindings and nested fields/indexes, with exactly-once target evaluation

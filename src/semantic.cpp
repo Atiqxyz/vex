@@ -278,6 +278,18 @@ private:
         add_conversion("to_byte", Type::Byte, Type::Int);
         add_conversion("to_int", Type::Int, Type::Byte);
 
+        const auto add_rotation = [this](const char* name) {
+            Symbol function;
+            function.type = Type::Any;
+            function.is_function = true;
+            function.parameters = {Type::Any, Type::Int};
+            function.parameter_array_types = {std::nullopt, std::nullopt};
+            function.declaration = {0, 0};
+            scopes_.front().emplace(name, std::move(function));
+        };
+        add_rotation("rotate_left");
+        add_rotation("rotate_right");
+
         Symbol length;
         length.type = Type::Int;
         length.is_function = true;
@@ -1250,6 +1262,20 @@ private:
             if (name) model_.resolved_calls[call] = spelling(name->name);
 
             const std::string builtin_name = name ? spelling(name->name) : std::string{};
+
+            if (builtin_name == "rotate_left" || builtin_name == "rotate_right") {
+                if (argument_types.size() != 2u) {
+                    report("SEM020", builtin_name + " expects 2 arguments", expression.span);
+                    return Type::Error;
+                }
+                if ((argument_types[0] != Type::Int && argument_types[0] != Type::Byte) ||
+                    argument_types[1] != Type::Int) {
+                    report("SEM021", builtin_name +
+                           " requires an int or byte value and an int count", expression.span);
+                    return Type::Error;
+                }
+                return argument_types[0];
+            }
 
             const auto is_byte_array_argument = [&](const std::size_t index) {
                 if (index >= argument_types.size() || argument_types[index] != Type::Array ||

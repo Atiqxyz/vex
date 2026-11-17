@@ -607,6 +607,48 @@ trap:
   call void @llvm.trap()
   unreachable
 }
+define internal i64 @vex_i64_rotl(i64 %value, i64 %count) {
+entry:
+  %shift = and i64 %count, 63
+  %reverse = sub i64 64, %shift
+  %reverse_mod = and i64 %reverse, 63
+  %left = shl i64 %value, %shift
+  %right = lshr i64 %value, %reverse_mod
+  %result = or i64 %left, %right
+  ret i64 %result
+}
+define internal i64 @vex_i64_rotr(i64 %value, i64 %count) {
+entry:
+  %shift = and i64 %count, 63
+  %reverse = sub i64 64, %shift
+  %reverse_mod = and i64 %reverse, 63
+  %right = lshr i64 %value, %shift
+  %left = shl i64 %value, %reverse_mod
+  %result = or i64 %right, %left
+  ret i64 %result
+}
+define internal i8 @vex_u8_rotl(i8 %value, i64 %count) {
+entry:
+  %shift64 = and i64 %count, 7
+  %shift = trunc i64 %shift64 to i8
+  %reverse = sub i8 8, %shift
+  %reverse_mod = and i8 %reverse, 7
+  %left = shl i8 %value, %shift
+  %right = lshr i8 %value, %reverse_mod
+  %result = or i8 %left, %right
+  ret i8 %result
+}
+define internal i8 @vex_u8_rotr(i8 %value, i64 %count) {
+entry:
+  %shift64 = and i64 %count, 7
+  %shift = trunc i64 %shift64 to i8
+  %reverse = sub i8 8, %shift
+  %reverse_mod = and i8 %reverse, 7
+  %right = lshr i8 %value, %shift
+  %left = shl i8 %value, %reverse_mod
+  %result = or i8 %right, %left
+  ret i8 %result
+}
 )IR";
     }
 
@@ -1585,9 +1627,13 @@ trap:
             return;
         }
         case IROp::ShiftLeft:
-        case IROp::ShiftRight: {
+        case IROp::ShiftRight:
+        case IROp::RotateLeft:
+        case IROp::RotateRight: {
             const IRType type = value_types_.at(instruction.operands.front()).type;
-            const char* operation = instruction.op == IROp::ShiftLeft ? "shl" : "shr";
+            const char* operation = instruction.op == IROp::ShiftLeft ? "shl" :
+                instruction.op == IROp::ShiftRight ? "shr" :
+                instruction.op == IROp::RotateLeft ? "rotl" : "rotr";
             const std::string result = next_temp();
             output_ << "  " << result << " = call " << llvm_type(type) << " @"
                     << (type == IRType::Byte ? "vex_u8_" : "vex_i64_") << operation

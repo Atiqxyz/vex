@@ -18,6 +18,15 @@ make main() {
     let shift_precedence = 1 << 2 + 1
     let addition_precedence = 1 + 2 << 1
     let byte_edge_shift = to_byte(255) >> 7
+    let int_rotate_left = rotate_left(1, 1)
+    let int_rotate_right = rotate_right(1, 1)
+    let int_rotate_full = rotate_left(3, 64)
+    let int_rotate_negative = rotate_left(1, -1)
+    let int_rotate_min_count = rotate_right(3, -9223372036854775808)
+    let byte_rotate_left = rotate_left(to_byte(129), 1)
+    let byte_rotate_right = rotate_right(to_byte(129), 1)
+    let byte_rotate_full = rotate_left(to_byte(129), 8)
+    let byte_rotate_negative = rotate_right(to_byte(129), -1)
 
     say(anded)
     say(ored)
@@ -38,4 +47,13 @@ make main() {
     say(shift_precedence)
     say(addition_precedence)
     say(byte_edge_shift)
+    say(int_rotate_left)
+    say(int_rotate_right)
+    say(int_rotate_full)
+    say(int_rotate_negative)
+    say(int_rotate_min_count)
+    say(byte_rotate_left)
+    say(byte_rotate_right)
+    say(byte_rotate_full)
+    say(byte_rotate_negative)
 }

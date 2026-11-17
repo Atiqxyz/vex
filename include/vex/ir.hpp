@@ -53,6 +53,8 @@ enum class IROp {
     BitwiseNot,
     ShiftLeft,
     ShiftRight,
+    RotateLeft,
+    RotateRight,
     Equal,
     NotEqual,
     Less,

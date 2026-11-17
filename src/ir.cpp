@@ -402,11 +402,13 @@ private:
             break;
         case IROp::ShiftLeft:
         case IROp::ShiftRight:
+        case IROp::RotateLeft:
+        case IROp::RotateRight:
             check_arity(instruction, 2);
             if (left && *left != IRType::Int && *left != IRType::Byte)
-                report("IR080", "shift value must be int or byte", instruction.span);
+                report("IR080", "shift/rotate value must be int or byte", instruction.span);
             if (right && *right != IRType::Int)
-                report("IR081", "shift count must be int", instruction.span);
+                report("IR081", "shift/rotate count must be int", instruction.span);
             if (left) check_result(instruction, *left);
             break;
         case IROp::Remainder:
@@ -997,6 +999,8 @@ const char* ir_op_name(const IROp op) noexcept {
     case IROp::BitwiseNot: return "bit_not";
     case IROp::ShiftLeft: return "shl";
     case IROp::ShiftRight: return "shr";
+    case IROp::RotateLeft: return "rotl";
+    case IROp::RotateRight: return "rotr";
     case IROp::Equal: return "eq";
     case IROp::NotEqual: return "ne";
     case IROp::Less: return "lt";

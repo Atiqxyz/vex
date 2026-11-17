@@ -843,6 +843,20 @@ private:
             arguments.push_back(*value);
         }
 
+        if (target->second == "rotate_left" || target->second == "rotate_right") {
+            if (arguments.size() != 2u ||
+                (arguments[0].type != IRType::Int && arguments[0].type != IRType::Byte) ||
+                arguments[1].type != IRType::Int) {
+                report("IR119", target->second +
+                       " expects an int or byte value and an int count", expression.span);
+                return std::nullopt;
+            }
+            const IROp operation = target->second == "rotate_left"
+                ? IROp::RotateLeft : IROp::RotateRight;
+            return emit_operation(operation, arguments[0].type,
+                                  {arguments[0].id, arguments[1].id}, expression.span);
+        }
+
         if (target->second == "to_byte") {
             if (arguments.size() != 1 || arguments[0].type != IRType::Int) {
                 report("IR119", "to_byte expects exactly one int argument", expression.span);

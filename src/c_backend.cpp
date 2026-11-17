@@ -622,6 +622,24 @@ private:
             << "    if (count < 0 || count >= 8) vex_runtime_trap(\"byte shift count must be in 0..7\");\n"
             << "    return (uint8_t)(value >> (unsigned)count);\n"
             << "}\n\n"
+            << "static int64_t vex_i64_rotl(int64_t value, int64_t count) {\n"
+            << "    const unsigned shift = (unsigned)((uint64_t)count & UINT64_C(63));\n"
+            << "    const uint64_t bits = (uint64_t)value;\n"
+            << "    return vex_i64_from_bits((bits << shift) | (bits >> ((64u - shift) & 63u));\n"
+            << "}\n"
+            << "static int64_t vex_i64_rotr(int64_t value, int64_t count) {\n"
+            << "    const unsigned shift = (unsigned)((uint64_t)count & UINT64_C(63));\n"
+            << "    const uint64_t bits = (uint64_t)value;\n"
+            << "    return vex_i64_from_bits((bits >> shift) | (bits << ((64u - shift) & 63u));\n"
+            << "}\n"
+            << "static uint8_t vex_u8_rotl(uint8_t value, int64_t count) {\n"
+            << "    const unsigned shift = (unsigned)((uint64_t)count & UINT64_C(7));\n"
+            << "    return (uint8_t)(((uint16_t)value << shift) | ((uint16_t)value >> ((8u - shift) & 7u)));\n"
+            << "}\n"
+            << "static uint8_t vex_u8_rotr(uint8_t value, int64_t count) {\n"
+            << "    const unsigned shift = (unsigned)((uint64_t)count & UINT64_C(7));\n"
+            << "    return (uint8_t)(((uint16_t)value >> shift) | ((uint16_t)value << ((8u - shift) & 7u)));\n"
+            << "}\n\n"
             << "static vex_string vex_string_concat(vex_string left, vex_string right) {\n"
             << "    if (left.length == 0u) return right;\n"
             << "    if (right.length == 0u) return left;\n"
@@ -987,12 +1005,16 @@ private:
             return;
         }
         case IROp::ShiftLeft:
-        case IROp::ShiftRight: {
+        case IROp::ShiftRight:
+        case IROp::RotateLeft:
+        case IROp::RotateRight: {
             const auto type = value_type(function, instruction.operands[0]);
             const bool is_byte = type && type->type == IRType::Byte;
+            const char* operation = instruction.op == IROp::ShiftLeft ? "shl" :
+                instruction.op == IROp::ShiftRight ? "shr" :
+                instruction.op == IROp::RotateLeft ? "rotl" : "rotr";
             output_ << "    " << result << " = " << (is_byte ? "vex_u8_" : "vex_i64_")
-                    << (instruction.op == IROp::ShiftLeft ? "shl" : "shr")
-                    << "(" << operand(0) << ", " << operand(1) << ");\n";
+                    << operation << "(" << operand(0) << ", " << operand(1) << ");\n";
             return;
         }
         case IROp::LogicalNot:
