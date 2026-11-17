@@ -59,11 +59,16 @@ public:
         return layout_of(ir_array_element_value(array));
     }
 
-    std::optional<EnumLayout> run_enum(const EnumLayoutDescriptor& enumeration) {
+    std::optional<EnumLayout> run_enum(const std::uint32_t id) {
         if (!valid_config()) return std::nullopt;
-        if (enumeration.id == 0u || enumeration.name.empty() ||
-            enumeration.variants.empty() || enumeration.variants.size() > UINT32_MAX) {
-            fail("enum layout descriptor requires a name, nonzero identity, and at least one variant");
+        if (id == 0u || id > module_.enum_types.size()) {
+            fail("enum type identifier is outside the module type table");
+            return std::nullopt;
+        }
+        const IREnumType& enumeration = module_.enum_types[id - 1u];
+        if (enumeration.id != id || enumeration.name.empty() || enumeration.variants.empty() ||
+            enumeration.variants.size() > UINT32_MAX) {
+            fail("enum type declaration requires a canonical identity, name, and at least one variant");
             return std::nullopt;
         }
 
@@ -72,7 +77,7 @@ public:
         std::uint64_t maximum_payload_size = 0u;
         std::uint64_t maximum_payload_alignment = 1u;
         for (std::size_t variant_index = 0; variant_index < enumeration.variants.size(); ++variant_index) {
-            const EnumVariantLayoutDescriptor& variant = enumeration.variants[variant_index];
+            const IREnumVariant& variant = enumeration.variants[variant_index];
             if (variant.name.empty() ||
                 std::find(variant_names.begin(), variant_names.end(), variant.name) != variant_names.end()) {
                 fail("enum variant names must be nonempty and unique");
@@ -344,10 +349,10 @@ std::optional<StructLayout> TargetDataLayout::layout_of_struct(
 }
 
 std::optional<EnumLayout> TargetDataLayout::layout_of_enum(
-    const EnumLayoutDescriptor& enumeration, const IRModule& module,
+    const std::uint32_t enum_type_id, const IRModule& module,
     std::string* error) const {
     if (error) error->clear();
-    return LayoutComputer(config_, module, error).run_enum(enumeration);
+    return LayoutComputer(config_, module, error).run_enum(enum_type_id);
 }
 
 } // namespace vex

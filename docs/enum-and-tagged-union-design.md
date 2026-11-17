@@ -93,7 +93,7 @@ Construction, discriminant dispatch, and payload projection must be dedicated ty
 
 The C backend will emit a named structure containing the fixed-width tag and a union of named variant-payload structures. The LLVM backend will emit a target-layout-compatible aggregate, use the tag for an LLVM switch, and access payload fields through offsets calculated by the shared target layout model. Both backends must agree on tag values, payload offsets, enum size/alignment, and function/array value semantics.
 
-The shared TargetDataLayout service must compute each variant's tuple layout, the maximum union size/alignment, payload offset, total enum size/alignment, and enum array stride. It must reject overflow and unsupported layouts rather than wrapping sizes. A first layout-only descriptor API now calculates discriminant and payload sizes, alignments, offsets, and declaration-order tags; it is not yet an enum value type in the compiler.
+The shared TargetDataLayout service must compute each variant's tuple layout, the maximum union size/alignment, payload offset, total enum size/alignment, and enum array stride. It must reject overflow and unsupported layouts rather than wrapping sizes. Nominal enum and variant declarations now live in the canonical IR module type table, with verifier validation for IDs, names, variant uniqueness, and payload descriptors. The layout service calculates discriminant and payload sizes, alignments, offsets, and declaration-order tags. These are declaration and layout foundations only; enum values, source syntax, construction, and matching remain unimplemented.
 
 ## 6. Alternatives considered
 

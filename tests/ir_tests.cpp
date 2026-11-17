@@ -1190,21 +1190,22 @@ void test_target_data_layout_service(TestContext& tests) {
     tests.check(!invalid && !error.empty(),
                 "target layout diagnoses unknown structure identifiers");
 
-    vex::EnumLayoutDescriptor event;
+    vex::IREnumType event;
     event.id = 1u;
     event.name = "Event";
-    event.variants.push_back(vex::EnumVariantLayoutDescriptor{"Stopped", {}});
-    vex::EnumVariantLayoutDescriptor moving;
+    event.variants.push_back(vex::IREnumVariant{"Stopped", {}});
+    vex::IREnumVariant moving;
     moving.name = "Moving";
     moving.fields.push_back(vex::IRStructField{"code", vex::IRType::Byte});
     moving.fields.push_back(vex::IRStructField{"distance", vex::IRType::Int});
     event.variants.push_back(std::move(moving));
-    vex::EnumVariantLayoutDescriptor text;
+    vex::IREnumVariant text;
     text.name = "Text";
     text.fields.push_back(vex::IRStructField{"contents", vex::IRType::String});
     event.variants.push_back(std::move(text));
+    module.enum_types.push_back(std::move(event));
 
-    const auto event_layout = layout.layout_of_enum(event, module);
+    const auto event_layout = layout.layout_of_enum(1u, module);
     tests.check(event_layout && event_layout->discriminant_size == 4u &&
                 event_layout->discriminant_alignment == 4u &&
                 event_layout->payload_offset == 8u &&
@@ -1219,23 +1220,29 @@ void test_target_data_layout_service(TestContext& tests) {
                 event_layout->variants[1].fields[1].offset == 8u,
                 "enum layout preserves declaration-order tags and per-variant payload offsets");
 
-    vex::EnumLayoutDescriptor unit_enum;
+    vex::IREnumType unit_enum;
     unit_enum.id = 2u;
     unit_enum.name = "Direction";
     unit_enum.variants = {{"North", {}}, {"South", {}}, {"East", {}}, {"West", {}}};
-    const auto unit_layout = layout.layout_of_enum(unit_enum, module);
+    module.enum_types.push_back(std::move(unit_enum));
+    const auto unit_layout = layout.layout_of_enum(2u, module);
     tests.check(unit_layout && unit_layout->size == 4u &&
                 unit_layout->alignment == 4u && unit_layout->payload_offset == 4u &&
                 unit_layout->payload_size == 0u,
                 "payload-free enums are compact 32-bit discriminant values");
 
-    vex::EnumLayoutDescriptor duplicate_enum;
+    vex::IREnumType duplicate_enum;
     duplicate_enum.id = 3u;
     duplicate_enum.name = "Invalid";
     duplicate_enum.variants = {{"Same", {}}, {"Same", {}}};
+    module.enum_types.push_back(std::move(duplicate_enum));
     error.clear();
-    tests.check(!layout.layout_of_enum(duplicate_enum, module, &error) && !error.empty(),
+    tests.check(!layout.layout_of_enum(3u, module, &error) && !error.empty(),
                 "target layout rejects duplicate enum variant names");
+    const auto enum_verification = vex::IRVerifier{}.verify(module);
+    tests.check(has_code(enum_verification, "IR083"),
+                "independent IR verifier rejects duplicate enum variants");
+    module.enum_types.pop_back();
 
     vex::IRValue record_parameter;
     record_parameter.id = 1u;

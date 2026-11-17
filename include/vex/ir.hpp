@@ -171,6 +171,17 @@ struct IRStructType {
     std::vector<IRStructField> fields;
 };
 
+struct IREnumVariant {
+    std::string name;
+    std::vector<IRStructField> fields;
+};
+
+struct IREnumType {
+    std::uint32_t id{0};
+    std::string name;
+    std::vector<IREnumVariant> variants;
+};
+
 struct IRInstruction {
     IROp op{IROp::Constant};
     std::optional<IRValue> result;
@@ -239,6 +250,8 @@ struct IRFunction {
 struct IRModule {
     std::vector<IRStructType> struct_types;
     std::vector<IRFunction> functions;
+    // Nominal enum declarations; kept last to preserve older aggregate initializers.
+    std::vector<IREnumType> enum_types;
 };
 
 [[nodiscard]] bool ir_value_has_nested_fixed_storage(

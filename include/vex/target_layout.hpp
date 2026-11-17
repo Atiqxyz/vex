@@ -38,19 +38,6 @@ struct StructLayout {
     std::vector<FieldLayout> fields;
 };
 
-// Layout-only enum descriptor used while defining the inline tagged-union ABI.
-// It becomes part of the main typed IR model when enum syntax and values land.
-struct EnumVariantLayoutDescriptor {
-    std::string name;
-    std::vector<IRStructField> fields;
-};
-
-struct EnumLayoutDescriptor {
-    std::uint32_t id{0};
-    std::string name;
-    std::vector<EnumVariantLayoutDescriptor> variants;
-};
-
 struct EnumVariantLayout {
     std::string name;
     std::uint32_t tag{0};
@@ -83,7 +70,7 @@ public:
         std::uint32_t struct_type_id, const IRModule& module,
         std::string* error = nullptr) const;
     [[nodiscard]] std::optional<EnumLayout> layout_of_enum(
-        const EnumLayoutDescriptor& enumeration, const IRModule& module,
+        std::uint32_t enum_type_id, const IRModule& module,
         std::string* error = nullptr) const;
 
 private:

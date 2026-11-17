@@ -1194,6 +1194,49 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
             }
         }
     }
+    std::unordered_map<std::string, bool> enum_names;
+    for (std::size_t enum_index = 0; enum_index < module.enum_types.size(); ++enum_index) {
+        const IREnumType& enumeration = module.enum_types[enum_index];
+        if (enumeration.id != enum_index + 1u || enumeration.name.empty() ||
+            !enum_names.emplace(enumeration.name, true).second || enumeration.variants.empty()) {
+            result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR082",
+                "enum type declarations must have canonical nonzero IDs, unique names, and at least one variant", {}});
+            continue;
+        }
+
+        std::unordered_map<std::string, bool> variant_names;
+        for (const IREnumVariant& variant : enumeration.variants) {
+            if (variant.name.empty() || !variant_names.emplace(variant.name, true).second) {
+                result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR083",
+                    "enum variant names must be nonempty and unique within their enum", {}});
+                continue;
+            }
+            std::unordered_map<std::string, bool> payload_names;
+            for (const IRStructField& field : variant.fields) {
+                const IRValue field_value = ir_struct_field_value(field);
+                const bool invalid_array = field.type == IRType::Array &&
+                    !valid_array_descriptor(field_value, module.struct_types.size());
+                const bool invalid_non_array_shape = field.type != IRType::Array &&
+                    (field.element_type != IRType::Void || field.array_length != 0u ||
+                     field.element_struct_type_id != 0u || !field.array_dimensions.empty());
+                const bool invalid_structure = field.type == IRType::Struct &&
+                    (field.struct_type_id == 0u ||
+                     field.struct_type_id > module.struct_types.size());
+                const bool invalid_scalar = field.type != IRType::Array &&
+                    field.type != IRType::Struct &&
+                    field.type != IRType::Int && field.type != IRType::Byte &&
+                    field.type != IRType::Float && field.type != IRType::Bool &&
+                    field.type != IRType::String;
+                if (field.name.empty() || !payload_names.emplace(field.name, true).second ||
+                    field.type == IRType::Void || invalid_array || invalid_non_array_shape ||
+                    invalid_structure || invalid_scalar ||
+                    (field.type != IRType::Struct && field.struct_type_id != 0u)) {
+                    result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR084",
+                        "enum variant payload field has an invalid name, type, or aggregate shape", {}});
+                }
+            }
+        }
+    }
     for (const IRFunction& function : module.functions) {
         if (function.name.empty()) {
             result.diagnostics.push_back(Diagnostic{
