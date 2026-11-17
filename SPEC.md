@@ -93,7 +93,7 @@ make main() {
 - Struct values are not currently comparable with `==` or `!=`; define equality explicitly in a future language design before enabling it.
 - Structure fields retain declaration order. Each field is placed according to the target's native ABI alignment for its type; the implementation may insert padding between fields and at the end of a structure. The structure's allocation size therefore includes any required tail padding and is not necessarily the sum of its field sizes.
 - The C backend relies on the target C compiler's native structure layout and `sizeof` when storing dynamic-array elements. The LLVM backend uses native aggregate types and derives allocation sizes from the target data layout. Both paths must therefore use the target ABI's full structure allocation size, including tail padding, for dynamic-array element strides.
-- Structure sizes, alignments, and field offsets may differ between target ABIs. VEX does not promise a stable cross-platform byte representation, and structure memory must not be treated as a serialization format. Explicit packed layout, user-selected alignment, ABI annotations, and user-visible raw pointers are not implemented.
+- Structure sizes, alignments, and field offsets may differ between target ABIs. VEX does not promise a stable cross-platform byte representation, and structure memory must not be treated as a serialization format. Explicit packed layout, user-selected alignment, ABI annotations, and raw pointers beyond the limited primitive-local subset described below are not implemented.
 
 ### User-defined enums and exhaustive matching
 
@@ -243,7 +243,7 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 10 | shifts `<<`, `>>` | left |
 | 11 | addition `+`, `-` | left |
 | 12 | multiplication `*`, `/`, `%` | left |
-| 13 | unary `+`, `-`, `!`, `~` | prefix |
+| 13 | unary `+`, `-`, `!`, `~`, address-of `&`, dereference `*` | prefix |
 | 14 | function call `(...)` | postfix |
 | 15 | array indexing `[...]` | postfix |
 | 16 | structure member access and construction | postfix |
@@ -264,12 +264,14 @@ Dynamic-array headers and their backing buffers are registered in a program-life
 | `bool` | Boolean value |
 | `string` | Length-aware byte string; UTF-8 validity is not guaranteed. |
 | `void` | Function return with no value |
+| `*T` | Single-level typed pointer to a mutable local or parameter of primitive type `int`, `byte`, `float`, `bool`, or `string` |
 | fixed array | One inline fixed-length dimension in an array shape; may contain supported nested dynamic dimensions, and may be annotated as `Point[3]` or `int[2][]` |
 | integer range | Temporary half-open or inclusive iteration bounds; not a storable value |
 
 The implemented numeric representation is signed 64-bit `int` values and 64-bit floating-point values. `byte` is a separate unsigned 8-bit scalar and is deliberately not an arithmetic numeric type. `to_byte(int)` checks that the value is in the inclusive range 0 through 255 and traps otherwise; `to_int(byte)` zero-extends the value to `int`. Byte relational comparisons are unsigned. Bitwise operations accept two `int` operands or two `byte` operands: `int` operations act on all 64 bits, while `byte` operations act on exactly 8 bits and return `byte`. Fixed arrays are stored as value aggregates; they do not allocate heap memory. Dynamic arrays store a pointer to a runtime-managed header and a growable contiguous element buffer. Dynamic-array elements are copied as typed values, including whole structures; any dynamic-array fields inside those structures retain their shared references.
 
 - Local `let` and `const` types are inferred from their initializers when no annotation is present.
+- A mutable local or mutable function parameter of primitive type may be addressed with unary `&`; this yields a native typed pointer. `*T` is the explicit pointer annotation, and a local pointer may also be inferred from an address-of initializer. Unary `*` dereferences the pointer for a read, while `*pointer = value` writes through it. Pointer pointee types must match exactly. The initial subset supports only single-level pointers to mutable primitive locals/parameters; pointer parameters and returns, aggregate pointees, pointer-to-pointer values, null pointers, pointer arithmetic, integer/pointer conversions, and an `unsafe` construct are not implemented. A local pointer may not be rebound to a target from a shorter-lived lexical scope. This is an initial lexical escape check, not a complete lifetime or borrowing system; provenance, aliasing and full lifetime rules remain under design.
 - Explicit local annotations are checked against initializer types.
 - An `int` value may widen to `float`; implicit conversion from `float` to `int` and from `int` to `byte` is rejected. Use checked `to_byte(int)` and explicit `to_int(byte)` conversions.
 - Addition `+` accepts either two numeric operands or two strings. String concatenation preserves byte lengths, including embedded NUL bytes; it does not decode or normalize UTF-8. Subtraction, multiplication, division, and remainder require numeric operands. The remainder operator `%` requires two `int` operands and uses truncating signed-remainder semantics: the quotient is truncated toward zero and any non-zero remainder has the sign of the left operand (for example, `-7 % 3 == -1`, `7 % -3 == 1`, and `-7 % -3 == -1`). A zero divisor traps. The defined edge case `INT64_MIN % -1` returns `0`; `INT64_MIN / -1` remains a checked division overflow.
