@@ -675,7 +675,7 @@ private:
                 break;
             }
             const IRValue& result = *instruction.result;
-            if (!valid_array_descriptor(result, struct_types_.size()))
+            if (!valid_array_descriptor(result, struct_types_.size(), enum_types_.size()))
                 report("IR042", "array result has an invalid element type, dimension vector, or nominal identity", result.span);
             if (result.array_length != 0 &&
                 instruction.operands.size() != result.array_length)
