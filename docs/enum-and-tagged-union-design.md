@@ -1,6 +1,6 @@
 # VEX enums and tagged unions
 
-**Status:** Design selected; implementation not yet started.
+**Status:** Declaration syntax, payload validation, nominal IR type descriptors, and inline layout calculation are implemented. Enum values, constructors, payload access, and exhaustive matching are not yet implemented.
 
 This design treats an enum as a nominal, inline tagged union. It is not a boxed object, an untagged union, or merely a collection of integer constants. The value contains a discriminant and storage for the largest variant payload. Construction and pattern matching are typed operations, and storage is calculated by the shared target data-layout service.
 

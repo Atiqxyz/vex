@@ -87,7 +87,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Byte / raw buffer type | Implemented | `byte` is an unsigned 8-bit scalar; dynamic `byte[]` arrays provide mutable contiguous buffers with checked indexing, growth, capacity and reservation. |
 | User-defined structs / records | Implemented | Named value types with primitive, earlier-declared nested-struct, and fixed/dynamic nested array fields; arrays of structs support value or shared-reference semantics according to their dimensions, nominal identity, nested field/index mutation, parameters/returns, push/pop/iteration, typed IR, C and LLVM backends. Recursive dynamic-array fields are supported; recursive by-value fields, explicit layout controls and equality remain deferred. |
 | Tuples | Not implemented | Could support multiple results and grouped values. |
-| Enums / tagged unions | Design recorded | [Inline tagged-union design](enum-and-tagged-union-design.md) selected: nominal variants, fixed-width discriminant, inline maximum-sized payload, and exhaustive match. No syntax or compiler implementation is claimed yet. |
+| Enums / tagged unions | Partial | Top-level `enum` declarations with unit and positional payload variants parse, validate payload types, and lower to nominal IR declarations. Enum variables, constructors, payload access, and exhaustive `match` are not implemented yet. |
 | Union / untagged union | Deferred | Kept separate from safe tagged enums; requires explicit unsafe access and layout rules. |
 | Optional / nullable values | Not implemented | Decide representation and null-safety rules. |
 | Result / error values | Not implemented | Needed for explicit recoverable error handling. |
