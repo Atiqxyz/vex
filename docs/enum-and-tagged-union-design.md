@@ -1,6 +1,6 @@
 # VEX enums and tagged unions
 
-**Status:** Declaration syntax, payload validation, nominal IR type descriptors, and inline layout calculation are implemented. Enum values, constructors, payload access, and exhaustive matching are not yet implemented.
+**Status:** Implemented end to end for statement-form enums: declarations, nominal values, typed constructors, payload projection, exhaustive matching with scoped payload bindings, verified IR, target layout, and C/LLVM backend support. Expression-valued matching, guards, nested destructuring, and named payload fields remain deferred.
 
 This design treats an enum as a nominal, inline tagged union. It is not a boxed object, an untagged union, or merely a collection of integer constants. The value contains a discriminant and storage for the largest variant payload. Construction and pattern matching are typed operations, and storage is calculated by the shared target data-layout service.
 
@@ -93,7 +93,7 @@ Construction, discriminant dispatch, and payload projection must be dedicated ty
 
 The C backend will emit a named structure containing the fixed-width tag and a union of named variant-payload structures. The LLVM backend will emit a target-layout-compatible aggregate, use the tag for an LLVM switch, and access payload fields through offsets calculated by the shared target layout model. Both backends must agree on tag values, payload offsets, enum size/alignment, and function/array value semantics.
 
-The shared TargetDataLayout service must compute each variant's tuple layout, the maximum union size/alignment, payload offset, total enum size/alignment, and enum array stride. It must reject overflow and unsupported layouts rather than wrapping sizes. Nominal enum and variant declarations now live in the canonical IR module type table, with verifier validation for IDs, names, variant uniqueness, and payload descriptors. The layout service calculates discriminant and payload sizes, alignments, offsets, and declaration-order tags. These are declaration and layout foundations only; enum values, source syntax, construction, and matching remain unimplemented.
+The shared TargetDataLayout service must compute each variant's tuple layout, the maximum union size/alignment, payload offset, total enum size/alignment, and enum array stride. It must reject overflow and unsupported layouts rather than wrapping sizes. Nominal enum and variant declarations now live in the canonical IR module type table, with verifier validation for IDs, names, variant uniqueness, and payload descriptors. The layout service calculates discriminant and payload sizes, alignments, offsets, and declaration-order tags. These layout and value operations are integrated end to end: source constructors lower to typed IR, payload projections are verified and guarded at runtime, and statement-form matching lowers to tag dispatch with scoped payload bindings. Both backends use the shared target layout. Expression-valued matching and richer pattern forms remain deferred.
 
 ## 6. Alternatives considered
 

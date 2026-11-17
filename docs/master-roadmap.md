@@ -50,9 +50,9 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [x] Struct assignment, parameter passing, and return semantics
 - [x] Defined field layout, padding, and alignment rules
 - [x] Nested structures, arrays of structures, and array-valued structure fields
-- [ ] Enums for finite named alternatives
-- [ ] Tagged unions / algebraic data types
-- [ ] Exhaustive matching over enums and tagged unions
+- [x] Enums for finite named alternatives
+- [x] Tagged unions / algebraic data types
+- [x] Exhaustive statement matching over enums and tagged unions
 - [ ] Tuples and multi-value returns where they simplify APIs
 - [ ] Type aliases and distinct newtypes
 - [ ] Optional values and explicit nullable representation
@@ -335,7 +335,7 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 2. Struct semantics: value behavior, copy behavior, parameters, returns, nested fields.
 3. [x] Arrays of structs and structs containing fixed/dynamic arrays, including nested field/index updates.
 4. Struct layout and alignment decisions that are consistent across C and LLVM.
-5. [Partial] Enum declarations, payload validation, and nominal IR type descriptors; continue with typed enum values, construction, and exhaustive matching (see [design](enum-and-tagged-union-design.md)).
+5. [x] Enums and tagged unions: nominal declarations, typed values and constructors, payload projection, exhaustive statement matching, verified IR, and C/LLVM layout/backend support (see [design](enum-and-tagged-union-design.md)).
 6. Tuples and destructuring if they simplify multiple returns and data flow.
 
 ### Milestone 2 — Complete the core type and expression model
