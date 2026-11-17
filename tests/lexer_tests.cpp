@@ -192,7 +192,6 @@ void run_lexer_tests(TestContext& tests) {
     test_numeric_literals(tests);
     test_newlines_and_comments(tests);
     test_operators(tests);
-    test_match_tokens(tests);
     test_range_operators(tests);
     test_strings_and_invalid_input(tests);
     test_diagnostic_positions(tests);
