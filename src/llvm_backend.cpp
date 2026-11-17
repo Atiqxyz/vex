@@ -1869,6 +1869,11 @@ trap:
                     << ", align " << enum_layout->alignment << "\n"
                     << "  store " << type << " zeroinitializer, ptr " << temporary
                     << ", align " << enum_layout->alignment << "\n";
+            const std::string tag_pointer = next_temp();
+            output_ << "  " << tag_pointer << " = getelementptr " << type
+                    << ", ptr " << temporary << ", i32 0, i32 0\\n"
+                    << "  store i32 " << variant_index << ", ptr " << tag_pointer
+                    << ", align 4\\n";
             const EnumVariantLayout& variant = enum_layout->variants[variant_index];
             for (std::size_t index = 0; index < instruction.operands.size(); ++index) {
                 const IRValue& payload = value_types_.at(instruction.operands[index]);
@@ -1888,9 +1893,11 @@ trap:
         }
         case IROp::EnumTag: {
             const IRValue& object = value_types_.at(instruction.operands[0]);
+            const std::string raw_tag = next_temp();
             const std::string tag = next_temp();
-            output_ << "  " << tag << " = extractvalue " << llvm_type(object)
-                    << ' ' << operands[0] << ", 0\n";
+            output_ << "  " << raw_tag << " = extractvalue " << llvm_type(object)
+                    << ' ' << operands[0] << ", 0\\n"
+                    << "  " << tag << " = zext i32 " << raw_tag << " to i64\\n";
             store_result(instruction, tag);
             return;
         }
