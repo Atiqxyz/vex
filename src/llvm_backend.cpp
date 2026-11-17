@@ -32,6 +32,7 @@ std::string llvm_type(const IRType type) {
     case IRType::String: return "{ ptr, i64 }";
     case IRType::Array: return "[0 x i8]";
     case IRType::Struct: return "%vex.struct.0";
+    case IRType::Enum: return "%vex.enum.0";
     }
     return "void";
 }
@@ -40,8 +41,13 @@ std::string llvm_struct_type_name(const std::uint32_t id) {
     return "%vex.struct." + std::to_string(id);
 }
 
+std::string llvm_enum_type_name(const std::uint32_t id) {
+    return "%vex.enum." + std::to_string(id);
+}
+
 std::string llvm_type(const IRValue& value) {
     if (value.type == IRType::Struct) return llvm_struct_type_name(value.struct_type_id);
+    if (value.type == IRType::Enum) return llvm_enum_type_name(value.enum_type_id);
     if (value.type != IRType::Array) return llvm_type(value.type);
     const std::vector<std::uint32_t> dimensions = ir_array_dimensions(value);
     if (dimensions.front() == 0u) return "ptr";
@@ -61,12 +67,15 @@ IRValue array_field_value(const IRStructField& field) {
 std::string llvm_return_type(const IRFunction& function) {
     if (function.return_type == IRType::Struct)
         return llvm_struct_type_name(function.return_struct_type_id);
+    if (function.return_type == IRType::Enum)
+        return llvm_enum_type_name(function.return_enum_type_id);
     if (function.return_type != IRType::Array)
         return llvm_type(function.return_type);
     std::vector<std::uint32_t> dimensions = function.return_array_dimensions;
     if (dimensions.empty()) dimensions.push_back(function.return_array_length);
     return llvm_type(ir_make_array_value(function.return_element_type,
-        std::move(dimensions), function.return_element_struct_type_id, function.span));
+        std::move(dimensions), function.return_element_struct_type_id, function.span,
+        function.return_element_enum_type_id));
 }
 
 std::string value_slot(const IRValueId id) {
@@ -285,6 +294,25 @@ private:
                 << "@.vex_file_write_mode = private unnamed_addr constant [3 x i8] c\"wb\\00\", align 1\n"
                 << "%vex.array = type { ptr, i64, i64, i64, ptr }\n"
                 << "%vex.string.node = type { ptr, [0 x i8] }\n";
+        for (const IREnumType& enumeration : module_.enum_types) {
+            std::string error;
+            const auto enum_layout = target_layout_.layout_of_enum(
+                enumeration.id, module_, &error);
+            if (!enum_layout) {
+                report("LLVM011", "cannot compute target layout for enum " +
+                       enumeration.name + ": " + error);
+                continue;
+            }
+            output_ << llvm_enum_type_name(enumeration.id) << " = type { i32";
+            if (enum_layout->payload_size != 0u) {
+                const std::uint64_t alignment = enum_layout->payload_alignment;
+                const char* alignment_type = alignment >= 8u ? "i64" :
+                    alignment >= 4u ? "i32" : alignment >= 2u ? "i16" : "i8";
+                output_ << ", [0 x " << alignment_type << "], ["
+                        << enum_layout->payload_size << " x i8]";
+            }
+            output_ << " }\\n";
+        }
         for (const IRStructType& structure : module_.struct_types) {
             output_ << llvm_struct_type_name(structure.id) << " = type { ";
             for (std::size_t index = 0; index < structure.fields.size(); ++index) {
@@ -1431,6 +1459,9 @@ trap:
             return;
         case IRType::Struct:
             report("LLVM010", "structure values must be constructed with struct_make", instruction.span);
+            return;
+        case IRType::Enum:
+            report("LLVM010", "enum values must be constructed with enum_make", instruction.span);
             return;
         }
         store_result(instruction, result);
