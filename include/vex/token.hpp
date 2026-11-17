@@ -38,6 +38,7 @@ enum class TokenKind {
     KwBool,
     KwString,
     KwImport,
+    KwMatch,
 
     LeftParen,
     RightParen,
