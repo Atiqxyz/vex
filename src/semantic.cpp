@@ -1452,6 +1452,9 @@ private:
                     if (origin != model_.bindings.end() && destination != model_.bindings.end() &&
                         origin->second.scope_depth > destination->second.scope_depth)
                         report("SEM072", "pointer assignment would outlive the local variable it points to", expression.span);
+                    // Later reads of this pointer binding must observe its current target origin,
+                    // otherwise a subsequent copy could inherit a stale lifetime origin.
+                    symbol->pointer_type = pointer->second;
                     model_.pointer_expression_types[&expression] = pointer->second;
                 }
             }

@@ -1032,6 +1032,21 @@ void test_typed_pointer_semantics(TestContext& tests) {
     const vex::SemanticResult escaping_result = analyze(escaping);
     tests.check(has_code(escaping_result, "SEM072"),
                 "pointer assignment rejects a pointer to a shorter-lived local");
+
+    const vex::SourceFile retargeted{"pointer_retarget.vex",
+        "make main() {\n"
+        "    let outer = 1\n"
+        "    let outer_pointer = &outer\n"
+        "    if (true) {\n"
+        "        let inner = 2\n"
+        "        let inner_pointer = &inner\n"
+        "        inner_pointer = &outer\n"
+        "        outer_pointer = inner_pointer\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult retargeted_result = analyze(retargeted);
+    tests.check(!retargeted_result.has_errors(),
+                "pointer reassignment refreshes the target origin before alias propagation");
 }
 
 } // namespace
