@@ -81,6 +81,7 @@ StmtPtr Parser::parse_statement(const bool top_level) {
     }
     if (match(TokenKind::KwRepeat)) return parse_repeat(previous());
     if (match(TokenKind::KwFor)) return parse_for(previous());
+    if (match(TokenKind::KwMatch)) return parse_match(previous());
     if (match(TokenKind::KwImport)) {
         if (!top_level) {
             report_current("PAR015", "import declarations are only allowed at file scope");
