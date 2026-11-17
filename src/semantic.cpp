@@ -987,6 +987,10 @@ private:
                     model_.struct_expression_types.find(field.value.get()) !=
                         model_.struct_expression_types.end()
                     ? model_.struct_expression_types.at(field.value.get()) : 0u;
+                const std::uint32_t actual_enum = field.value &&
+                    model_.enum_expression_types.find(field.value.get()) !=
+                        model_.enum_expression_types.end()
+                    ? model_.enum_expression_types.at(field.value.get()) : 0u;
                 const auto actual_array = field.value
                     ? model_.array_expression_types.find(field.value.get())
                     : model_.array_expression_types.end();
@@ -995,6 +999,7 @@ private:
                      expected->array_type->same_shape(actual_array->second));
                 if (!is_assignable(expected->type, actual) ||
                     (expected->type == Type::Struct && expected->struct_type_id != actual_struct) ||
+                    (expected->type == Type::Enum && expected->enum_type_id != actual_enum) ||
                     !array_shape_matches) {
                     report("SEM052", "initializer for field '" + expected->name +
                            "' has an incompatible type or array shape",
@@ -1071,6 +1076,8 @@ private:
             model_.member_field_indices[member] = field_index;
             if (field->type == Type::Struct)
                 model_.struct_expression_types[&expression] = field->struct_type_id;
+            if (field->type == Type::Enum)
+                model_.enum_expression_types[&expression] = field->enum_type_id;
             if (field->type == Type::Array && field->array_type)
                 model_.array_expression_types[&expression] = *field->array_type;
             return field->type;
