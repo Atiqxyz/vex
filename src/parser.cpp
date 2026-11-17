@@ -89,6 +89,14 @@ StmtPtr Parser::parse_statement(const bool top_level) {
         }
         return parse_import(previous());
     }
+    if (match(TokenKind::KwEnum)) {
+        if (!top_level) {
+            report_current("PAR016", "enum declarations are only allowed at file scope");
+            synchronize();
+            return nullptr;
+        }
+        return parse_enum(previous());
+    }
     if (match(TokenKind::KwStruct)) {
         if (!top_level) {
             report_current("PAR012", "structure declarations are only allowed at file scope");
@@ -172,6 +180,43 @@ StmtPtr Parser::parse_struct(const Token& start) {
     return std::make_unique<Statement>(Statement{
         SourceSpan{start.span.begin, closing.span.end},
         StructDeclStmt{name.span, std::move(fields)}});
+}
+
+StmtPtr Parser::parse_enum(const Token& start) {
+    const Token name = expect(TokenKind::Identifier, "expected an enum name after 'enum'");
+    static_cast<void>(expect(TokenKind::LeftBrace, "expected '{' after enum name"));
+    std::vector<EnumVariantDecl> variants;
+    skip_newlines();
+    while (!check(TokenKind::RightBrace) && !check(TokenKind::EndOfFile)) {
+        const Token variant = expect(TokenKind::Identifier, "expected an enum variant name");
+        std::vector<SourceSpan> payload_types;
+        if (match(TokenKind::LeftParen)) {
+            skip_newlines();
+            if (!check(TokenKind::RightParen) && !check(TokenKind::EndOfFile)) {
+                do {
+                    const auto payload_type = parse_type_annotation();
+                    if (payload_type) payload_types.push_back(*payload_type);
+                    skip_newlines();
+                } while (match(TokenKind::Comma) && !check(TokenKind::RightParen));
+            }
+            static_cast<void>(expect(TokenKind::RightParen,
+                                     "expected ')' after enum variant payload types"));
+        }
+        variants.push_back(EnumVariantDecl{variant.span, std::move(payload_types)});
+        skip_newlines();
+        if (!match(TokenKind::Comma) && !check(TokenKind::RightBrace) &&
+            !check(TokenKind::EndOfFile)) {
+            report_current("PAR017", "expected ',' between enum variants");
+            synchronize();
+            skip_newlines();
+            static_cast<void>(match(TokenKind::Comma));
+        }
+        skip_newlines();
+    }
+    const Token closing = expect(TokenKind::RightBrace, "expected '}' to close enum declaration");
+    return std::make_unique<Statement>(Statement{
+        SourceSpan{start.span.begin, closing.span.end},
+        EnumDeclStmt{name.span, std::move(variants)}});
 }
 
 StmtPtr Parser::parse_variable(const Token& start, const bool immutable) {

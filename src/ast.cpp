@@ -87,6 +87,21 @@ void print_statement(std::ostream& output, const SourceFile& source,
                 if (field.type_annotation) output << ": " << source.slice(*field.type_annotation);
                 output << '\n';
             }
+        } else if constexpr (std::is_same_v<Node, EnumDeclStmt>) {
+            output << "Enum " << source.slice(node.name) << '\n';
+            for (const EnumVariantDecl& variant : node.variants) {
+                indent(output, depth + 1);
+                output << "Variant " << source.slice(variant.name);
+                if (!variant.payload_types.empty()) {
+                    output << " (";
+                    for (std::size_t index = 0; index < variant.payload_types.size(); ++index) {
+                        if (index != 0) output << ", ";
+                        output << source.slice(variant.payload_types[index]);
+                    }
+                    output << ')';
+                }
+                output << '\n';
+            }
         } else if constexpr (std::is_same_v<Node, ImportDeclStmt>) {
             output << "Import " << source.slice(node.path_literal) << '\\n';
         } else if constexpr (std::is_same_v<Node, VariableDeclStmt>) {

@@ -292,6 +292,34 @@ void test_structure_declarations_literals_and_members(TestContext& tests) {
                 "named structure construction produces a structure literal node");
 }
 
+void test_enum_declarations(TestContext& tests) {
+    const vex::SourceFile source{"enum_declarations.vex",
+        "enum SolverResult {\n"
+        "    Converged(int, float),\n"
+        "    Diverged(string),\n"
+        "    Cancelled,\n"
+        "}\n"};
+    const vex::ParseResult parsed = parse(source);
+    tests.check(!parsed.has_errors() && parsed.program.statements.size() == 1u,
+                "enum declarations with unit and positional payload variants parse");
+    if (parsed.has_errors() || parsed.program.statements.empty()) return;
+    const auto* enumeration =
+        std::get_if<vex::EnumDeclStmt>(&parsed.program.statements[0]->data);
+    tests.check(enumeration && source.slice(enumeration->name) == "SolverResult" &&
+                enumeration->variants.size() == 3u,
+                "enum AST retains its name and declaration-ordered variants");
+    if (enumeration && enumeration->variants.size() == 3u) {
+        tests.check(source.slice(enumeration->variants[0].name) == "Converged" &&
+                    enumeration->variants[0].payload_types.size() == 2u &&
+                    source.slice(enumeration->variants[0].payload_types[1]) == "float",
+                    "enum AST preserves ordered payload type spans");
+        tests.check(enumeration->variants[2].payload_types.empty(),
+                    "unit enum variants have no payload fields");
+    }
+    const vex::SourceFile nested{"nested_enum.vex", "make main() { enum Local { A } }\n"};
+    tests.check(parse(nested).has_errors(), "enum declarations are restricted to file scope");
+}
+
 void test_multiline_structure_literal_with_array_fields(TestContext& tests) {
     const vex::SourceFile source{"multiline_structure_literal.vex",
         "struct Point { x: int, y: int }\n"
@@ -427,6 +455,7 @@ void run_parser_tests(TestContext& tests) {
     test_array_literal_indexing_and_assignment(tests);
     test_integer_range_expressions(tests);
     test_structure_declarations_literals_and_members(tests);
+    test_enum_declarations(tests);
     test_multiline_structure_literal_with_array_fields(tests);
     test_multidimensional_type_annotation_spans(tests);
     test_typed_declarations_may_omit_initializer(tests);

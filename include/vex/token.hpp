@@ -17,6 +17,7 @@ enum class TokenKind {
 
     KwMake,
     KwStruct,
+    KwEnum,
     KwLet,
     KwConst,
     KwIf,

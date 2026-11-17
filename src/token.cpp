@@ -17,6 +17,7 @@ std::string_view token_kind_name(const TokenKind kind) noexcept {
     case TokenKind::String: return "STRING";
     case TokenKind::KwMake: return "MAKE";
     case TokenKind::KwStruct: return "STRUCT";
+    case TokenKind::KwEnum: return "ENUM";
     case TokenKind::KwLet: return "LET";
     case TokenKind::KwConst: return "CONST";
     case TokenKind::KwIf: return "IF";
