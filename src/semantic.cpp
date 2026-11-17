@@ -986,6 +986,38 @@ private:
         }
 
         if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
+            const auto* enum_name = member->object
+                ? std::get_if<NameExpr>(&member->object->data) : nullptr;
+            if (enum_name) {
+                const auto enum_id = enum_ids_.find(spelling(enum_name->name));
+                if (enum_id != enum_ids_.end()) {
+                    const SemanticEnumType& enumeration =
+                        model_.enum_types[enum_id->second - 1u];
+                    const std::string variant_name = spelling(member->member);
+                    const auto variant = std::find_if(
+                        enumeration.variants.begin(), enumeration.variants.end(),
+                        [&](const SemanticEnumVariant& candidate) {
+                            return candidate.name == variant_name;
+                        });
+                    if (variant == enumeration.variants.end()) {
+                        report("SEM066", "enum '" + enumeration.name +
+                               "' has no variant named '" + variant_name + "'",
+                               member->member);
+                        return Type::Error;
+                    }
+                    const std::uint32_t variant_index =
+                        static_cast<std::uint32_t>(variant - enumeration.variants.begin());
+                    if (!variant->fields.empty()) {
+                        report("SEM065", "enum variant '" + enumeration.name + "." +
+                               variant_name + "' requires payload constructor arguments",
+                               expression.span);
+                        return Type::Error;
+                    }
+                    model_.enum_expression_types[&expression] = enumeration.id;
+                    model_.enum_expression_variants[&expression] = variant_index;
+                    return Type::Enum;
+                }
+            }
             const Type object_type = member->object
                 ? analyze_expression(*member->object) : Type::Error;
             if (object_type != Type::Struct) {
@@ -1308,6 +1340,83 @@ private:
             }
 
             const auto* name = callee ? std::get_if<NameExpr>(&callee->data) : nullptr;
+            const auto* enum_variant = callee
+                ? std::get_if<MemberExpr>(&callee->data) : nullptr;
+            const auto* enum_name = enum_variant && enum_variant->object
+                ? std::get_if<NameExpr>(&enum_variant->object->data) : nullptr;
+            if (enum_variant && enum_name) {
+                const auto enum_id = enum_ids_.find(spelling(enum_name->name));
+                if (enum_id != enum_ids_.end()) {
+                    const SemanticEnumType& enumeration =
+                        model_.enum_types[enum_id->second - 1u];
+                    const std::string variant_name = spelling(enum_variant->member);
+                    const auto variant = std::find_if(
+                        enumeration.variants.begin(), enumeration.variants.end(),
+                        [&](const SemanticEnumVariant& candidate) {
+                            return candidate.name == variant_name;
+                        });
+                    if (variant == enumeration.variants.end()) {
+                        report("SEM066", "enum '" + enumeration.name +
+                               "' has no variant named '" + variant_name + "'",
+                               enum_variant->member);
+                        for (const ExprPtr& argument : call->arguments)
+                            if (argument) static_cast<void>(analyze_expression(*argument));
+                        return Type::Error;
+                    }
+                    const std::uint32_t variant_index =
+                        static_cast<std::uint32_t>(variant - enumeration.variants.begin());
+                    if (call->arguments.size() != variant->fields.size()) {
+                        report("SEM067", "enum variant '" + enumeration.name + "." +
+                               variant_name + "' expects " +
+                               std::to_string(variant->fields.size()) +
+                               " payload argument(s), but got " +
+                               std::to_string(call->arguments.size()), expression.span);
+                    }
+                    const std::size_t count = std::min(
+                        call->arguments.size(), variant->fields.size());
+                    for (std::size_t index = 0; index < call->arguments.size(); ++index) {
+                        const ExprPtr& argument = call->arguments[index];
+                        if (index < count && argument &&
+                            variant->fields[index].type == Type::Array &&
+                            variant->fields[index].array_type &&
+                            std::holds_alternative<ArrayLiteralExpr>(argument->data)) {
+                            model_.array_expression_types[argument.get()] =
+                                *variant->fields[index].array_type;
+                        }
+                        const Type actual = argument
+                            ? analyze_expression(*argument) : Type::Error;
+                        if (index >= count || !argument) continue;
+                        const SemanticEnumPayloadField& expected = variant->fields[index];
+                        const std::uint32_t actual_struct =
+                            model_.struct_expression_types.count(argument.get())
+                                ? model_.struct_expression_types.at(argument.get()) : 0u;
+                        const std::uint32_t actual_enum =
+                            model_.enum_expression_types.count(argument.get())
+                                ? model_.enum_expression_types.at(argument.get()) : 0u;
+                        const auto actual_array =
+                            model_.array_expression_types.find(argument.get());
+                        const bool array_matches = expected.type != Type::Array ||
+                            (expected.array_type &&
+                             actual_array != model_.array_expression_types.end() &&
+                             expected.array_type->same_shape(actual_array->second));
+                        if (!is_assignable(expected.type, actual) ||
+                            (expected.type == Type::Struct &&
+                             expected.struct_type_id != actual_struct) ||
+                            (expected.type == Type::Enum &&
+                             expected.enum_type_id != actual_enum) ||
+                            !array_matches) {
+                            report("SEM068", "payload argument " +
+                                   std::to_string(index + 1u) + " for '" +
+                                   enumeration.name + "." + variant_name +
+                                   "' has an incompatible type or nominal identity",
+                                   argument->span);
+                        }
+                    }
+                    model_.enum_expression_types[&expression] = enumeration.id;
+                    model_.enum_expression_variants[&expression] = variant_index;
+                    return Type::Enum;
+                }
+            }
             Symbol* function = nullptr;
             if (name) {
                 const std::string identifier = spelling(name->name);
