@@ -254,6 +254,7 @@ struct IRFunction {
     std::uint32_t return_struct_type_id{0};
     std::uint32_t return_enum_type_id{0};
     std::uint32_t return_element_struct_type_id{0};
+    std::uint32_t return_element_enum_type_id{0};
     std::vector<std::uint32_t> return_array_dimensions;
     std::vector<IRBlock> blocks;
     IRBlockId entry_block{0};
