@@ -1630,7 +1630,7 @@ private:
             if (const auto* dereference = assignment->target
                     ? std::get_if<UnaryExpr>(&assignment->target->data) : nullptr;
                 dereference && dereference->op == TokenKind::Star) {
-                if (compound || !dereference->operand || !assignment->value) return std::nullopt;
+                if (!dereference->operand || !assignment->value) return std::nullopt;
                 const auto pointer = lower_expression(*dereference->operand);
                 if (!pointer) return std::nullopt;
                 const IRPlaceId place = create_pointer_target_place(*pointer, expression.span);
