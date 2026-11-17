@@ -758,6 +758,27 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
                 "unknown structure names are rejected in array element annotations");
 }
 
+void test_enum_and_structure_type_composition(TestContext& tests) {
+    const vex::SourceFile source{"enum_structure_composition.vex",
+        "struct Packet { outcome: Outcome }\n"
+        "enum Outcome { Success(int), Failure(string) }\n"
+        "make main() {\n"
+        "    let packet = Packet{outcome: Outcome.Success(5)}\n"
+        "    match packet.outcome {\n"
+        "        Outcome.Success(value) => { say(value) }\n"
+        "        Outcome.Failure(reason) => { say(reason) }\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult result = analyze(source);
+    tests.check(!result.has_errors(),
+                "structures can contain enums declared later and expose them to exhaustive matching");
+    tests.check(result.model.struct_types.size() == 1u &&
+                result.model.struct_types.front().fields.size() == 1u &&
+                result.model.struct_types.front().fields.front().type == vex::SemanticType::Enum &&
+                result.model.struct_types.front().fields.front().enum_type_id == 1u,
+                "structure fields preserve enum nominal identity");
+}
+
 void test_enum_match_semantics(TestContext& tests) {
     const vex::SourceFile valid{"valid_enum_match.vex",
         "enum Result { Success(int), Failure(string), Cancelled }\n"
@@ -997,6 +1018,7 @@ void run_semantic_tests(TestContext& tests) {
     test_for_in_rejects_non_array_values(tests);
     test_structure_types_value_semantics_and_diagnostics(tests);
     test_enum_declaration_semantics(tests);
+    test_enum_and_structure_type_composition(tests);
     test_enum_match_semantics(tests);
     test_string_byte_length_semantics(tests);
     test_string_join_semantics(tests);
