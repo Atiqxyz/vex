@@ -139,6 +139,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 **Why it matters:** VEX aims to be a systems language. Memory behavior cannot remain an undocumented implementation detail forever.
 
 - [ ] A documented stack and heap model
+- [x] Function-local typed places and explicit load/store operations in verified IR and both backends
 - [x] Target-aware object and per-function limits for nested fixed aggregate stack storage
 - [ ] User-visible allocator interface
 - [ ] Allocator selection and allocator-aware collections
