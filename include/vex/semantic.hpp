@@ -149,6 +149,17 @@ struct SemanticEnumType {
     SourceSpan declaration{};
 };
 
+struct SemanticMatchArmInfo {
+    bool wildcard{false};
+    std::uint32_t variant_index{0};
+    std::vector<SemanticBindingId> payload_bindings;
+};
+
+struct SemanticMatchInfo {
+    std::uint32_t enum_type_id{0};
+    std::vector<SemanticMatchArmInfo> arms;
+};
+
 // The model is tied to the AST passed to SemanticAnalyzer. Keep that AST alive
 // for as long as pointers in these maps are used.
 struct SemanticModel {
@@ -165,6 +176,7 @@ struct SemanticModel {
     std::unordered_map<const AssignmentExpr*, SemanticBindingId> assignment_targets;
     std::unordered_map<const ForStmt*, SemanticBindingId> for_bindings;
     std::unordered_map<const CallExpr*, std::string> resolved_calls;
+    std::unordered_map<const MatchStmt*, SemanticMatchInfo> match_statements;
     std::unordered_map<const FunctionDeclStmt*, SemanticFunctionSignature> functions;
     std::unordered_map<SemanticBindingId, SemanticBinding> bindings;
     std::vector<SemanticStructType> struct_types;
