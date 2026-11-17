@@ -1194,11 +1194,11 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
             }
         }
     }
-    std::unordered_map<std::string, bool> enum_names;
     for (std::size_t enum_index = 0; enum_index < module.enum_types.size(); ++enum_index) {
         const IREnumType& enumeration = module.enum_types[enum_index];
         if (enumeration.id != enum_index + 1u || enumeration.name.empty() ||
-            !enum_names.emplace(enumeration.name, true).second || enumeration.variants.empty()) {
+            !structure_names.emplace(enumeration.name, true).second ||
+            enumeration.variants.empty()) {
             result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR082",
                 "enum type declarations must have canonical nonzero IDs, unique names, and at least one variant", {}});
             continue;
@@ -1244,6 +1244,13 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
                 function.span
             });
             continue;
+        }
+        if (structure_names.find(function.name) != structure_names.end()) {
+            result.diagnostics.push_back(Diagnostic{
+                DiagnosticSeverity::Error, "IR085",
+                "function name '" + function.name + "' conflicts with a nominal type name",
+                function.span
+            });
         }
         FunctionSignature signature;
         signature.return_type = function.return_type;
