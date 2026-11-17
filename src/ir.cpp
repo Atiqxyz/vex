@@ -127,8 +127,10 @@ private:
         }
         if (function_.return_type == IRType::Array) {
             if (!valid_array_descriptor(function_array_return_value(function_),
-                                        struct_types_.size(), enum_types_.size())) {
-                report("IR053", "function has an invalid array return shape", function_.span);
+                                        struct_types_.size(), enum_types_.size()) ||
+                function_.return_struct_type_id != 0 ||
+                function_.return_enum_type_id != 0) {
+                report("IR053", "function has an invalid array return shape or nominal metadata", function_.span);
             }
         } else if (function_.return_type == IRType::Struct) {
             if (function_.return_struct_type_id == 0 ||
@@ -1302,12 +1304,16 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
                 field.type != IRType::Array &&
                 (field.element_type != IRType::Void || field.array_length != 0 ||
                  field.element_struct_type_id != 0 || !field.array_dimensions.empty());
+            const bool invalid_enum_identity =
+                field.type == IRType::Enum
+                    ? (field.enum_type_id == 0u || field.enum_type_id > module.enum_types.size())
+                    : field.enum_type_id != 0u;
             if (field.name.empty() || !fields.emplace(field.name, true).second ||
                 field.type == IRType::Void ||
                 (field.type == IRType::Struct &&
                  (field.struct_type_id == 0 || field.struct_type_id >= structure.id)) ||
                 (field.type != IRType::Struct && field.struct_type_id != 0) ||
-                invalid_array || invalid_non_array_shape) {
+                invalid_array || invalid_non_array_shape || invalid_enum_identity) {
                 result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR070",
                     "structure field has an invalid name or unsupported aggregate shape", {}});
             }
@@ -1339,6 +1345,9 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
                 const bool invalid_non_array_shape = field.type != IRType::Array &&
                     (field.element_type != IRType::Void || field.array_length != 0u ||
                      field.element_struct_type_id != 0u || !field.array_dimensions.empty());
+                const bool invalid_enum_identity = field.type == IRType::Enum
+                    ? (field.enum_type_id == 0u || field.enum_type_id > module.enum_types.size())
+                    : field.enum_type_id != 0u;
                 const bool invalid_structure = field.type == IRType::Struct &&
                     (field.struct_type_id == 0u ||
                      field.struct_type_id > module.struct_types.size());
@@ -1346,10 +1355,10 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
                     field.type != IRType::Struct &&
                     field.type != IRType::Int && field.type != IRType::Byte &&
                     field.type != IRType::Float && field.type != IRType::Bool &&
-                    field.type != IRType::String;
+                    field.type != IRType::String && field.type != IRType::Enum;
                 if (field.name.empty() || !payload_names.emplace(field.name, true).second ||
                     field.type == IRType::Void || invalid_array || invalid_non_array_shape ||
-                    invalid_structure || invalid_scalar ||
+                    invalid_structure || invalid_scalar || invalid_enum_identity ||
                     (field.type != IRType::Struct && field.struct_type_id != 0u)) {
                     result.diagnostics.push_back(Diagnostic{DiagnosticSeverity::Error, "IR084",
                         "enum variant payload field has an invalid name, type, or aggregate shape", {}});
