@@ -120,6 +120,8 @@ public:
 
     SemanticResult run() {
         install_builtins();
+        collect_struct_type_names();
+        collect_enum_type_names();
         collect_struct_types();
         collect_enum_types();
         collect_function_signatures();
@@ -420,8 +422,7 @@ private:
         }
     }
 
-    void collect_struct_types() {
-        std::vector<const StructDeclStmt*> declarations;
+    void collect_struct_type_names() {
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
             const auto* structure = std::get_if<StructDeclStmt>(&statement->data);
@@ -442,9 +443,12 @@ private:
             const std::uint32_t id = static_cast<std::uint32_t>(model_.struct_types.size() + 1u);
             struct_ids_.emplace(name, id);
             model_.struct_types.push_back(SemanticStructType{id, name, {}, structure->name});
-            declarations.push_back(structure);
+            struct_declarations_.push_back(structure);
         }
-        for (const StructDeclStmt* declaration : declarations) {
+    }
+
+    void collect_struct_types() {
+        for (const StructDeclStmt* declaration : struct_declarations_) {
             const std::string name = spelling(declaration->name);
             const auto found = struct_ids_.find(name);
             if (found == struct_ids_.end()) continue;
@@ -460,16 +464,18 @@ private:
                     continue;
                 }
                 std::uint32_t field_struct_id = 0;
+                std::uint32_t field_enum_id = 0;
                 std::optional<SemanticArrayType> field_array_type;
                 const Type field_type = field.type_annotation
                     ? annotation_type(*field.type_annotation, false,
-                                      &field_array_type, &field_struct_id)
+                                      &field_array_type, &field_struct_id,
+                                      &field_enum_id)
                     : Type::Error;
                 if (!field.type_annotation || field_type == Type::Error ||
                     field_type == Type::Void || field_type == Type::Unknown ||
                     field_type == Type::Any ||
                     (field_type == Type::Array && !field_array_type)) {
-                    report("SEM048", "structure fields require a primitive, a previously declared structure, or an array of either",
+                    report("SEM048", "structure fields require a primitive or a declared nominal type, optionally in an array",
                            field.type_annotation.value_or(field.name));
                     continue;
                 }
@@ -500,14 +506,14 @@ private:
                     continue;
                 }
                 structure.fields.push_back(SemanticStructField{
-                    field_name, field_type, field_struct_id, 0u, field_array_type, field.name
+                    field_name, field_type, field_struct_id, field_enum_id,
+                    field_array_type, field.name
                 });
             }
         }
     }
 
-    void collect_enum_types() {
-        std::vector<const EnumDeclStmt*> declarations;
+    void collect_enum_type_names() {
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
             const auto* enumeration = std::get_if<EnumDeclStmt>(&statement->data);
@@ -530,10 +536,12 @@ private:
                 static_cast<std::uint32_t>(model_.enum_types.size() + 1u);
             enum_ids_.emplace(name, id);
             model_.enum_types.push_back(SemanticEnumType{id, name, {}, enumeration->name});
-            declarations.push_back(enumeration);
+            enum_declarations_.push_back(enumeration);
         }
+    }
 
-        for (const EnumDeclStmt* declaration : declarations) {
+    void collect_enum_types() {
+        for (const EnumDeclStmt* declaration : enum_declarations_) {
             const std::string name = spelling(declaration->name);
             const auto found = enum_ids_.find(name);
             if (found == enum_ids_.end()) continue;
@@ -561,7 +569,7 @@ private:
                     if (payload_type == Type::Error || payload_type == Type::Void ||
                         payload_type == Type::Unknown || payload_type == Type::Any ||
                         (payload_type == Type::Array && !array_type)) {
-                        report("SEM064", "enum payload fields require a primitive, a declared structure, or an array of either",
+                        report("SEM064", "enum payload fields require a primitive or a declared nominal type, optionally in an array",
                                payload_span);
                         continue;
                     }
@@ -2471,6 +2479,8 @@ private:
     std::unordered_map<const FunctionDeclStmt*, Symbol> signatures_;
     std::unordered_map<std::string, std::uint32_t> struct_ids_;
     std::unordered_map<std::string, std::uint32_t> enum_ids_;
+    std::vector<const StructDeclStmt*> struct_declarations_;
+    std::vector<const EnumDeclStmt*> enum_declarations_;
     SemanticModel model_;
     SemanticBindingId next_binding_id_{1};
     bool inside_function_{false};
