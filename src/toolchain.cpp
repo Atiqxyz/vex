@@ -325,7 +325,7 @@ ProcessResult compile_with_msvc(
         "\" -arch=x64 -host_arch=x64 >nul\r\n"
         "if errorlevel 1 exit /b 1\r\n"
         "\"" + compiler + "\" /nologo /std:c11 /TC \"" +
-        generated_c.string() + "\" \"/Fe:" + output.string() + "\" >nul\r\n"
+        generated_c.string() + "\" \"/Fe:" + output.string() + "\"\r\n"
         "exit /b %errorlevel%\r\n";
     if (!write_text_file(script, contents)) {
         return {false, -1, "could not create the MSVC compiler script"};
