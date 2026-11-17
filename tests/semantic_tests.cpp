@@ -777,7 +777,7 @@ void test_enum_declaration_semantics(TestContext& tests) {
         "enum Empty { }\n"
         "enum Repeated { Same, Same }\n"
         "enum InvalidPayload { Nope(void), Unknown(Missing) }\n"
-        "enum int { Builtin }\n"};
+        "enum void { Builtin }\n"};
     const vex::SemanticResult invalid_result = analyze(invalid);
     tests.check(has_code(invalid_result, "SEM062"), "empty enums are rejected");
     tests.check(has_code(invalid_result, "SEM063"), "duplicate variants are rejected");
