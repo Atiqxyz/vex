@@ -95,6 +95,44 @@ make main() {
 - The C backend relies on the target C compiler's native structure layout and `sizeof` when storing dynamic-array elements. The LLVM backend uses native aggregate types and derives allocation sizes from the target data layout. Both paths must therefore use the target ABI's full structure allocation size, including tail padding, for dynamic-array element strides.
 - Structure sizes, alignments, and field offsets may differ between target ABIs. VEX does not promise a stable cross-platform byte representation, and structure memory must not be treated as a serialization format. Explicit packed layout, user-selected alignment, ABI annotations, and user-visible raw pointers are not implemented.
 
+### User-defined enums and exhaustive matching
+
+VEX supports nominal inline tagged unions. Each enum declaration defines a distinct type with a closed set of variants:
+
+~~~vex
+enum SolverResult {
+    Converged(int, float),
+    Diverged(string),
+    Cancelled
+}
+
+make describe(result: SolverResult) {
+    match result {
+        SolverResult.Converged(iterations, residual) => {
+            say(iterations)
+            say(residual)
+        }
+        SolverResult.Diverged(reason) => {
+            say(reason)
+        }
+        SolverResult.Cancelled => {
+            say("cancelled")
+        }
+    }
+}
+~~~
+
+- A variant may contain zero or more positional payload fields. Variant names are unique within the enum; payload positions and types are fixed by the declaration.
+- Construct a variant using its qualified name, for example `SolverResult.Converged(42, 0.000001)` or `SolverResult.Cancelled`.
+- Enum values have nominal identity. There is no implicit conversion between an enum and an integer.
+- Enum payloads are stored inline. Fixed arrays and structures are copied by value; dynamic-array and string payloads retain their existing reference-backed descriptor behavior. Construction does not box a variant or allocate implicitly.
+- The discriminant is an unsigned 32-bit value. Tags are assigned from zero in declaration order. The payload area is large enough and aligned for the largest variant; the shared target-layout service calculates the complete representation.
+- `match` is currently a statement, not an expression. Every declared variant must appear exactly once, or a final wildcard arm must be present. Arms contain blocks and do not fall through.
+- The match scrutinee is evaluated once. Each arm has its own lexical scope. Positional payload bindings are immutable and visible only within that arm.
+- Named payload fields, guards, nested destructuring, user-selected tag widths, explicit tag values, generic enums, and expression-valued matching are not implemented.
+
+This is VEX's current enum subset; see the [enum and tagged-union design](docs/enum-and-tagged-union-design.md) for the representation and verifier/backend contract.
+
 ### Conditions
 
 ~~~vex
