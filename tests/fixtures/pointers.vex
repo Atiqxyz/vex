@@ -12,9 +12,9 @@ make main() {
     say(bump(value))
 
     let outer = Outer { inner: Inner { value: 1 }, values: [3, 4] }
-    let pointer: *Outer = &outer
-    (*pointer).inner.value = 10
-    (*pointer).values[0] = 8
+    let outer_pointer: *Outer = &outer
+    (*outer_pointer).inner.value = 10
+    (*outer_pointer).values[0] = 8
     say(outer.inner.value)
     say(update(outer))
 }

@@ -1476,6 +1476,9 @@ trap:
         case IRType::Array:
             report("LLVM009", "array values must be constructed with array_make", instruction.span);
             return;
+        case IRType::Pointer:
+            report("LLVM010", "pointer values must be produced by address-of, not constants", instruction.span);
+            return;
         case IRType::Struct:
             report("LLVM010", "structure values must be constructed with struct_make", instruction.span);
             return;
