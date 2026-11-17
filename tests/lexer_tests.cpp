@@ -146,6 +146,13 @@ void test_strings_and_invalid_input(TestContext& tests) {
     tests.check(has_diagnostic(newline_result, "LEX004"),
                 "raw newline inside a string is diagnosed");
 
+    const vex::SourceFile match_tokens{"match_tokens.vex", "match value { State.Ready => { } }"};
+    const vex::LexResult match_result = vex::Lexer{match_tokens}.scan();
+    tests.check(count_kind(match_result, vex::TokenKind::KwMatch) == 1 &&
+                count_kind(match_result, vex::TokenKind::FatArrow) == 1 &&
+                !match_result.has_errors(),
+                "match keyword and fat-arrow token are recognized");
+
     const vex::SourceFile bitwise{"bitwise.vex", "a & b | c ^ ~d && e || f"};
     const vex::LexResult bitwise_result = vex::Lexer{bitwise}.scan();
     tests.check(count_kind(bitwise_result, vex::TokenKind::BitAnd) == 1 &&
@@ -185,6 +192,7 @@ void run_lexer_tests(TestContext& tests) {
     test_numeric_literals(tests);
     test_newlines_and_comments(tests);
     test_operators(tests);
+    test_match_tokens(tests);
     test_range_operators(tests);
     test_strings_and_invalid_input(tests);
     test_diagnostic_positions(tests);
