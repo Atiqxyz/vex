@@ -422,6 +422,25 @@ private:
                         << "u, \"VEX structure field offset disagrees with target data layout\");\n";
             }
         }
+        for (const IREnumType& enumeration : module_.enum_types) {
+            error.clear();
+            const auto enum_layout = layout.layout_of_enum(enumeration.id, module_, &error);
+            if (!enum_layout) {
+                report("CG011", "cannot compute target layout for enum " +
+                       enumeration.name + ": " + error);
+                continue;
+            }
+            const std::string type = enum_type_name(enumeration.id);
+            output_ << "_Static_assert(sizeof(" << type << ") == " << enum_layout->size
+                    << "u, \\"VEX enum size disagrees with target data layout\\");\\n"
+                    << "_Static_assert(_Alignof(" << type << ") == " << enum_layout->alignment
+                    << "u, \\"VEX enum alignment disagrees with target data layout\\");\\n";
+            if (enum_layout->payload_size != 0u) {
+                output_ << "_Static_assert(offsetof(" << type << ", payload) == "
+                        << enum_layout->payload_offset
+                        << "u, \\"VEX enum payload offset disagrees with target data layout\\");\\n";
+            }
+        }
         output_ << '\n';
     }
 
