@@ -38,6 +38,7 @@ private:
     [[nodiscard]] StmtPtr parse_while(const Token& start);
     [[nodiscard]] StmtPtr parse_repeat(const Token& start);
     [[nodiscard]] StmtPtr parse_for(const Token& start);
+    [[nodiscard]] StmtPtr parse_match(const Token& start);
     [[nodiscard]] StmtPtr parse_block();
     [[nodiscard]] StmtPtr parse_block_after_open(const Token& opening);
     [[nodiscard]] std::optional<SourceSpan> parse_type_annotation();
