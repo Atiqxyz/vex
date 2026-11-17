@@ -1313,6 +1313,66 @@ void test_target_data_layout_service(TestContext& tests) {
                 "LLVM backend consumes target layout for structure stack-slot alignment");
 }
 
+void test_end_to_end_enum_construction_and_matching(TestContext& tests) {
+    const vex::SourceFile source{"enum_pipeline.vex",
+        "enum Result { Success(int), Failure(string), Cancelled }\n"
+        "make create() -> Result {\n"
+        "    return Result.Success(42)\n"
+        "}\n"
+        "make get_value(result: Result) -> int {\n"
+        "    match result {\n"
+        "        Result.Success(value) => { return value }\n"
+        "        Result.Failure(reason) => { return 1 }\n"
+        "        Result.Cancelled => { return 0 }\n"
+        "    }\n"
+        "}\n"
+        "make main() {\n"
+        "    let result = create()\n"
+        "    let answer = get_value(result)\n"
+        "    say(answer)\n"
+        "}\n"};
+    const vex::LexResult lexed = vex::Lexer{source}.scan();
+    tests.check(!lexed.has_errors(), "enum pipeline source lexes");
+    if (lexed.has_errors()) return;
+    const vex::ParseResult parsed = vex::Parser{source, lexed.tokens}.parse();
+    tests.check(!parsed.has_errors(), "enum constructors and exhaustive match parse");
+    if (parsed.has_errors()) return;
+    const vex::SemanticResult semantic =
+        vex::SemanticAnalyzer{source, parsed.program}.analyze();
+    tests.check(!semantic.has_errors(), "enum constructor and match semantics validate");
+    if (semantic.has_errors()) return;
+    const vex::IRLoweringResult lowered =
+        vex::IRLowerer{source, parsed.program, semantic.model}.lower();
+    tests.check(!lowered.has_errors(), "enum values and match arms lower to typed IR");
+    if (lowered.has_errors()) return;
+    const vex::IRVerificationResult verified =
+        vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(),
+                "IR verifier accepts enum construction, tag tests and payload projections");
+
+    std::size_t constructions = 0u;
+    std::size_t tag_reads = 0u;
+    std::size_t payload_reads = 0u;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                if (instruction.op == vex::IROp::EnumMake) ++constructions;
+                if (instruction.op == vex::IROp::EnumTag) ++tag_reads;
+                if (instruction.op == vex::IROp::EnumPayloadGet) ++payload_reads;
+            }
+        }
+    }
+    tests.check(constructions >= 1u && tag_reads >= 1u && payload_reads >= 1u,
+                "lowered enum pipeline contains constructor, discriminant and payload operations");
+
+    const vex::CBackendResult c_output = vex::CBackend{}.generate(lowered.module);
+    tests.check(!c_output.has_errors() && !c_output.source.empty(),
+                "C backend emits enum constructors and match payload access");
+    const vex::BackendResult llvm_output = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm_output.has_errors() && !llvm_output.output.empty(),
+                "LLVM backend emits enum constructors and match payload access");
+}
+
 void test_nominal_type_and_function_names_share_namespace(TestContext& tests) {
     vex::IRModule module;
 
@@ -1377,4 +1437,5 @@ void run_ir_tests(TestContext& tests) {
     test_source_enum_declarations_lower_to_ir(tests);
     test_target_data_layout_service(tests);
     test_nominal_type_and_function_names_share_namespace(tests);
+    test_end_to_end_enum_construction_and_matching(tests);
 }
