@@ -387,6 +387,30 @@ private:
         return place.id;
     }
 
+    [[nodiscard]] IRPlaceId create_projection(
+        const IRPlaceId parent_id, const IRValue& type,
+        const IRPlaceProjectionKind projection, const std::uint32_t field_index,
+        const IRValueId index_value, const SourceSpan span) {
+        const auto parent = std::find_if(function_.places.begin(), function_.places.end(),
+            [&](const IRPlace& candidate) { return candidate.id == parent_id; });
+        if (parent == function_.places.end()) {
+            report("IR112", "projected place has no valid parent place", span);
+            return 0u;
+        }
+        IRPlace place;
+        place.id = next_place_id_++;
+        place.value_type = type;
+        place.value_type.id = 0u;
+        place.mutable_place = parent->mutable_place;
+        place.span = span;
+        place.parent = parent_id;
+        place.projection = projection;
+        place.field_index = field_index;
+        place.index_value = index_value;
+        function_.places.push_back(place);
+        return place.id;
+    }
+
     [[nodiscard]] IRValue emit_load(const IRPlaceId place_id,
                                     const IRValue& type, const SourceSpan span) {
         IRValue result = make_value_like(type, span);
@@ -1508,55 +1532,89 @@ private:
                     report("IR148","aggregate assignment is missing its resolved binding",expression.span);
                     return std::nullopt;
                 }
-                IRValue root=current_value(target->second,expression.span);
+                const auto root_place = mutable_places_.find(target->second);
+                if (root_place == mutable_places_.end()) {
+                    report("IR148", "aggregate mutation requires an addressable mutable root place",
+                           expression.span);
+                    return std::nullopt;
+                }
+                const auto root_descriptor = std::find_if(
+                    function_.places.begin(), function_.places.end(),
+                    [&](const IRPlace& place) { return place.id == root_place->second; });
+                if (root_descriptor == function_.places.end()) {
+                    report("IR148", "aggregate mutation root place is unavailable",
+                           expression.span);
+                    return std::nullopt;
+                }
                 std::vector<AccessStep> path;
                 if(!collect_access_path(*assignment->target,path)||path.empty()) {
                     report("IR148","aggregate assignment has an invalid access path",expression.span);
                     return std::nullopt;
                 }
-                // Resolve the target once. Compound assignment reads its old leaf
-                // before the RHS; each index expression runs exactly once.
-                IRValue container=root;
-                for(std::size_t index=0;index<path.size();++index) {
-                    AccessStep& step=path[index];
-                    step.container_value=container;
-                    const bool leaf=index+1u==path.size();
-                    if(step.kind==AccessStep::Kind::Index) {
-                        const auto evaluated=step.index_expression?lower_expression(*step.index_expression):std::nullopt;
-                        if(!evaluated||evaluated->type!=IRType::Int)return std::nullopt;
-                        step.index_value=*evaluated;
+                // Build an addressable projection chain. Index expressions are
+                // evaluated once, in source order, and retained as SSA values.
+                IRPlaceId projected_place = root_place->second;
+                IRValue container_type = root_descriptor->value_type;
+                for (AccessStep& step : path) {
+                    IRValue child_type;
+                    if (step.kind == AccessStep::Kind::Field) {
+                        const IRStructType* structure = get_struct_type(container_type.struct_type_id);
+                        if (container_type.type != IRType::Struct || !structure ||
+                            step.field_index >= structure->fields.size()) {
+                            report("IR145", "structure field projection has invalid parent type or index",
+                                   expression.span);
+                            return std::nullopt;
+                        }
+                        child_type = ir_struct_field_value(structure->fields[step.field_index]);
+                        projected_place = create_projection(
+                            projected_place, child_type, IRPlaceProjectionKind::StructField,
+                            step.field_index, 0u, expression.span);
+                    } else {
+                        const auto evaluated = step.index_expression
+                            ? lower_expression(*step.index_expression) : std::nullopt;
+                        if (!evaluated || evaluated->type != IRType::Int ||
+                            container_type.type != IRType::Array) {
+                            report("IR145", "array element projection requires an array and int index",
+                                   expression.span);
+                            return std::nullopt;
+                        }
+                        step.index_value = *evaluated;
+                        child_type = ir_array_element_value(container_type, expression.span);
+                        projected_place = create_projection(
+                            projected_place, child_type, IRPlaceProjectionKind::ArrayElement,
+                            0u, evaluated->id, expression.span);
                     }
-                    if(leaf)continue;
-                    const auto child=step.kind==AccessStep::Kind::Field
-                        ?emit_struct_get(container,step.field_index,expression.span)
-                        :emit_array_get(container,step.index_value,expression.span);
-                    if(!child)return std::nullopt;
-                    container=*child;
+                    if (projected_place == 0u) return std::nullopt;
+                    container_type = child_type;
                 }
                 std::optional<IRValue> previous;
-                if(compound) {
-                    const AccessStep& leaf=path.back();
-                    previous=leaf.kind==AccessStep::Kind::Field
-                        ?emit_struct_get(leaf.container_value,leaf.field_index,expression.span)
-                        :emit_array_get(leaf.container_value,leaf.index_value,expression.span);
-                    if(!previous)return std::nullopt;
+                if (compound) {
+                    previous = emit_load(projected_place, container_type, expression.span);
+                    if (previous->type == IRType::Void) return std::nullopt;
                 }
                 const auto value=lower_expression(*assignment->value);
                 if(!value)return std::nullopt;
                 IRValue replacement=*value;
                 if(compound) {
-                    const auto combined=lower_compound_value(assignment->op,*previous,*value,expression.span);
+                    const auto combined=lower_compound_value(
+                        assignment->op,*previous,*value,expression.span);
                     if(!combined)return std::nullopt;
                     replacement=*combined;
                 }
-                const auto updated=rebuild_access_path(path,replacement,expression.span);
-                if(!updated)return std::nullopt;
-                const auto root_place = mutable_places_.find(target->second);
-                if (root_place != mutable_places_.end())
-                    emit_store(root_place->second, *updated, expression.span);
-                else
-                    environment_[target->second]=*updated;
-                return replacement;
+                const auto converted = convert(replacement, container_type.type, expression.span);
+                if (!converted) return std::nullopt;
+                if ((container_type.type == IRType::Struct &&
+                     converted->struct_type_id != container_type.struct_type_id) ||
+                    (container_type.type == IRType::Enum &&
+                     converted->enum_type_id != container_type.enum_type_id) ||
+                    (container_type.type == IRType::Array &&
+                     !ir_same_array_shape(*converted, container_type))) {
+                    report("IR146", "projected assignment value has an incompatible nominal type or array shape",
+                           expression.span);
+                    return std::nullopt;
+                }
+                emit_store(projected_place, *converted, expression.span);
+                return *converted;
             }
             const auto target=semantic_model_.assignment_targets.find(assignment);
             if(target==semantic_model_.assignment_targets.end()) {

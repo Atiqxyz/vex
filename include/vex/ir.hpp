@@ -197,12 +197,20 @@ struct IREnumType {
     std::vector<IREnumVariant> variants;
 };
 
+enum class IRPlaceProjectionKind { Root, StructField, ArrayElement };
+
 struct IRPlace {
     IRPlaceId id{0};
     // A type descriptor, not an SSA value; its value id must remain zero.
     IRValue value_type{};
     bool mutable_place{true};
     SourceSpan span{};
+    // Root places own storage. Projected places derive an address from a parent.
+    IRPlaceId parent{0};
+    IRPlaceProjectionKind projection{IRPlaceProjectionKind::Root};
+    std::uint32_t field_index{0};
+    // Array-element projections retain the already-evaluated SSA index.
+    IRValueId index_value{0};
 };
 
 struct IRInstruction {

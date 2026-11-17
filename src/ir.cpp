@@ -218,6 +218,37 @@ private:
                 report("IR095", "function place has an invalid or incomplete storage type descriptor",
                        place.span);
             }
+            if (place.projection == IRPlaceProjectionKind::Root) {
+                if (place.parent != 0u || place.field_index != 0u || place.index_value != 0u)
+                    report("IR104", "root place cannot carry projection metadata", place.span);
+                continue;
+            }
+            const auto parent = places_.find(place.parent);
+            if (place.parent == 0u || place.parent >= place.id || parent == places_.end()) {
+                report("IR105", "projected place must reference an earlier valid parent place",
+                       place.span);
+                continue;
+            }
+            if (place.mutable_place != parent->second->mutable_place)
+                report("IR106", "projected place mutability must match its parent", place.span);
+            if (place.projection == IRPlaceProjectionKind::StructField) {
+                const IRStructField* field = struct_field(
+                    parent->second->value_type.struct_type_id, place.field_index);
+                if (parent->second->value_type.type != IRType::Struct || !field ||
+                    place.index_value != 0u ||
+                    !same_value_shape(place.value_type, ir_struct_field_value(*field)))
+                    report("IR107", "structure-field projection has an invalid parent, field, or result type",
+                           place.span);
+            } else if (place.projection == IRPlaceProjectionKind::ArrayElement) {
+                if (parent->second->value_type.type != IRType::Array ||
+                    place.field_index != 0u || place.index_value == 0u ||
+                    !same_value_shape(place.value_type,
+                                      ir_array_element_value(parent->second->value_type)))
+                    report("IR108", "array-element projection has an invalid parent, index, or result type",
+                           place.span);
+            } else {
+                report("IR109", "function place has an unknown projection kind", place.span);
+            }
         }
     }
 
@@ -1030,6 +1061,24 @@ private:
         }
     }
 
+    void validate_projected_place_index_uses(
+        const IRPlaceId place_id, const IRBlockId use_block,
+        const std::int64_t use_position, const SourceSpan span) {
+        const auto found = places_.find(place_id);
+        if (found == places_.end()) return;
+        const IRPlace& place = *found->second;
+        if (place.projection == IRPlaceProjectionKind::ArrayElement) {
+            const auto definition = definitions_.find(place.index_value);
+            if (definition == definitions_.end())
+                report("IR110", "array-element projection references an undefined index value", span);
+            else if (definition->second.value.type != IRType::Int)
+                report("IR111", "array-element projection index must have type int", span);
+            validate_use(place.index_value, use_block, use_position, span);
+        }
+        if (place.parent != 0u)
+            validate_projected_place_index_uses(place.parent, use_block, use_position, span);
+    }
+
     void validate_reachability_and_dominance() {
         if (blocks_.find(function_.entry_block) == blocks_.end()) return;
 
@@ -1106,6 +1155,11 @@ private:
                     validate_use(operand, block.id, static_cast<std::int64_t>(index),
                                  instruction.span);
                 }
+                if (instruction.place &&
+                    (instruction.op == IROp::Load || instruction.op == IROp::Store))
+                    validate_projected_place_index_uses(
+                        *instruction.place, block.id, static_cast<std::int64_t>(index),
+                        instruction.span);
             }
             if (!block.terminator) continue;
             const std::int64_t terminator_position =

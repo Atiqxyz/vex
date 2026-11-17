@@ -1531,6 +1531,73 @@ void test_source_mutable_bindings_lower_through_places(TestContext& tests) {
                 "lowered mutable-place program satisfies independent IR verification");
 }
 
+void test_projected_places_for_nested_fields_and_array_elements(TestContext& tests) {
+    const vex::SourceFile source{"projected_places.vex",
+        "struct Point { x: int, y: int }\n"
+        "struct Group { fixed: Point[2], items: Point[] }\n"
+        "make main() {\n"
+        "    let fixed: Point[2] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]\n"
+        "    let items: Point[] = []\n"
+        "    push(items, Point { x: 5, y: 6 })\n"
+        "    let group = Group { fixed: fixed, items: items }\n"
+        "    group.fixed[1].x = 7\n"
+        "    group.items[0].y += group.fixed[1].x\n"
+        "    say(group.items[0].y)\n"
+        "}\n"};
+    const auto lexed = vex::Lexer{source}.scan();
+    const auto parsed = vex::Parser{source, lexed.tokens}.parse();
+    const auto semantic = vex::SemanticAnalyzer{source, parsed.program}.analyze();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() && !semantic.has_errors(),
+                "nested projected-place fixture passes frontend analysis");
+    if (lexed.has_errors() || parsed.has_errors() || semantic.has_errors()) return;
+    const auto lowered = vex::IRLowerer{source, parsed.program, semantic.model}.lower();
+    tests.check(!lowered.has_errors(), "nested field and array writes lower to projected places");
+    if (lowered.has_errors()) return;
+    const auto verified = vex::IRVerifier{}.verify(lowered.module);
+    tests.check(!verified.has_errors(), "projected-place IR passes independent verification");
+    if (verified.has_errors()) return;
+
+    std::size_t roots=0u, fields=0u, elements=0u, loads=0u, stores=0u;
+    for (const auto& function : lowered.module.functions) {
+        for (const auto& place : function.places) {
+            roots += place.projection == vex::IRPlaceProjectionKind::Root ? 1u : 0u;
+            fields += place.projection == vex::IRPlaceProjectionKind::StructField ? 1u : 0u;
+            elements += place.projection == vex::IRPlaceProjectionKind::ArrayElement ? 1u : 0u;
+        }
+        for (const auto& block : function.blocks)
+            for (const auto& instruction : block.instructions) {
+                loads += instruction.op == vex::IROp::Load ? 1u : 0u;
+                stores += instruction.op == vex::IROp::Store ? 1u : 0u;
+            }
+    }
+    tests.check(roots>0u && fields>=3u && elements>=2u && loads>0u && stores>=2u,
+                "IR records root, field, and element places with explicit memory operations");
+
+    vex::IRModule malformed = lowered.module;
+    bool damaged_index=false;
+    for (auto& function : malformed.functions) {
+        for (auto& place : function.places)
+            if (place.projection == vex::IRPlaceProjectionKind::ArrayElement) {
+                place.index_value=0xffffffffu; damaged_index=true; break;
+            }
+        if (damaged_index) break;
+    }
+    const auto rejected=vex::IRVerifier{}.verify(malformed);
+    tests.check(damaged_index && rejected.has_errors(),
+                "IR verifier rejects projected places with undefined index values");
+
+    const auto c=vex::CBackend{}.generate(lowered.module);
+    tests.check(!c.has_errors() && c.source.find("vex_array_get(")!=std::string::npos &&
+                c.source.find("vex_checked_array_index(")!=std::string::npos,
+                "C backend computes checked addresses for fixed and dynamic projections");
+    const auto llvm=vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!llvm.has_errors() &&
+                llvm.output.find("getelementptr inbounds %vex.struct.")!=std::string::npos &&
+                llvm.output.find("call ptr @vex_array_get(ptr ")!=std::string::npos &&
+                llvm.output.find("call i64 @vex_checked_array_index(i64 ")!=std::string::npos,
+                "LLVM backend computes checked addresses for nested field and array projections");
+}
+
 } // namespace
 
 void run_ir_tests(TestContext& tests) {
@@ -1556,4 +1623,5 @@ void run_ir_tests(TestContext& tests) {
     test_end_to_end_enum_construction_and_matching(tests);
     test_function_local_places_and_explicit_memory_operations(tests);
     test_source_mutable_bindings_lower_through_places(tests);
+    test_projected_places_for_nested_fields_and_array_elements(tests);
 }

@@ -917,10 +917,14 @@ private:
         emit_function_signature(function);
         output_ << " {\n";
         for (const IRPlace& place : function.places) {
+            if (place.projection != IRPlaceProjectionKind::Root) continue;
             output_ << "    " << c_type(place.value_type) << ' '
                     << place_name(place.id) << ";\n";
         }
-        if (!function.places.empty()) output_ << '\n';
+        if (std::any_of(function.places.begin(), function.places.end(),
+                [](const IRPlace& place) {
+                    return place.projection == IRPlaceProjectionKind::Root;
+                })) output_ << '\n';
 
         std::unordered_set<IRValueId> parameter_ids;
         for (const IRFunctionParameter& parameter : function.parameters) {
@@ -1053,6 +1057,31 @@ private:
         return false;
     }
 
+    std::string place_pointer_expression(
+        const IRFunction& function, const IRPlaceId place_id) const {
+        if (place_id == 0u || place_id > function.places.size()) return "NULL";
+        const IRPlace& place = function.places[place_id - 1u];
+        if (place.projection == IRPlaceProjectionKind::Root)
+            return "&" + place_name(place.id);
+        if (place.parent == 0u || place.parent >= place.id) return "NULL";
+        const IRPlace& parent = function.places[place.parent - 1u];
+        const std::string parent_pointer = place_pointer_expression(function, place.parent);
+        const std::string parent_value = "(*(" + parent_pointer + "))";
+        if (place.projection == IRPlaceProjectionKind::StructField)
+            return "(&(" + parent_value + "." + struct_field_name(place.field_index) + "))";
+        if (place.projection == IRPlaceProjectionKind::ArrayElement) {
+            const IRValue element = ir_array_element_value(parent.value_type);
+            if (parent.value_type.array_length == 0u)
+                return "((" + c_type(element) + " *)vex_array_get(" + parent_value +
+                       ", " + value_name(place.index_value) + ", sizeof(" +
+                       c_type(element) + ")))";
+            return "(&(" + parent_value + ".data[vex_checked_array_index(" +
+                   value_name(place.index_value) + ", " +
+                   std::to_string(parent.value_type.array_length) + "u)]))";
+        }
+        return "NULL";
+    }
+
     void emit_instruction(const IRFunction& function,
                           const IRInstruction& instruction) {
         if (instruction.op == IROp::Constant) {
@@ -1068,13 +1097,15 @@ private:
 
         switch (instruction.op) {
         case IROp::Load: {
-            const IRPlaceId id = instruction.place.value();
-            output_ << "    " << result << " = " << place_name(id) << ";\n";
+            output_ << "    " << result << " = *("
+                    << place_pointer_expression(function, instruction.place.value())
+                    << ");\n";
             return;
         }
         case IROp::Store: {
-            const IRPlaceId id = instruction.place.value();
-            output_ << "    " << place_name(id) << " = " << operand(0) << ";\n";
+            output_ << "    *(("
+                    << place_pointer_expression(function, instruction.place.value())
+                    << ")) = " << operand(0) << ";\n";
             return;
         }
         case IROp::StringConcat:

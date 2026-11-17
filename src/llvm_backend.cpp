@@ -1275,6 +1275,7 @@ trap:
             output_ << ", align " << type_layout->alignment << "\n";
         }
         for (const IRPlace& place : function.places) {
+            if (place.projection != IRPlaceProjectionKind::Root) continue;
             std::string layout_error;
             const auto place_layout = target_layout_.layout_of(
                 place.value_type, module_, &layout_error);
@@ -1614,6 +1615,54 @@ trap:
                 << "  call i32 @putchar(i32 10)\n";
     }
 
+    std::string emit_place_address(const IRFunction& function,
+                                   const IRPlaceId place_id) {
+        if (place_id == 0u || place_id > function.places.size()) {
+            report("LLVM014", "memory operation references an unavailable place", {});
+            return "null";
+        }
+        const IRPlace& place = function.places[place_id - 1u];
+        if (place.projection == IRPlaceProjectionKind::Root) return place_slot(place.id);
+        if (place.parent == 0u || place.parent >= place.id) {
+            report("LLVM014", "projected place references an invalid parent", place.span);
+            return "null";
+        }
+        const IRPlace& parent = function.places[place.parent - 1u];
+        const std::string parent_address = emit_place_address(function, place.parent);
+        if (place.projection == IRPlaceProjectionKind::StructField) {
+            const std::string address = next_temp();
+            output_ << "  " << address << " = getelementptr inbounds "
+                    << llvm_type(parent.value_type) << ", ptr " << parent_address
+                    << ", i32 0, i32 " << place.field_index << "\n";
+            return address;
+        }
+        if (place.projection == IRPlaceProjectionKind::ArrayElement) {
+            const std::string index = load_value(place.index_value);
+            const IRValue element = ir_array_element_value(parent.value_type);
+            const std::string address = next_temp();
+            if (parent.value_type.array_length == 0u) {
+                const std::string array_pointer = next_temp();
+                output_ << "  " << array_pointer << " = load ptr, ptr "
+                        << parent_address << "\n";
+                const std::string element_size = emit_type_size(element);
+                output_ << "  " << address << " = call ptr @vex_array_get(ptr "
+                        << array_pointer << ", i64 " << index << ", i64 "
+                        << element_size << ")\n";
+            } else {
+                const std::string checked = next_temp();
+                output_ << "  " << checked
+                        << " = call i64 @vex_checked_array_index(i64 " << index
+                        << ", i64 " << parent.value_type.array_length << ")\n"
+                        << "  " << address << " = getelementptr inbounds "
+                        << llvm_type(parent.value_type) << ", ptr " << parent_address
+                        << ", i64 0, i64 " << checked << "\n";
+            }
+            return address;
+        }
+        report("LLVM014", "function place has an unknown projection kind", place.span);
+        return "null";
+    }
+
     void emit_instruction(const IRInstruction& instruction) {
         if (instruction.op == IROp::Constant) {
             emit_constant(instruction);
@@ -1645,15 +1694,16 @@ trap:
                        layout_error, place.span);
                 return;
             }
+            const std::string address = emit_place_address(*current_function_, place.id);
             if (instruction.op == IROp::Load) {
                 const std::string loaded = next_temp();
                 output_ << "  " << loaded << " = load " << llvm_type(place.value_type)
-                        << ", ptr " << place_slot(place.id) << ", align "
+                        << ", ptr " << address << ", align "
                         << place_layout->alignment << "\n";
                 store_result(instruction, loaded);
             } else {
                 output_ << "  store " << llvm_type(place.value_type) << ' '
-                        << operands[0] << ", ptr " << place_slot(place.id)
+                        << operands[0] << ", ptr " << address
                         << ", align " << place_layout->alignment << "\n";
             }
             return;
