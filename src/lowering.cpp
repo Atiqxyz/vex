@@ -692,7 +692,10 @@ private:
             const IRBlockId merge = create_block(block_name);
             set_terminator(paths.front().block,
                 IRTerminator{IRBranch{merge, {}}, span});
-            environment_ = paths.front().environment;
+            environment_ = base;
+            for (const SemanticBindingId id : sorted_environment_ids(base)) {
+                environment_[id] = environment_value(paths.front().environment, id, span);
+            }
             current_block_ = merge;
             return;
         }
