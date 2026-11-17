@@ -326,6 +326,8 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 ## 4. Suggested implementation order
 
+Apply the [low-level foundations contract](low-level-foundations.md) throughout implementation. Memory representation, target layout, addressable storage, pointers, allocator identity, and lifetimes are cross-cutting design constraints; they must be built alongside dependent features, not postponed until after the feature roster.
+
 This is a dependency-aware sequence, not a rigid promise. Reorder when source inspection or reference research reveals a better path.
 
 ### Milestone 1 — Data modelling foundation
