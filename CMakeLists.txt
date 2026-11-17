@@ -286,6 +286,7 @@ if(BUILD_TESTING)
                 -DBINARY_WRITE_OVERFLOW_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_write_overflow.vex
                 -DBINARY_SLICE_BOUNDS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_slice_bounds.vex
                 -DBINARY_IMMUTABLE_BUFFER_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/binary_immutable_buffer.vex
+                -DPOINTERS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pointers.vex
                 -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/c_backend_integration
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/c_backend_integration.cmake
         )

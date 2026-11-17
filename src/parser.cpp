@@ -654,6 +654,8 @@ int Parser::precedence(const TokenKind kind) noexcept {
     }
 }
 bool Parser::is_assignment_target(const Expr& expression) noexcept {
+    if (const auto* unary = std::get_if<UnaryExpr>(&expression.data))
+        return unary->op == TokenKind::Star;
     return std::holds_alternative<NameExpr>(expression.data) ||
            std::holds_alternative<IndexExpr>(expression.data) ||
            std::holds_alternative<MemberExpr>(expression.data);
