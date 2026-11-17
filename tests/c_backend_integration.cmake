@@ -197,7 +197,7 @@ if(NOT projected_result EQUAL 0)
     message(FATAL_ERROR "C backend projected-place test failed: ${projected_output}${projected_error}")
 endif()
 string(REPLACE "\r\n" "\n" projected_output "${projected_output}")
-if(NOT "${projected_output}" STREQUAL "7\n17\n")
+if(NOT "${projected_output}" STREQUAL "1\n2\n3\n7\n17\n")
     message(FATAL_ERROR "C backend projected-place behavior mismatch. Actual:${projected_output}")
 endif()
 

@@ -1552,14 +1552,18 @@ void test_projected_places_for_nested_fields_and_array_elements(TestContext& tes
         "    let items: Point[] = []\n"
         "    push(items, Point { x: 5, y: 6 })\n"
         "    let group = Group { fixed: fixed, items: items }\n"
-        "    group.fixed[1].x = 7\n"
-        "    group.items[0].y += group.fixed[1].x\n"
-        "    group.items[0].y += expand(group.items)\n"
+        "    group.fixed[trace_index(1, 1)].x = 7\n"
+        "    group.items[trace_index(2, 0)].y += group.fixed[1].x\n"
+        "    group.items[trace_index(3, 0)].y += expand(group.items)\n"
         "    say(group.items[0].y)\n"
         "}\n"
         "make expand(items: Point[]) -> int {\n"
         "    reserve(items, 128)\n"
         "    return 4\n"
+        "}\n"
+        "make trace_index(marker: int, index: int) -> int {\n"
+        "    say(marker)\n"
+        "    return index\n"
         "}\n"};
     const auto lexed = vex::Lexer{source}.scan();
     const auto parsed = vex::Parser{source, lexed.tokens}.parse();
@@ -1589,6 +1593,21 @@ void test_projected_places_for_nested_fields_and_array_elements(TestContext& tes
     }
     tests.check(roots>0u && fields>=3u && elements>=2u && loads>0u && stores>=2u,
                 "IR records root, field, and element places with explicit memory operations");
+    std::size_t trace_index_calls = 0u;
+    for (const auto& function : lowered.module.functions)
+        for (const auto& block : function.blocks)
+            for (const auto& instruction : block.instructions)
+                trace_index_calls += instruction.op == vex::IROp::Call &&
+                    instruction.callee == "trace_index" ? 1u : 0u;
+    tests.check(trace_index_calls == 3u,
+                "each projected array index is lowered to exactly one side-effecting call");
+
+    std::ostringstream printed_ir;
+    vex::print_ir(printed_ir, lowered.module);
+    tests.check(printed_ir.str().find("field#") != std::string::npos &&
+                printed_ir.str().find("element of place#") != std::string::npos &&
+                printed_ir.str().find(" at %") != std::string::npos,
+                "textual IR output exposes typed place projections and their index values");
 
     vex::IRModule malformed = lowered.module;
     bool damaged_index=false;

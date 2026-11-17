@@ -1573,6 +1573,43 @@ void print_ir(std::ostream& output, const IRModule& module) {
             output << ": " << ir_type_name(function.parameters[index].value.type);
         }
         output << ") -> " << ir_type_name(function.return_type) << " {\n";
+        if (!function.places.empty()) {
+            output << "  places:\n";
+            for (const IRPlace& place : function.places) {
+                output << "    place#" << place.id << ' ';
+                if (place.projection == IRPlaceProjectionKind::Root) {
+                    output << "root";
+                } else if (place.projection == IRPlaceProjectionKind::StructField) {
+                    output << "field#" << place.field_index << " of place#" << place.parent;
+                } else if (place.projection == IRPlaceProjectionKind::ArrayElement) {
+                    output << "element of place#" << place.parent << " at ";
+                    print_value(output, place.index_value);
+                } else {
+                    output << "unknown projection";
+                }
+                output << ": ";
+                const IRValue& type = place.value_type;
+                if (type.type == IRType::Array) {
+                    output << "array<" << ir_type_name(type.element_type);
+                    if (type.element_type == IRType::Struct)
+                        output << '#' << type.element_struct_type_id;
+                    else if (type.element_type == IRType::Enum)
+                        output << '#' << type.enum_type_id;
+                    output << '>';
+                    for (const std::uint32_t dimension : ir_array_dimensions(type)) {
+                        output << '[';
+                        if (dimension == 0u) output << '?';
+                        else output << dimension;
+                        output << ']';
+                    }
+                } else {
+                    output << ir_type_name(type.type);
+                    if (type.type == IRType::Struct) output << '#' << type.struct_type_id;
+                    else if (type.type == IRType::Enum) output << '#' << type.enum_type_id;
+                }
+                output << (place.mutable_place ? " mutable" : " immutable") << '\n';
+            }
+        }
         for (const IRBlock& block : function.blocks) {
             output << "  bb" << block.id;
             if (!block.name.empty()) output << " [" << block.name << ']';

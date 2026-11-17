@@ -7,9 +7,9 @@ make main() {
     push(items, Point { x: 5, y: 6 })
     let group = Group { fixed: fixed, items: items }
 
-    group.fixed[1].x = 7
-    group.items[0].y += group.fixed[1].x
-    group.items[0].y += expand(group.items)
+    group.fixed[trace_index(1, 1)].x = 7
+    group.items[trace_index(2, 0)].y += group.fixed[1].x
+    group.items[trace_index(3, 0)].y += expand(group.items)
 
     say(group.fixed[1].x)
     say(group.items[0].y)
@@ -18,4 +18,9 @@ make main() {
 make expand(items: Point[]) -> int {
     reserve(items, 128)
     return 4
+}
+
+make trace_index(marker: int, index: int) -> int {
+    say(marker)
+    return index
 }
