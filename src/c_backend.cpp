@@ -1149,6 +1149,10 @@ private:
                         << operand(0) << ", " << operand(1) << ')';
                 if (instruction.op == IROp::NotEqual) output_ << " == false";
                 output_ << ";\n";
+            } else if (type && type->type == IRType::Enum) {
+                output_ << "    " << result << " = " << operand(0) << ".tag"
+                        << (instruction.op == IROp::Equal ? " == " : " != ")
+                        << operand(1) << ".tag;\n";
             } else {
                 output_ << "    " << result << " = " << operand(0)
                         << (instruction.op == IROp::Equal ? " == " : " != ")
