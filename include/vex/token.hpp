@@ -50,6 +50,7 @@ enum class TokenKind {
     Colon,
     Dot,
     Arrow,
+    FatArrow,
     Range,
     RangeInclusive,
 
