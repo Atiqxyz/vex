@@ -117,6 +117,26 @@ struct SemanticStructType {
     SourceSpan declaration{};
 };
 
+struct SemanticEnumPayloadField {
+    SemanticType type{SemanticType::Error};
+    std::uint32_t struct_type_id{0};
+    std::optional<SemanticArrayType> array_type;
+    SourceSpan declaration{};
+};
+
+struct SemanticEnumVariant {
+    std::string name;
+    std::vector<SemanticEnumPayloadField> fields;
+    SourceSpan declaration{};
+};
+
+struct SemanticEnumType {
+    std::uint32_t id{0};
+    std::string name;
+    std::vector<SemanticEnumVariant> variants;
+    SourceSpan declaration{};
+};
+
 // The model is tied to the AST passed to SemanticAnalyzer. Keep that AST alive
 // for as long as pointers in these maps are used.
 struct SemanticModel {
@@ -134,6 +154,7 @@ struct SemanticModel {
     std::unordered_map<const FunctionDeclStmt*, SemanticFunctionSignature> functions;
     std::unordered_map<SemanticBindingId, SemanticBinding> bindings;
     std::vector<SemanticStructType> struct_types;
+    std::vector<SemanticEnumType> enum_types;
 };
 
 struct SemanticResult {

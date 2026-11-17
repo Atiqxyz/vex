@@ -2064,6 +2064,44 @@ public:
             }
             module_.struct_types.push_back(std::move(converted));
         }
+        for (const SemanticEnumType& enumeration : semantic_model_.enum_types) {
+            IREnumType converted;
+            converted.id = enumeration.id;
+            converted.name = enumeration.name;
+            for (const SemanticEnumVariant& variant : enumeration.variants) {
+                IREnumVariant converted_variant;
+                converted_variant.name = variant.name;
+                for (std::size_t index = 0; index < variant.fields.size(); ++index) {
+                    const SemanticEnumPayloadField& field = variant.fields[index];
+                    const auto type = to_ir_type(field.type);
+                    if (!type || *type == IRType::Void) {
+                        diagnostics_.push_back(Diagnostic{DiagnosticSeverity::Error, "IR151",
+                            "enum payload type cannot be represented in IR", field.declaration});
+                        continue;
+                    }
+                    IRStructField ir_field{"payload_" + std::to_string(index), *type,
+                                           field.struct_type_id};
+                    if (field.type == SemanticType::Array && field.array_type) {
+                        const auto element_type = to_ir_type(field.array_type->element_type);
+                        if (!element_type || *element_type == IRType::Void ||
+                            *element_type == IRType::Array) {
+                            diagnostics_.push_back(Diagnostic{DiagnosticSeverity::Error, "IR151",
+                                "enum payload array element type cannot be represented in IR",
+                                field.declaration});
+                            continue;
+                        }
+                        ir_field.element_type = *element_type;
+                        ir_field.array_length = field.array_type->length;
+                        ir_field.element_struct_type_id =
+                            field.array_type->element_struct_type_id;
+                        ir_field.array_dimensions = field.array_type->dimensions;
+                    }
+                    converted_variant.fields.push_back(std::move(ir_field));
+                }
+                converted.variants.push_back(std::move(converted_variant));
+            }
+            module_.enum_types.push_back(std::move(converted));
+        }
         std::unordered_map<std::string, SemanticFunctionSignature> signatures;
         for (const auto& entry : semantic_model_.functions) {
             signatures.emplace(entry.second.name, entry.second);
@@ -2078,6 +2116,7 @@ public:
                 std::get_if<FunctionDeclStmt>(&statement->data);
             if (!function) {
                 if (!std::holds_alternative<StructDeclStmt>(statement->data) &&
+                    !std::holds_alternative<EnumDeclStmt>(statement->data) &&
                     !std::holds_alternative<ImportDeclStmt>(statement->data))
                     top_level_statements.push_back(statement.get());
                 continue;

@@ -114,9 +114,11 @@ public:
     SemanticResult run() {
         install_builtins();
         collect_struct_types();
+        collect_enum_types();
         collect_function_signatures();
         for (const StmtPtr& statement : program_.statements) {
-            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data))
+            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data) &&
+                !std::holds_alternative<EnumDeclStmt>(statement->data))
                 analyze_statement(*statement);
         }
         return SemanticResult{std::move(diagnostics_), std::move(model_)};
@@ -485,6 +487,72 @@ private:
         }
     }
 
+    void collect_enum_types() {
+        std::vector<const EnumDeclStmt*> declarations;
+        for (const StmtPtr& statement : program_.statements) {
+            if (!statement) continue;
+            const auto* enumeration = std::get_if<EnumDeclStmt>(&statement->data);
+            if (!enumeration) continue;
+            const std::string name = spelling(enumeration->name);
+            if (name == "int" || name == "byte" || name == "float" || name == "bool" ||
+                name == "string" || name == "void") {
+                report("SEM061", "enum name '" + name + "' conflicts with a built-in type",
+                       enumeration->name);
+                continue;
+            }
+            if (struct_ids_.find(name) != struct_ids_.end() ||
+                enum_ids_.find(name) != enum_ids_.end() ||
+                scopes_.front().find(name) != scopes_.front().end()) {
+                report("SEM002", "duplicate global declaration of '" + name + "'",
+                       enumeration->name);
+                continue;
+            }
+            const std::uint32_t id =
+                static_cast<std::uint32_t>(model_.enum_types.size() + 1u);
+            enum_ids_.emplace(name, id);
+            model_.enum_types.push_back(SemanticEnumType{id, name, {}, enumeration->name});
+            declarations.push_back(enumeration);
+        }
+
+        for (const EnumDeclStmt* declaration : declarations) {
+            const std::string name = spelling(declaration->name);
+            const auto found = enum_ids_.find(name);
+            if (found == enum_ids_.end()) continue;
+            SemanticEnumType& enumeration = model_.enum_types[found->second - 1u];
+            if (declaration->variants.empty()) {
+                report("SEM062", "enums must declare at least one variant", declaration->name);
+                continue;
+            }
+            std::unordered_map<std::string, bool> variant_names;
+            for (const EnumVariantDecl& variant : declaration->variants) {
+                const std::string variant_name = spelling(variant.name);
+                if (!variant_names.emplace(variant_name, true).second) {
+                    report("SEM063", "duplicate variant '" + variant_name +
+                           "' in enum '" + name + "'", variant.name);
+                    continue;
+                }
+                SemanticEnumVariant semantic_variant{variant_name, {}, variant.name};
+                for (const SourceSpan payload_span : variant.payload_types) {
+                    std::optional<SemanticArrayType> array_type;
+                    std::uint32_t payload_struct_id = 0u;
+                    const Type payload_type = annotation_type(
+                        payload_span, false, &array_type, &payload_struct_id);
+                    if (payload_type == Type::Error || payload_type == Type::Void ||
+                        payload_type == Type::Unknown || payload_type == Type::Any ||
+                        (payload_type == Type::Array && !array_type)) {
+                        report("SEM064", "enum payload fields require a primitive, a declared structure, or an array of either",
+                               payload_span);
+                        continue;
+                    }
+                    semantic_variant.fields.push_back(SemanticEnumPayloadField{
+                        payload_type, payload_struct_id, std::move(array_type), payload_span
+                    });
+                }
+                enumeration.variants.push_back(std::move(semantic_variant));
+            }
+        }
+    }
+
     [[nodiscard]] const SemanticStructField* find_struct_field(
         const std::uint32_t structure_id, const std::string& field_name,
         std::uint32_t* index = nullptr) const {
@@ -558,7 +626,7 @@ private:
 
             const std::string name = spelling(function->name);
             const auto existing = scopes_.front().find(name);
-            if (existing != scopes_.front().end()) {
+            if (enum_ids_.find(name) != enum_ids_.end() || existing != scopes_.front().end()) {
                 report("SEM002", "duplicate global declaration of '" + name + "'",
                        function->name);
             } else {
@@ -2046,6 +2114,7 @@ private:
     std::vector<Scope> scopes_;
     std::unordered_map<const FunctionDeclStmt*, Symbol> signatures_;
     std::unordered_map<std::string, std::uint32_t> struct_ids_;
+    std::unordered_map<std::string, std::uint32_t> enum_ids_;
     SemanticModel model_;
     SemanticBindingId next_binding_id_{1};
     bool inside_function_{false};
