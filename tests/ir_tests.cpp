@@ -1315,6 +1315,7 @@ void test_target_data_layout_service(TestContext& tests) {
 
 void test_end_to_end_enum_construction_and_matching(TestContext& tests) {
     const vex::SourceFile source{"enum_pipeline.vex",
+        "struct Packet { result: Result }\n"
         "enum Result { Success(int), Failure(string), Cancelled }\n"
         "make create() -> Result {\n"
         "    return Result.Success(42)\n"
@@ -1330,7 +1331,8 @@ void test_end_to_end_enum_construction_and_matching(TestContext& tests) {
         "}\n"
         "make main() {\n"
         "    let result = create()\n"
-        "    let answer = get_value(result)\n"
+        "    let packet = Packet{result: result}\n"
+        "    let answer = get_value(packet.result)\n"
         "    say(answer)\n"
         "}\n"};
     const vex::LexResult lexed = vex::Lexer{source}.scan();
