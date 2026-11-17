@@ -659,7 +659,9 @@ private:
 
             const std::string name = spelling(function->name);
             const auto existing = scopes_.front().find(name);
-            if (enum_ids_.find(name) != enum_ids_.end() || existing != scopes_.front().end()) {
+            if (struct_ids_.find(name) != struct_ids_.end() ||
+                enum_ids_.find(name) != enum_ids_.end() ||
+                existing != scopes_.front().end()) {
                 report("SEM002", "duplicate global declaration of '" + name + "'",
                        function->name);
             } else {
