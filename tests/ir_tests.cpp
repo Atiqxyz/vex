@@ -1609,6 +1609,35 @@ void test_projected_places_for_nested_fields_and_array_elements(TestContext& tes
                 printed_ir.str().find(" at %") != std::string::npos,
                 "textual IR output exposes typed place projections and their index values");
 
+    vex::IRModule stack_module;
+    vex::IRStructType grid_type;
+    grid_type.id = 1u;
+    grid_type.name = "GridOwner";
+    vex::IRStructField grid_field{"grid", vex::IRType::Array};
+    grid_field.element_type = vex::IRType::Int;
+    grid_field.array_length = 2u;
+    grid_field.array_dimensions = {2u, 3u};
+    grid_type.fields.push_back(grid_field);
+    stack_module.struct_types.push_back(grid_type);
+    vex::IRFunction stack_function;
+    vex::IRPlace stack_root;
+    stack_root.id = 1u;
+    stack_root.value_type.type = vex::IRType::Struct;
+    stack_root.value_type.struct_type_id = 1u;
+    vex::IRPlace projected_grid;
+    projected_grid.id = 2u;
+    projected_grid.value_type = vex::ir_make_array_value(
+        vex::IRType::Int, {2u, 3u});
+    projected_grid.parent = 1u;
+    projected_grid.projection = vex::IRPlaceProjectionKind::StructField;
+    projected_grid.field_index = 0u;
+    stack_function.places = {stack_root, projected_grid};
+    const auto stack_values =
+        vex::ir_function_nested_fixed_stack_values(stack_function, stack_module);
+    tests.check(stack_values.size() == 1u &&
+                stack_values.front().type == vex::IRType::Struct,
+                "projected aggregate descriptors do not double-count stack storage");
+
     vex::IRModule malformed = lowered.module;
     bool damaged_index=false;
     for (auto& function : malformed.functions) {

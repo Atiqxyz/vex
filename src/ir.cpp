@@ -1337,7 +1337,9 @@ std::vector<IRValue> ir_function_nested_fixed_stack_values(
     const auto add = [&](const IRValue& value) {
         if (ir_value_has_nested_fixed_storage(value, module)) result.push_back(value);
     };
-    for (const IRPlace& place : function.places) add(place.value_type);
+    // Only root places own stack storage; projections are address descriptors.
+    for (const IRPlace& place : function.places)
+        if (place.projection == IRPlaceProjectionKind::Root) add(place.value_type);
     std::unordered_map<IRValueId, IRValue> known;
     for (const auto& parameter : function.parameters) {
         known.emplace(parameter.value.id, parameter.value);
