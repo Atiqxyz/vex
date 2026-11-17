@@ -295,6 +295,54 @@ StmtPtr Parser::parse_for(const Token& start) {
         SourceSpan{start.span.begin, body->span.end},
         ForStmt{variable.span, std::move(iterable), std::move(body)}});
 }
+StmtPtr Parser::parse_match(const Token& start) {
+    ExprPtr value = parse_expression();
+    static_cast<void>(expect(TokenKind::LeftBrace,
+                             "expected '{' after match value"));
+    std::vector<MatchArm> arms;
+    skip_newlines();
+    while (!check(TokenKind::RightBrace) && !check(TokenKind::EndOfFile)) {
+        MatchArm arm;
+        const Token first = expect(TokenKind::Identifier,
+                                   "expected a qualified enum variant or '_' in match arm");
+        if (source_.slice(first.span) == "_") {
+            arm.wildcard = true;
+        } else {
+            arm.enum_name = first.span;
+            static_cast<void>(expect(TokenKind::Dot,
+                                     "expected '.' between enum name and variant"));
+            const Token variant = expect(TokenKind::Identifier,
+                                         "expected an enum variant name");
+            arm.variant_name = variant.span;
+            if (match(TokenKind::LeftParen)) {
+                skip_newlines();
+                if (!check(TokenKind::RightParen) && !check(TokenKind::EndOfFile)) {
+                    do {
+                        const Token binding = expect(TokenKind::Identifier,
+                                                     "expected a payload binding name");
+                        arm.bindings.push_back(binding.span);
+                        skip_newlines();
+                    } while (match(TokenKind::Comma) && !check(TokenKind::RightParen));
+                }
+                static_cast<void>(expect(TokenKind::RightParen,
+                                         "expected ')' after match payload bindings"));
+            }
+        }
+        static_cast<void>(expect(TokenKind::FatArrow,
+                                 "expected '=>' before match arm block"));
+        arm.body = parse_block();
+        if (arm.body) arms.push_back(std::move(arm));
+        skip_newlines();
+        static_cast<void>(match(TokenKind::Comma));
+        skip_newlines();
+    }
+    const Token closing = expect(TokenKind::RightBrace,
+                                 "expected '}' to close match statement");
+    return std::make_unique<Statement>(Statement{
+        SourceSpan{start.span.begin, closing.span.end},
+        MatchStmt{std::move(value), std::move(arms)}});
+}
+
 StmtPtr Parser::parse_block() {
     if (!check(TokenKind::LeftBrace)) {
         report_current("PAR004", "expected '{' to begin a block");
