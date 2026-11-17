@@ -32,7 +32,8 @@ constexpr std::array<Keyword, 23> keywords{{
     {"float", TokenKind::KwFloat},
     {"bool", TokenKind::KwBool},
     {"string", TokenKind::KwString},
-    {"import", TokenKind::KwImport}
+    {"import", TokenKind::KwImport},
+    {"match", TokenKind::KwMatch}
 }};
 
 [[nodiscard]] TokenKind keyword_kind(const std::string_view spelling) noexcept {
@@ -136,7 +137,11 @@ void Lexer::scan_token() {
         if (match('>')) add_token(TokenKind::Arrow);
         else add_token(match('=') ? TokenKind::MinusEqual : TokenKind::Minus);
         break;
-    case '=': add_token(match('=') ? TokenKind::EqualEqual : TokenKind::Equal); break;
+    case '=':
+        if (match('=')) add_token(TokenKind::EqualEqual);
+        else if (match('>')) add_token(TokenKind::FatArrow);
+        else add_token(TokenKind::Equal);
+        break;
     case '!': add_token(match('=') ? TokenKind::BangEqual : TokenKind::Bang); break;
     case '<':
         if (match('<')) add_token(TokenKind::ShiftLeft);
