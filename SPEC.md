@@ -205,10 +205,10 @@ Expression operators are parsed with these precedence levels, from lowest to hig
 | 10 | shifts `<<`, `>>` | left |
 | 11 | addition `+`, `-` | left |
 | 12 | multiplication `*`, `/`, `%` | left |
-| 12 | unary `+`, `-`, `!`, `~` | prefix |
-| 13 | function call `(...)` | postfix |
-| 14 | array indexing `[...]` | postfix |
-| 15 | structure member access and construction | postfix |
+| 13 | unary `+`, `-`, `!`, `~` | prefix |
+| 14 | function call `(...)` | postfix |
+| 15 | array indexing `[...]` | postfix |
+| 16 | structure member access and construction | postfix |
 
 The parser and semantic analyzer accept assignment to a named binding and nested aggregate paths rooted at a named structure or array, including `values[index] = value`, `points[index].x = value`, and compound forms such as `scene.points[index].x += amount`. The compiler evaluates the target path from the named root outward and evaluates each index expression exactly once. For compound assignment, it reads the old target value after resolving the path, then evaluates the right-hand side, applies the operator, and rebuilds the updated aggregate back to the root binding. For plain assignment, the replacement expression is evaluated after the full target path has been resolved.
 
