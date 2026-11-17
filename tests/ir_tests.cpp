@@ -1108,6 +1108,37 @@ void test_byte_lowering_and_backends(TestContext& tests) {
 }
 
 
+void test_source_enum_declarations_lower_to_ir(TestContext& tests) {
+    const vex::SourceFile source{"enum_ir.vex",
+        "struct Point { x: int, y: float }\n"
+        "enum Event { Started, Moved(Point), Bytes(byte[3]), Failed(string) }\n"
+        "make main() { }\n"};
+    const vex::LexResult lexed = vex::Lexer(source).scan();
+    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    const vex::SemanticResult semantic = vex::SemanticAnalyzer(source, parsed.program).analyze();
+    const vex::IRLoweringResult lowered = vex::IRLowerer(
+        source, parsed.program, semantic.model).lower();
+    tests.check(!lexed.has_errors() && !parsed.has_errors() &&
+                !semantic.has_errors() && !lowered.has_errors() &&
+                lowered.module.enum_types.size() == 1u,
+                "validated source enums lower into the canonical IR type table");
+    if (lowered.has_errors() || lowered.module.enum_types.empty()) return;
+    const auto& event = lowered.module.enum_types.front();
+    tests.check(event.id == 1u && event.name == "Event" && event.variants.size() == 4u &&
+                event.variants[1].fields.size() == 1u &&
+                event.variants[1].fields[0].type == vex::IRType::Struct &&
+                event.variants[1].fields[0].struct_type_id == 1u &&
+                event.variants[2].fields[0].type == vex::IRType::Array &&
+                event.variants[2].fields[0].array_dimensions == std::vector<std::uint32_t>{3u},
+                "IR enum payload descriptors preserve structure identity and array shape");
+    tests.check(!vex::IRVerifier{}.verify(lowered.module).has_errors(),
+                "enum declarations pass the independent IR verifier");
+    const auto c = vex::CBackend{}.generate(lowered.module);
+    const auto llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!c.has_errors() && !llvm.has_errors(),
+                "both backends accept declared enum types even before enum values are used");
+}
+
 void test_target_data_layout_service(TestContext& tests) {
     vex::IRModule module;
     vex::IRStructType record;
@@ -1301,5 +1332,6 @@ void run_ir_tests(TestContext& tests) {
     test_default_initialized_scalar_lowering_and_backends(tests);
     test_recursive_array_ir_shapes_and_backends(tests);
     test_byte_lowering_and_backends(tests);
+    test_source_enum_declarations_lower_to_ir(tests);
     test_target_data_layout_service(tests);
 }

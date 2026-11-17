@@ -758,6 +758,39 @@ void test_structure_types_value_semantics_and_diagnostics(TestContext& tests) {
                 "unknown structure names are rejected in array element annotations");
 }
 
+void test_enum_declaration_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"valid_enum_declarations.vex",
+        "struct Point { x: int, y: float }\n"
+        "enum SolverResult { Converged(int, float), Failed(string), AtPoint(Point), Grid(Point[2]) }\n"
+        "enum Direction { North, South, East, West }\n"};
+    const vex::SemanticResult valid_result = analyze(valid);
+    tests.check(!valid_result.has_errors() && valid_result.model.enum_types.size() == 2u,
+                "enum declarations accept unit, primitive, structure and fixed-array payloads");
+    if (valid_result.model.enum_types.size() == 2u) {
+        tests.check(valid_result.model.enum_types[0].variants.size() == 4u &&
+                    valid_result.model.enum_types[0].variants[0].fields.size() == 2u &&
+                    valid_result.model.enum_types[0].variants[2].fields[0].struct_type_id == 1u,
+                    "semantic enum model preserves nominal payload types and variant order");
+    }
+
+    const vex::SourceFile invalid{"invalid_enum_declarations.vex",
+        "enum Empty { }\n"
+        "enum Repeated { Same, Same }\n"
+        "enum InvalidPayload { Nope(void), Unknown(Missing) }\n"
+        "enum int { Builtin }\n"};
+    const vex::SemanticResult invalid_result = analyze(invalid);
+    tests.check(has_code(invalid_result, "SEM062"), "empty enums are rejected");
+    tests.check(has_code(invalid_result, "SEM063"), "duplicate variants are rejected");
+    tests.check(has_code(invalid_result, "SEM064"), "invalid enum payload types are rejected");
+    tests.check(has_code(invalid_result, "SEM061"), "enum names cannot shadow built-in types");
+
+    const vex::SourceFile duplicate_global{"duplicate_enum_global.vex",
+        "enum Event { Started }\nstruct Event { value: int }\n"};
+    const vex::SemanticResult duplicate_result = analyze(duplicate_global);
+    tests.check(has_code(duplicate_result, "SEM002"),
+                "enum declarations cannot share nominal names with structures");
+}
+
 void test_for_in_rejects_non_array_values(TestContext& tests) {
     const vex::SourceFile source{"iteration.vex",
         "make main() {\n"
@@ -914,6 +947,7 @@ void run_semantic_tests(TestContext& tests) {
     test_integer_range_semantics(tests);
     test_for_in_rejects_non_array_values(tests);
     test_structure_types_value_semantics_and_diagnostics(tests);
+    test_enum_declaration_semantics(tests);
     test_string_byte_length_semantics(tests);
     test_string_join_semantics(tests);
     test_bitwise_operator_semantics(tests);
