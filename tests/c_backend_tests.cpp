@@ -66,6 +66,14 @@ vex::IRModule simple_main_module() {
     return module;
 }
 
+vex::IRModule integer_main_module() {
+    vex::IRModule module = simple_main_module();
+    module.functions.front().return_type = vex::IRType::Int;
+    module.functions.front().blocks.front().terminator =
+        vex::IRTerminator{vex::IRReturn{1}, {}};
+    return module;
+}
+
 void test_c_backend_emits_typed_c(TestContext& tests) {
     const vex::CBackendResult result = vex::CBackend{}.generate(simple_main_module());
     tests.check(!result.has_errors(), "valid typed IR is accepted by the C backend");
@@ -99,6 +107,28 @@ void test_c_backend_emits_nested_fixed_stack_budget_assertions(TestContext& test
                 "C backend emits target-native sizeof assertions for nested fixed aggregate objects");
     tests.check(result.source.find("512 KiB nested fixed aggregate stack budget") != std::string::npos,
                 "C backend emits a per-function nested fixed aggregate storage assertion");
+}
+
+void test_c_backend_checks_allocation_failures_and_exit_cleanup(TestContext& tests) {
+    const vex::CBackendResult result = vex::CBackend{}.generate(integer_main_module());
+    tests.check(!result.has_errors(), "C backend accepts an integer-returning entry for cleanup verification");
+    tests.check(result.source.find("dynamic array allocation failed") != std::string::npos &&
+                result.source.find("dynamic array reservation failed") != std::string::npos &&
+                result.source.find("dynamic array growth failed") != std::string::npos &&
+                result.source.find("string allocation failed") != std::string::npos &&
+                result.source.find("string join allocation failed") != std::string::npos,
+                "C runtime checks array, growth, reservation, concatenation, and join allocation failures");
+    tests.check(result.source.find("free(array->data);") != std::string::npos &&
+                result.source.find("free(array);") != std::string::npos &&
+                result.source.find("free(allocation);") != std::string::npos,
+                "C runtime releases tracked array buffers, headers, and string allocations");
+    const std::size_t entry = result.source.find("int main(void)");
+    const std::size_t arrays = result.source.find("vex_array_cleanup();", entry);
+    const std::size_t strings = result.source.find("vex_string_cleanup();", arrays);
+    const std::size_t invalid_status = result.source.find("vex_status < 0", strings);
+    tests.check(entry != std::string::npos && arrays > entry && strings > arrays &&
+                invalid_status > strings,
+                "C entry wrapper cleans tracked allocations before rejecting an invalid exit status");
 }
 
 void test_c_backend_rejects_invalid_entry_point(TestContext& tests) {
@@ -136,6 +166,7 @@ void test_c_backend_requires_verified_ir(TestContext& tests) {
 void run_c_backend_tests(TestContext& tests) {
     test_c_backend_emits_typed_c(tests);
     test_c_backend_emits_nested_fixed_stack_budget_assertions(tests);
+    test_c_backend_checks_allocation_failures_and_exit_cleanup(tests);
     test_c_backend_rejects_invalid_entry_point(tests);
     test_c_backend_requires_verified_ir(tests);
 }

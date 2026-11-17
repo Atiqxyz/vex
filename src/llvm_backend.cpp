@@ -1913,6 +1913,8 @@ trap:
                     << "  %vex_invalid = or i1 %vex_underflow, %vex_overflow\n"
                     << "  br i1 %vex_invalid, label %vex_invalid_exit, label %vex_valid_exit\n"
                     << "vex_invalid_exit:\n"
+                    << "  call void @vex_array_cleanup()\n"
+                    << "  call void @vex_string_cleanup()\n"
                     << "  call void @llvm.trap()\n"
                     << "  unreachable\n"
                     << "vex_valid_exit:\n"

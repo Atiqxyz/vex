@@ -73,6 +73,14 @@ void test_llvm_backend_is_registered(TestContext& tests) {
                 "LLVM backend identifies itself through the common interface");
 }
 
+vex::IRModule integer_main_module() {
+    vex::IRModule module = simple_main_module();
+    module.functions.front().return_type = vex::IRType::Int;
+    module.functions.front().blocks.front().terminator =
+        vex::IRTerminator{vex::IRReturn{1}, {}};
+    return module;
+}
+
 void test_llvm_backend_emits_ir(TestContext& tests) {
     const vex::BackendResult result = vex::LLVMBackend{}.emit(simple_main_module());
     tests.check(!result.has_errors(), "LLVM backend accepts valid verified IR");
@@ -115,6 +123,26 @@ void test_llvm_backend_guards_nested_fixed_stack_storage(TestContext& tests) {
                 "LLVM backend enforces the shared per-function aggregate budget");
 }
 
+void test_llvm_backend_checks_allocation_failures_and_exit_cleanup(TestContext& tests) {
+    const vex::BackendResult result = vex::LLVMBackend{}.emit(integer_main_module());
+    tests.check(!result.has_errors(), "LLVM backend accepts an integer-returning entry for cleanup verification");
+    tests.check(result.output.find("%failed = icmp eq ptr %array, null") != std::string::npos &&
+                result.output.find("%allocation_failed = icmp eq ptr %new_data, null") != std::string::npos &&
+                result.output.find("%allocation_failed = icmp eq ptr %node, null") != std::string::npos,
+                "LLVM runtime checks dynamic-array header, buffer, and string allocations");
+    tests.check(result.output.find("call void @free(ptr %data)") != std::string::npos &&
+                result.output.find("call void @free(ptr %current)") != std::string::npos &&
+                result.output.find("call void @free(ptr %node)") != std::string::npos,
+                "LLVM runtime releases tracked array buffers, headers, and string allocations");
+    const std::size_t invalid_exit = result.output.find("vex_invalid_exit:");
+    const std::size_t arrays = result.output.find("call void @vex_array_cleanup()", invalid_exit);
+    const std::size_t strings = result.output.find("call void @vex_string_cleanup()", arrays);
+    const std::size_t trap = result.output.find("call void @llvm.trap()", strings);
+    tests.check(invalid_exit != std::string::npos && arrays > invalid_exit &&
+                strings > arrays && trap > strings,
+                "LLVM entry wrapper cleans tracked allocations before trapping on an invalid exit status");
+}
+
 void test_llvm_backend_rejects_invalid_entry_point(TestContext& tests) {
     vex::IRModule module = simple_main_module();
     module.functions.front().parameters.push_back(
@@ -132,5 +160,6 @@ void run_llvm_backend_tests(TestContext& tests) {
     test_llvm_backend_is_registered(tests);
     test_llvm_backend_emits_ir(tests);
     test_llvm_backend_guards_nested_fixed_stack_storage(tests);
+    test_llvm_backend_checks_allocation_failures_and_exit_cleanup(tests);
     test_llvm_backend_rejects_invalid_entry_point(tests);
 }
