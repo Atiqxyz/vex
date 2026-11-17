@@ -1,4 +1,5 @@
 #include "vex/semantic.hpp"
+#include "vex/stack_policy.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -31,6 +32,19 @@ bool is_assignable(const Type destination, const Type source) noexcept {
     if (destination == Type::Any) return true;
     return destination == source ||
            (destination == Type::Float && source == Type::Int);
+}
+
+bool nested_fixed_dimension_runs_fit_minimum_size(const std::vector<std::uint32_t>& dimensions) {
+    std::uint64_t minimum_bytes = 1u;
+    std::size_t fixed_run = 0u;
+    for (const std::uint32_t dimension : dimensions) {
+        if (dimension == 0u) { minimum_bytes = 1u; fixed_run = 0u; continue; }
+        if (minimum_bytes > max_nested_fixed_aggregate_bytes / dimension) return false;
+        minimum_bytes *= dimension;
+        ++fixed_run;
+        if (fixed_run >= 2u && minimum_bytes > max_nested_fixed_aggregate_bytes) return false;
+    }
+    return true;
 }
 
 Type common_numeric_type(const Type left, const Type right) noexcept {
@@ -200,10 +214,9 @@ private:
                 report("SEM060", "array types may contain at most 64 dimensions", span);
                 return Type::Error;
             }
-            if (dimensions.size() > 1u &&
-                std::find(dimensions.begin(), dimensions.end(), 0u) == dimensions.end()) {
+            if (!nested_fixed_dimension_runs_fit_minimum_size(dimensions)) {
                 report("SEM060",
-                    "all-fixed nested arrays are deferred until VEX defines a target-aware aggregate and stack-size limit; include a dynamic dimension for nested collections",
+                    "nested fixed dimension run exceeds the 256 KiB minimum object-size limit; use a dynamic dimension or a dynamic array",
                     span);
                 return Type::Error;
             }
@@ -784,9 +797,9 @@ private:
 
             const SemanticArrayType& result_shape =
                 model_.array_expression_types.at(&expression);
-            if (result_shape.is_fully_fixed() && result_shape.is_nested()) {
+            if (!nested_fixed_dimension_runs_fit_minimum_size(result_shape.dimensions)) {
                 report("SEM060",
-                       "all-fixed nested array literals are deferred until VEX defines a target-aware aggregate and stack-size limit; add a dynamic dimension in the declared type",
+                       "nested fixed array literal exceeds the 256 KiB minimum object-size limit",
                        expression.span);
                 return Type::Error;
             }

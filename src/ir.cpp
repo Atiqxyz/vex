@@ -1,4 +1,5 @@
 #include "vex/ir.hpp"
+#include "vex/stack_policy.hpp"
 
 #include <algorithm>
 #include <ostream>
@@ -40,6 +41,15 @@ bool valid_array_descriptor(const IRValue& value, const std::size_t struct_count
         value.array_length != dimensions.front()) return false;
     for (const std::uint32_t dimension : dimensions)
         if (dimension > 65536u) return false;
+    std::uint64_t fixed_elements = 1u;
+    std::size_t fixed_run = 0u;
+    for (const std::uint32_t dimension : dimensions) {
+        if (dimension == 0u) { fixed_elements = 1u; fixed_run = 0u; continue; }
+        if (fixed_elements > max_nested_fixed_aggregate_bytes / dimension) return false;
+        fixed_elements *= dimension;
+        ++fixed_run;
+        if (fixed_run >= 2u && fixed_elements > max_nested_fixed_aggregate_bytes) return false;
+    }
     if (value.element_type == IRType::Struct)
         return value.element_struct_type_id != 0 &&
                value.element_struct_type_id <= struct_count;
@@ -1008,6 +1018,116 @@ bool IRVerificationResult::has_errors() const noexcept {
         [](const Diagnostic& diagnostic) {
             return diagnostic.severity == DiagnosticSeverity::Error;
         });
+}
+
+namespace {
+bool value_has_nested_fixed_storage_impl(
+    const IRValue& value, const IRModule& module,
+    std::unordered_set<std::uint32_t>& active_structs) {
+    if (value.type == IRType::Array) {
+        const auto dimensions = ir_array_dimensions(value);
+        std::size_t prefix = 0;
+        while (prefix < dimensions.size() && dimensions[prefix] != 0u) ++prefix;
+        if (prefix >= 2u) return true;
+        if (prefix == 0u) return false;
+        return value_has_nested_fixed_storage_impl(
+            ir_array_element_value(value), module, active_structs);
+    }
+    if (value.type != IRType::Struct || value.struct_type_id == 0u ||
+        value.struct_type_id > module.struct_types.size()) return false;
+    if (!active_structs.insert(value.struct_type_id).second) return false;
+    const IRStructType& structure = module.struct_types[value.struct_type_id - 1u];
+    for (const IRStructField& field : structure.fields) {
+        if (value_has_nested_fixed_storage_impl(
+                ir_struct_field_value(field), module, active_structs)) {
+            active_structs.erase(value.struct_type_id);
+            return true;
+        }
+    }
+    active_structs.erase(value.struct_type_id);
+    return false;
+}
+} // namespace
+
+bool ir_value_has_nested_fixed_storage(const IRValue& value, const IRModule& module) {
+    std::unordered_set<std::uint32_t> active;
+    return value_has_nested_fixed_storage_impl(value, module, active);
+}
+
+std::vector<IRValue> ir_function_nested_fixed_stack_values(
+    const IRFunction& function, const IRModule& module) {
+    std::vector<IRValue> result;
+    const auto add = [&](const IRValue& value) {
+        if (ir_value_has_nested_fixed_storage(value, module)) result.push_back(value);
+    };
+    std::unordered_map<IRValueId, IRValue> known;
+    for (const auto& parameter : function.parameters) {
+        known.emplace(parameter.value.id, parameter.value);
+        add(parameter.value);
+    }
+    for (const IRBlock& block : function.blocks) {
+        for (const IRValue& parameter : block.parameters) {
+            known.emplace(parameter.id, parameter);
+            add(parameter);
+        }
+        for (const IRInstruction& instruction : block.instructions) {
+            if (instruction.result) {
+                known.emplace(instruction.result->id, *instruction.result);
+                add(*instruction.result);
+            }
+        }
+    }
+    // Count C aggregate temporaries in both backends for identical source limits.
+    for (const IRBlock& block : function.blocks) {
+        for (const IRInstruction& instruction : block.instructions) {
+            if (instruction.op == IROp::ArrayMake && instruction.result &&
+                instruction.result->type == IRType::Array) {
+                const auto dims = ir_array_dimensions(*instruction.result);
+                if (!dims.empty() && dims.front() == 0u) {
+                    const IRValue element = ir_array_element_value(*instruction.result);
+                    for (std::size_t i = 0; i < instruction.operands.size(); ++i) add(element);
+                }
+            } else if ((instruction.op == IROp::ArraySet || instruction.op == IROp::ArrayPush) &&
+                       !instruction.operands.empty()) {
+                const auto found = known.find(instruction.operands.front());
+                if (found == known.end() || found->second.type != IRType::Array) continue;
+                const auto dims = ir_array_dimensions(found->second);
+                if (dims.empty() || dims.front() != 0u) continue;
+                add(ir_array_element_value(found->second));
+            }
+        }
+    }
+    const auto add_edges = [&](IRBlockId target, const std::vector<IRValueId>& args) {
+        const auto found = std::find_if(function.blocks.begin(), function.blocks.end(),
+            [target](const IRBlock& block) { return block.id == target; });
+        if (found == function.blocks.end()) return;
+        for (std::size_t i = 0; i < std::min(args.size(), found->parameters.size()); ++i)
+            add(found->parameters[i]);
+    };
+    for (const IRBlock& block : function.blocks) {
+        if (!block.terminator) continue;
+        std::visit([&](const auto& term) {
+            using T = std::decay_t<decltype(term)>;
+            if constexpr (std::is_same_v<T, IRBranch>) add_edges(term.target, term.arguments);
+            else if constexpr (std::is_same_v<T, IRConditionalBranch>) {
+                add_edges(term.true_target, term.true_arguments);
+                add_edges(term.false_target, term.false_arguments);
+            }
+        }, block.terminator->data);
+    }
+    IRValue returned;
+    if (function.return_type == IRType::Struct) {
+        returned.type = IRType::Struct;
+        returned.struct_type_id = function.return_struct_type_id;
+        add(returned);
+    } else if (function.return_type == IRType::Array) {
+        auto dims = function.return_array_dimensions;
+        if (dims.empty()) dims.push_back(function.return_array_length);
+        returned = ir_make_array_value(function.return_element_type, std::move(dims),
+            function.return_element_struct_type_id, function.span);
+        add(returned);
+    }
+    return result;
 }
 
 IRVerificationResult IRVerifier::verify(const IRModule& module) const {

@@ -1,8 +1,8 @@
 # Nested arrays and collections of collections
 
-**Status:** Dynamic and mixed fixed/dynamic jagged arrays are implemented across parsing, semantic analysis, recursive IR descriptors, verifier, lowering, and both C and LLVM backends. The native runtime fixture exercises two- and three-dimensional arrays, ragged and empty rows, mixed fixed/dynamic dimensions, nested assignment and compound assignment, side-effecting index expressions, nested collection operations, function parameters and returns, structure fields, arrays of structures, and value-versus-reference behavior. All-fixed nested arrays remain deferred pending a target-aware aggregate-size and stack-allocation policy; contiguous rectangular multidimensional arrays remain a separate feature.
+**Status:** Dynamic, mixed, and all-fixed jagged arrays are implemented across parsing, semantic analysis, recursive IR descriptors, verifier, lowering, and both C and LLVM backends. Native runtime tests cover 2D/3D ragged collections, mixed fixed/dynamic dimensions, all-fixed nested values, nested assignment, side-effecting indices, collection operations, function parameters/returns, structure fields, arrays of structures, and value-versus-reference behavior. Nested fixed inline storage is bounded by a target-native 256 KiB per-object limit and a 512 KiB per-function aggregate-storage budget; contiguous rectangular multidimensional arrays remain separate.
 
-This note records the semantic contract and remaining implementation boundaries. Repeated dimensions compile and execute for dynamic and mixed fixed/dynamic jagged shapes; all-fixed nested source arrays are intentionally rejected until their size and stack policy is enforced.
+This note records the semantic contract and remaining implementation boundaries. Repeated dimensions compile and execute for dynamic, mixed, and all-fixed jagged shapes. All-fixed inline storage is bounded by target-aware backend checks, with a conservative semantic lower-bound check before IR generation.
 
 ## 1. Problem and intended use
 
@@ -151,17 +151,26 @@ This deliberately retains the existing limitation: allocations are not released 
 
 Allocation-size multiplication, capacity growth, and target-native element-size calculations must remain overflow-checked. Allocation failure traps consistently in both backends.
 
-### Fixed aggregate size gate
+### Nested fixed aggregate size and stack budget
 
-Nested fixed dimensions multiply inline object size. The existing 65,536-element limit applies per dimension and does not bound the total byte size of a multi-layer fixed aggregate. Before enabling arbitrary all-fixed nesting, the compiler must calculate the complete target-native aggregate size with checked multiplication and alignment, not merely multiply source-level element counts.
+Nested fixed dimensions multiply inline object size. The existing 65,536-element limit applies per dimension and does not bound the total byte size of a multi-layer fixed aggregate. VEX now applies two explicit limits:
 
-The roadmap still leaves the stack-allocation policy undecided. A representable object size is not automatically safe for a process stack. Do not silently heap-allocate a fixed array to avoid this issue: that would change its established value representation and copy behavior. The implementation must resolve a documented target-aware size/stack policy before claiming full support for deeply nested all-fixed arrays. If that policy is not ready, the first implementation slice should be explicit about which dynamic and mixed fixed/dynamic shapes it supports, rather than implying every combination works.
+- A materialized nested fixed aggregate object may not exceed **256 KiB** according to the target ABI's allocation size.
+- A function may not account for more than **512 KiB** of nested fixed aggregate storage across its parameters, return-value allowance, SSA aggregate slots, branch-copy slots, and backend-generated aggregate temporaries.
+
+The semantic analyzer and IR verifier reject any consecutive fixed-dimension run whose element-count lower bound alone exceeds 256 KiB, assuming the smallest possible one-byte element. This prevents obviously oversized nested types from reaching backend layout calculations. It is only a lower-bound check: smaller element counts may still exceed the limit once the real element type and target padding are included.
+
+The C backend emits `_Static_assert` checks using the target C compiler's `sizeof` for each materialized nested fixed type and a synthetic per-function aggregate frame. The LLVM backend derives each type's allocation size from LLVM's target data layout, sums sizes with checked unsigned addition, and branches to `llvm.trap` before stack slots are allocated if either budget is exceeded. Dynamic alloca counts are zero on the failing path, so a code generator cannot reserve the rejected aggregate frame before the guard.
+
+The budget applies to inline nested fixed prefixes, including nested fixed arrays embedded through by-value structures. A dynamic outer dimension is a shared pointer and does not itself consume nested fixed stack storage; materialized fixed elements are checked when they become values or backend temporaries. Existing one-dimensional fixed-array behavior is unchanged by this nested-only budget.
+
+This is deliberately not a complete stack model. Scalar locals, ordinary one-dimensional fixed arrays, call depth, runtime frames, and platform startup overhead are not bounded by these two limits. Fixed arrays remain inline values and are never silently moved to the heap; programs requiring larger nested fixed objects should use dynamic arrays. A future configurable stack policy can be considered alongside the general stack/heap model.
 
 ## 9. Type metadata required by the compiler
 
-The semantic model and IR now carry one canonical flattened recursive shape: a scalar or nominal structure leaf type plus an ordered, outermost-first vector of fixed or dynamic dimensions. Indexing removes exactly the first dimension, and structural equality compares the leaf identity and every remaining dimension. This representation travels through bindings, structure fields, function parameters and returns, block parameters, SSA values, array operations, and call verification.
+The semantic model and IR carry one canonical flattened recursive shape: a scalar or nominal structure leaf type plus an ordered, outermost-first vector of fixed or dynamic dimensions. Indexing removes exactly the first dimension, and structural equality compares the leaf identity and every remaining dimension. This representation travels through bindings, structure fields, function parameters and returns, block parameters, SSA values, array operations, and call verification.
 
-The descriptor is the foundation for nested arrays; all-fixed source shapes remain gated separately until their target-aware size and stack policy is enforced.
+The descriptor supports all dimension combinations. Materialized nested fixed values are checked against the target-aware object and per-function storage budgets described above.
 
 - a scalar or nominal structure base type;
 - an ordered sequence of array dimensions, outermost first;
@@ -208,12 +217,13 @@ Do not implement this as a parser-only feature. The implemented dynamic/mixed ja
 6. [x] Recursive C type naming/emission and wrapper dependency ordering.
 7. [x] Recursive LLVM aggregate types and target-native element-size calculations.
 8. [x] Matching C and LLVM runtime fixtures in the four-platform CI matrix.
+9. [x] Target-aware 256 KiB per-object and 512 KiB per-function nested-fixed storage budgets, including C `sizeof` assertions and LLVM target-layout checks before stack allocation.
 
-Remaining gate: define and enforce a target-aware aggregate-size and per-function stack-allocation policy before enabling all-fixed nested arrays. Expand adversarial allocation-failure and deeply nested structure tests as that policy is implemented.
+Remaining work: broaden adversarial allocation-failure tests and audit program-lifetime allocation retention. The general stack/heap model remains unfinished.
 
 Minimum test coverage:
 
-- two and three dynamic dimensions; fixed, dynamic, and mixed dimension combinations;
+- two and three dynamic dimensions; fixed, dynamic, and mixed dimension combinations, including all-fixed nested arrays;
 - rectangular and ragged nested literals, contextual empty inner rows, and invalid shape mismatches;
 - nested arrays in structure fields, arrays of structures, function parameters, returns, and recursive dynamic structure fields;
 - fixed outer copy isolation and dynamic inner alias sharing;
@@ -221,6 +231,7 @@ Minimum test coverage:
 - nested indexed reads/writes and compound assignment with side-effecting index functions evaluated exactly once;
 - nested push/pop/reserve/capacity, nested for-in loops, bounds failures, allocation-size overflow, and allocation failure;
 - verifier rejection of malformed nested descriptors and mismatched nested call/field/element shapes;
+- semantic lower-bound rejection, target-native per-object rejection, and per-function aggregate-budget rejection in both backends;
 - C/LLVM agreement for structures with padding and arrays whose element types are nested aggregates.
 
 ## 12. Explicit non-goals and dependencies
@@ -229,4 +240,4 @@ This feature does not implement borrowed slices, element references, pointer ari
 
 The current program-lifetime allocation registry is sufficient to make shared nested dynamic references safe for the existing language subset, although it can retain unreachable allocations until entry return. A future ownership or allocator model must revisit this policy deliberately.
 
-The recursive descriptor and dynamic/mixed jagged-array runtime slice are now in place. The next array dependency is a target-aware size and per-function stack budget for all-fixed nested aggregates, including those embedded in structures. After that, audit allocation lifetime and failure behavior again before moving to enums or modules.
+The recursive descriptor, dynamic/mixed jagged arrays, and bounded all-fixed nested aggregates are now in place. The next dependency-aware task is an adversarial audit of allocation failure, retained program-lifetime allocations, and cleanup parity across C and LLVM. Keep enums and modules deferred until those memory foundations have been reviewed.

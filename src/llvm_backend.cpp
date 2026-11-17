@@ -1,4 +1,5 @@
 #include "vex/llvm_backend.hpp"
+#include "vex/stack_policy.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -1116,6 +1117,7 @@ trap:
                     << " %arg_" << index;
         }
         output_ << ") {\nentry:\n";
+        const std::string allocation_count = emit_nested_fixed_stack_guard(function);
 
         std::vector<std::pair<IRValueId, IRValue>> ordered_values(
             value_types_.begin(), value_types_.end());
@@ -1124,9 +1126,9 @@ trap:
                 return left.first < right.first;
             });
         for (const auto& [id, type] : ordered_values) {
-            output_ << "  " << value_slot(id) << " = alloca "
-                    << llvm_type(type) << ", align "
-                    << (type.type == IRType::Bool ? 1 : 8) << "\n";
+            output_ << "  " << value_slot(id) << " = alloca " << llvm_type(type);
+            if (!allocation_count.empty()) output_ << ", i64 " << allocation_count;
+            output_ << ", align " << (type.type == IRType::Bool ? 1 : 8) << "\n";
         }
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
             const IRValue& parameter = function.parameters[index].value;
@@ -1159,6 +1161,46 @@ trap:
             }, block.terminator->data);
         }
         output_ << "}\n\n";
+    }
+
+    std::string emit_nested_fixed_stack_guard(const IRFunction& function) {
+        const auto values = ir_function_nested_fixed_stack_values(function, module_);
+        if (values.empty()) return {};
+        std::string valid = "true";
+        std::string total = "0";
+        for (const IRValue& value : values) {
+            const std::string size = emit_type_size(value);
+            const std::string object_ok = next_temp();
+            output_ << "  " << object_ok << " = icmp ule i64 " << size
+                    << ", " << max_nested_fixed_aggregate_bytes << "\n";
+            const std::string object_valid = next_temp();
+            output_ << "  " << object_valid << " = and i1 " << valid << ", " << object_ok << "\n";
+            valid = object_valid;
+            const std::string pair = next_temp();
+            const std::string next_total = next_temp();
+            const std::string overflow = next_temp();
+            output_ << "  " << pair << " = call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 "
+                    << total << ", i64 " << size << ")\n"
+                    << "  " << next_total << " = extractvalue { i64, i1 } " << pair << ", 0\n"
+                    << "  " << overflow << " = extractvalue { i64, i1 } " << pair << ", 1\n";
+            const std::string no_overflow = next_temp();
+            output_ << "  " << no_overflow << " = xor i1 " << overflow << ", true\n";
+            const std::string within = next_temp();
+            output_ << "  " << within << " = icmp ule i64 " << next_total
+                    << ", " << max_function_nested_fixed_stack_bytes << "\n";
+            const std::string sum_valid = next_temp();
+            output_ << "  " << sum_valid << " = and i1 " << no_overflow << ", " << within << "\n";
+            const std::string combined = next_temp();
+            output_ << "  " << combined << " = and i1 " << valid << ", " << sum_valid << "\n";
+            valid = combined;
+            total = next_total;
+        }
+        const std::string count = "%vex_stack_alloc_count";
+        output_ << "  " << count << " = select i1 " << valid << ", i64 1, i64 0\n"
+                << "  br i1 " << valid << ", label %vex_stack_alloc, label %vex_stack_trap\n"
+                << "vex_stack_trap:\n  call void @llvm.trap()\n  unreachable\n"
+                << "vex_stack_alloc:\n";
+        return count;
     }
 
     std::string next_temp() {

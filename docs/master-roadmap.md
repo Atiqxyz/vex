@@ -76,7 +76,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [x] Fixed-size one-dimensional primitive and structure arrays
 - [x] Dynamic one-dimensional primitive and structure arrays
 - [x] Dynamic and mixed fixed/dynamic nested arrays (jagged collections) across semantic analysis, recursive IR verification, lowering, C/LLVM backends, and native runtime tests; all-fixed nested aggregates remain gated; see [design proposal](nested-array-design.md)
-- [ ] All-fixed nested array aggregates with a target-aware size and per-function stack-allocation policy (see [design proposal](nested-array-design.md))
+- [x] All-fixed nested array aggregates with target-native object-size checks and a per-function nested-fixed storage budget (see [design proposal](nested-array-design.md))
 - [ ] Contiguous multidimensional arrays with documented storage order and strides
 - [x] Checked owning byte-range copies through `byte_slice`
 - [ ] Slices / non-owning views over arrays and buffers (requires lifetimes and aliasing rules)
@@ -139,6 +139,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 **Why it matters:** VEX aims to be a systems language. Memory behavior cannot remain an undocumented implementation detail forever.
 
 - [ ] A documented stack and heap model
+- [x] Target-aware object and per-function limits for nested fixed aggregate stack storage
 - [ ] User-visible allocator interface
 - [ ] Allocator selection and allocator-aware collections
 - [ ] Explicit allocation and deallocation where appropriate

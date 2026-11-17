@@ -78,7 +78,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Array iteration | Implemented | for-in over fixed/dynamic one-dimensional and supported nested jagged arrays of primitive or structure values; nested loops preserve the remaining element shape. Dynamic length is checked at each loop header. |
 | Array function parameters | Implemented | Fixed one-dimensional arrays are passed by value; dynamic and mixed nested jagged arrays preserve each dimension's value/reference representation. Element type, nominal structure identity, and complete supported shape are checked. |
 | Array function returns | Implemented | Fixed one-dimensional arrays are returned by value; dynamic and mixed nested jagged arrays preserve each dimension's value/reference representation. IR verifies leaf identity and the complete supported shape. |
-| Nested arrays | Partial | Dynamic and mixed fixed/dynamic jagged arrays are implemented end to end. C and LLVM runtime tests cover 2D/3D, ragged and empty rows, mixed fixed/dynamic dimensions, nested compound assignment with exactly-once side-effecting indices, nested push/pop/reserve/capacity, function parameters/returns, structure fields, arrays of structures, and copy/alias behavior. All-fixed nested aggregates remain deferred pending a target-aware size/stack policy. See the [design proposal](nested-array-design.md). |
+| Nested arrays | Implemented | Dynamic, mixed, and all-fixed jagged arrays are implemented end to end. Nested fixed storage is bounded by a target-native 256 KiB per-object limit and a 512 KiB per-function nested-fixed aggregate budget. C uses `sizeof` static assertions; LLVM checks target-layout allocation sizes before stack allocation. Contiguous rectangular multidimensional arrays remain a separate feature. See the [design proposal](nested-array-design.md). |
 | Integer ranges | Implemented | \`start..end\` exclusive and \`start..=end\` inclusive, directly in \`for-in\`. |
 | Unsigned integer types | Partial | `byte` is an unsigned 8-bit scalar; broader unsigned integer types are not yet language types. |
 | Smaller/larger integer widths | Partial | `byte` provides 8-bit storage and `int` is signed 64-bit; independent 16/32/unsigned integer scalar types remain absent. |
@@ -167,7 +167,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Value semantics for primitives | Implemented | Primitive values flow through SSA. |
 | Value semantics for fixed arrays | Implemented | Aggregate values; no heap allocation required. |
 | Automatic local storage | Partial | Compiler/backend local representation exists; complete lifetime model is not defined. |
-| Stack allocation policy | Design undecided | Define escape behavior and large-object handling. |
+| Stack allocation policy | Partial | Nested fixed aggregate storage has target-native 256 KiB per-object and 512 KiB per-function limits; the general stack/heap model, scalar-frame accounting, recursion limits, and configurable budgets remain undefined. |
 | Heap allocation | Not implemented as a VEX language API | Runtime/backend internals are not a user-facing allocator model. |
 | Explicit allocators | Not implemented | Important for predictable systems/scientific workloads. |
 | Deallocation | Not implemented | Requires ownership and lifetime rules. |

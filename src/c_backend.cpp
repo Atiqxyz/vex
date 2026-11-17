@@ -1,4 +1,5 @@
 #include "vex/c_backend.hpp"
+#include "vex/stack_policy.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -193,6 +194,7 @@ public:
         emit_preamble();
         emit_struct_types();
         emit_array_types();
+        emit_nested_fixed_stack_assertions();
         emit_runtime();
         emit_prototypes();
         for (const IRFunction& function : module_.functions) {
@@ -328,6 +330,31 @@ private:
             }
         }
         if (emitted_array_shapes_.size() != before) output_ << '\n';
+    }
+
+    void emit_nested_fixed_stack_assertions() {
+        std::size_t function_index = 0;
+        for (const IRFunction& function : module_.functions) {
+            const auto values = ir_function_nested_fixed_stack_values(function, module_);
+            if (values.empty()) { ++function_index; continue; }
+            std::set<std::string> asserted_types;
+            for (const IRValue& value : values) {
+                const std::string type = c_type(value);
+                if (!asserted_types.insert(type).second) continue;
+                output_ << "_Static_assert(sizeof(" << type << ") <= "
+                        << max_nested_fixed_aggregate_bytes
+                        << "u, \"VEX nested fixed aggregate exceeds the 256 KiB object limit\");\n";
+            }
+            const std::string frame = "vex_nested_fixed_frame_" + std::to_string(function_index);
+            output_ << "typedef struct " << frame << " {\n";
+            for (std::size_t i = 0; i < values.size(); ++i)
+                output_ << "    " << c_type(values[i]) << " vex_slot_" << i << ";\n";
+            output_ << "} " << frame << ";\n"
+                    << "_Static_assert(sizeof(" << frame << ") <= "
+                    << max_function_nested_fixed_stack_bytes
+                    << "u, \"VEX function exceeds the 512 KiB nested fixed aggregate stack budget\");\n\n";
+            ++function_index;
+        }
     }
 
     void emit_runtime() {

@@ -157,6 +157,37 @@ if(BUILD_TESTING)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested_array_runtime_integration.cmake
         )
         set_tests_properties(vex_nested_array_llvm_runtime PROPERTIES TIMEOUT 60)
+        add_test(NAME vex_fixed_nested_array_llvm_runtime
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=llvm
+                -DLLVM_CLANG=${VEX_LLVM_CLANG_EXECUTABLE}
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fixed_nested_arrays.vex
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixed_nested_array_runtime_integration.cmake
+        )
+        set_tests_properties(vex_fixed_nested_array_llvm_runtime PROPERTIES TIMEOUT 60)
+        add_test(NAME vex_fixed_nested_array_llvm_object_limit
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=llvm
+                -DLLVM_CLANG=${VEX_LLVM_CLANG_EXECUTABLE}
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fixed_nested_array_stack_limit.vex
+                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/fixed_nested_array_llvm_object_limit
+                -DOUTPUT_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixed_nested_array_stack_limit_integration.cmake
+        )
+        set_tests_properties(vex_fixed_nested_array_llvm_object_limit PROPERTIES TIMEOUT 60)
+        add_test(NAME vex_fixed_nested_array_llvm_frame_limit
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=llvm
+                -DLLVM_CLANG=${VEX_LLVM_CLANG_EXECUTABLE}
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fixed_nested_array_stack_frame_limit.vex
+                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/fixed_nested_array_llvm_frame_limit
+                -DOUTPUT_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixed_nested_array_stack_limit_integration.cmake
+        )
+        set_tests_properties(vex_fixed_nested_array_llvm_frame_limit PROPERTIES TIMEOUT 60)
         add_test(NAME vex_llvm_backend_integration
             COMMAND ${CMAKE_COMMAND}
                 -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
@@ -197,6 +228,34 @@ if(BUILD_TESTING)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/nested_array_runtime_integration.cmake
         )
         set_tests_properties(vex_nested_array_c_runtime PROPERTIES TIMEOUT 60)
+        add_test(NAME vex_fixed_nested_array_c_runtime
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=c
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fixed_nested_arrays.vex
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixed_nested_array_runtime_integration.cmake
+        )
+        set_tests_properties(vex_fixed_nested_array_c_runtime PROPERTIES TIMEOUT 60)
+        add_test(NAME vex_fixed_nested_array_c_object_limit
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=c
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fixed_nested_array_stack_limit.vex
+                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/fixed_nested_array_c_object_limit
+                -DOUTPUT_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixed_nested_array_stack_limit_integration.cmake
+        )
+        set_tests_properties(vex_fixed_nested_array_c_object_limit PROPERTIES TIMEOUT 60)
+        add_test(NAME vex_fixed_nested_array_c_frame_limit
+            COMMAND ${CMAKE_COMMAND}
+                -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+                -DBACKEND=c
+                -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fixed_nested_array_stack_frame_limit.vex
+                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/fixed_nested_array_c_frame_limit
+                -DOUTPUT_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixed_nested_array_stack_limit_integration.cmake
+        )
+        set_tests_properties(vex_fixed_nested_array_c_frame_limit PROPERTIES TIMEOUT 60)
         add_test(NAME vex_c_backend_integration
             COMMAND ${CMAKE_COMMAND}
                 -DVEX_EXECUTABLE=$<TARGET_FILE:vex>

@@ -487,11 +487,28 @@ void test_nested_array_annotations_and_semantics(TestContext& tests) {
     tests.check(!deep_accepted.has_errors(),
                 "contextual dynamic dimensions permit different lengths at deeper jagged levels");
 
-    const vex::SourceFile invalid{"all_fixed_nested_arrays.vex",
-        "make main() { let matrix: int[2][3] = [[1, 2, 3], [4, 5, 6]] }\n"};
-    const vex::SemanticResult rejected = analyze(invalid);
+    const vex::SourceFile fixed_nested{"fixed_nested_array_semantics.vex",
+        "struct Matrix { cells: int[2][3] }\n"
+        "make identity(values: int[2][3]) -> int[2][3] { return values }\n"
+        "make main() {\n"
+        "    let matrix: int[2][3] = [[1, 2, 3], [4, 5, 6]]\n"
+        "    let copied = identity(matrix)\n"
+        "    let inferred = [[7, 8], [9, 10]]\n"
+        "    let box = Matrix { cells: copied }\n"
+        "    box.cells[1][2] = inferred[1][0]\n"
+        "    let dynamic_outer: int[][2][3] = [[[1, 2, 3], [4, 5, 6]],]\n"
+        "}\n"};
+    const vex::SemanticResult fixed_accepted = analyze(fixed_nested);
+    tests.check(!fixed_accepted.has_errors(),
+                "all-fixed nested arrays support contextual and inferred literals, structure fields, indexing, and function values");
+
+    const vex::SourceFile oversized{"oversized_fixed_nested_array.vex",
+        "make too_large(value: byte[513][512]) {}\n"
+        "make too_large_dynamic(value: byte[][513][512]) {}\n"
+        "make main() {}\n"};
+    const vex::SemanticResult rejected = analyze(oversized);
     tests.check(has_code(rejected, "SEM060"),
-                "all-fixed nested arrays remain gated until target-aware aggregate size limits are defined");
+                "nested fixed dimension runs whose minimum element storage exceeds the object budget are rejected");
 }
 
 void test_default_initialization_semantics(TestContext& tests) {

@@ -4,12 +4,33 @@
 #include "vex/llvm_backend.hpp"
 
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace {
 
 vex::IRValue value(const vex::IRValueId id, const vex::IRType type) {
     return vex::IRValue{id, type, {}};
+}
+
+vex::IRModule nested_fixed_stack_module() {
+    vex::IRFunction worker;
+    worker.name = "worker";
+    worker.return_type = vex::IRType::Void;
+    worker.entry_block = 0;
+    for (vex::IRValueId id = 1; id <= 3; ++id) {
+        vex::IRValue aggregate = vex::ir_make_array_value(vex::IRType::Int, {256u, 128u});
+        aggregate.id = id;
+        worker.parameters.push_back({"matrix" + std::to_string(id), aggregate});
+    }
+    vex::IRBlock entry;
+    entry.id = 0;
+    entry.name = "entry";
+    entry.terminator = vex::IRTerminator{vex::IRReturn{}, {}};
+    worker.blocks.push_back(entry);
+    vex::IRModule module;
+    module.functions.push_back(worker);
+    return module;
 }
 
 vex::IRModule simple_main_module() {
@@ -82,6 +103,18 @@ void test_llvm_backend_emits_ir(TestContext& tests) {
     }
 }
 
+void test_llvm_backend_guards_nested_fixed_stack_storage(TestContext& tests) {
+    const vex::BackendResult result = vex::LLVMBackend{}.emit(nested_fixed_stack_module());
+    tests.check(!result.has_errors(), "LLVM backend accepts nested fixed aggregate IR for target-layout checks");
+    tests.check(result.output.find("getelementptr [256 x [128 x i64]], ptr null, i64 1") != std::string::npos,
+                "LLVM backend derives nested aggregate allocation size from target data layout");
+    tests.check(result.output.find("vex_stack_trap") != std::string::npos &&
+                result.output.find("vex_stack_alloc_count") != std::string::npos,
+                "LLVM backend checks the nested aggregate budget before dynamic stack allocation");
+    tests.check(result.output.find("524288") != std::string::npos,
+                "LLVM backend enforces the shared per-function aggregate budget");
+}
+
 void test_llvm_backend_rejects_invalid_entry_point(TestContext& tests) {
     vex::IRModule module = simple_main_module();
     module.functions.front().parameters.push_back(
@@ -98,5 +131,6 @@ void test_llvm_backend_rejects_invalid_entry_point(TestContext& tests) {
 void run_llvm_backend_tests(TestContext& tests) {
     test_llvm_backend_is_registered(tests);
     test_llvm_backend_emits_ir(tests);
+    test_llvm_backend_guards_nested_fixed_stack_storage(tests);
     test_llvm_backend_rejects_invalid_entry_point(tests);
 }

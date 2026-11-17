@@ -1,0 +1,11 @@
+make matrix() -> int[256][128] {
+    return matrix()
+}
+
+make consume(a: int[256][128], b: int[256][128], c: int[256][128]) {
+    say(1)
+}
+
+make main() {
+    consume(matrix(), matrix(), matrix())
+}

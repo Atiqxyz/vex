@@ -2,6 +2,7 @@
 
 #include "vex/c_backend.hpp"
 
+#include <string>
 #include <string_view>
 
 namespace {
@@ -15,6 +16,26 @@ bool has_code(const vex::CBackendResult& result, const std::string_view code) {
 
 vex::IRValue value(const vex::IRValueId id, const vex::IRType type) {
     return vex::IRValue{id, type, {}};
+}
+
+vex::IRModule nested_fixed_stack_module() {
+    vex::IRFunction worker;
+    worker.name = "worker";
+    worker.return_type = vex::IRType::Void;
+    worker.entry_block = 0;
+    for (vex::IRValueId id = 1; id <= 3; ++id) {
+        vex::IRValue aggregate = vex::ir_make_array_value(vex::IRType::Int, {256u, 128u});
+        aggregate.id = id;
+        worker.parameters.push_back({"matrix" + std::to_string(id), aggregate});
+    }
+    vex::IRBlock entry;
+    entry.id = 0;
+    entry.name = "entry";
+    entry.terminator = vex::IRTerminator{vex::IRReturn{}, {}};
+    worker.blocks.push_back(entry);
+    vex::IRModule module;
+    module.functions.push_back(worker);
+    return module;
 }
 
 vex::IRModule simple_main_module() {
@@ -71,6 +92,15 @@ void test_c_backend_emits_typed_c(TestContext& tests) {
     }
 }
 
+void test_c_backend_emits_nested_fixed_stack_budget_assertions(TestContext& tests) {
+    const vex::CBackendResult result = vex::CBackend{}.generate(nested_fixed_stack_module());
+    tests.check(!result.has_errors(), "C backend accepts nested fixed aggregate IR for target-layout checks");
+    tests.check(result.source.find("sizeof(vex_array_int_256_128) <= 262144u") != std::string::npos,
+                "C backend emits target-native sizeof assertions for nested fixed aggregate objects");
+    tests.check(result.source.find("512 KiB nested fixed aggregate stack budget") != std::string::npos,
+                "C backend emits a per-function nested fixed aggregate storage assertion");
+}
+
 void test_c_backend_rejects_invalid_entry_point(TestContext& tests) {
     vex::IRModule module = simple_main_module();
     module.functions.front().parameters.push_back(
@@ -105,6 +135,7 @@ void test_c_backend_requires_verified_ir(TestContext& tests) {
 
 void run_c_backend_tests(TestContext& tests) {
     test_c_backend_emits_typed_c(tests);
+    test_c_backend_emits_nested_fixed_stack_budget_assertions(tests);
     test_c_backend_rejects_invalid_entry_point(tests);
     test_c_backend_requires_verified_ir(tests);
 }

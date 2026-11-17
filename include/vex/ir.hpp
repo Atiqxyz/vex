@@ -237,6 +237,11 @@ struct IRModule {
     std::vector<IRFunction> functions;
 };
 
+[[nodiscard]] bool ir_value_has_nested_fixed_storage(
+    const IRValue& value, const IRModule& module);
+[[nodiscard]] std::vector<IRValue> ir_function_nested_fixed_stack_values(
+    const IRFunction& function, const IRModule& module);
+
 struct IRVerificationResult {
     std::vector<Diagnostic> diagnostics;
 

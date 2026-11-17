@@ -1,0 +1,7 @@
+make oversized() -> int[256][256] {
+    return oversized()
+}
+
+make main() {
+    oversized()
+}
