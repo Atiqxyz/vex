@@ -1155,6 +1155,86 @@ private:
         }
     }
 
+    using PointerOriginSnapshot =
+        std::unordered_map<SemanticBindingId,
+                           std::optional<SemanticPointerType>>;
+
+    [[nodiscard]] PointerOriginSnapshot snapshot_pointer_origins() const {
+        PointerOriginSnapshot snapshot;
+        snapshot.reserve(model_.bindings.size());
+        for (const auto& [id, binding] : model_.bindings)
+            snapshot.emplace(id, binding.pointer_type);
+        return snapshot;
+    }
+
+    static bool same_pointer_descriptor(
+        const SemanticPointerType& left, const SemanticPointerType& right) noexcept {
+        return left.pointee_type == right.pointee_type &&
+            left.pointee_binding_id == right.pointee_binding_id &&
+            left.mutable_pointee == right.mutable_pointee &&
+            left.pointee_struct_type_id == right.pointee_struct_type_id &&
+            left.pointee_enum_type_id == right.pointee_enum_type_id &&
+            left.pointee_parameter_index == right.pointee_parameter_index &&
+            left.indirection_depth == right.indirection_depth;
+    }
+
+    void set_pointer_origin(
+        const SemanticBindingId id,
+        const std::optional<SemanticPointerType>& pointer_type) {
+        const auto binding = model_.bindings.find(id);
+        if (binding != model_.bindings.end())
+            binding->second.pointer_type = pointer_type;
+        for (Scope& scope : scopes_) {
+            for (auto& [name, symbol] : scope) {
+                static_cast<void>(name);
+                if (symbol.id == id) symbol.pointer_type = pointer_type;
+            }
+        }
+    }
+
+    void restore_pointer_origins(const PointerOriginSnapshot& snapshot) {
+        for (const auto& [id, pointer_type] : snapshot)
+            set_pointer_origin(id, pointer_type);
+    }
+
+    void join_pointer_origins(
+        const PointerOriginSnapshot& before,
+        const PointerOriginSnapshot& then_state,
+        const PointerOriginSnapshot& else_state) {
+        const auto state_for = [](const PointerOriginSnapshot& state,
+                                  const SemanticBindingId id,
+                                  const std::optional<SemanticPointerType>& fallback)
+            -> std::optional<SemanticPointerType> {
+            const auto found = state.find(id);
+            return found == state.end() ? fallback : found->second;
+        };
+        for (const auto& [id, original] : before) {
+            const auto then_pointer = state_for(then_state, id, original);
+            const auto else_pointer = state_for(else_state, id, original);
+            if (!then_pointer && !else_pointer) {
+                set_pointer_origin(id, std::nullopt);
+                continue;
+            }
+            if (then_pointer && else_pointer &&
+                same_pointer_descriptor(*then_pointer, *else_pointer)) {
+                set_pointer_origin(id, then_pointer);
+                continue;
+            }
+
+            // The branches disagree about where this pointer points. Retain
+            // the type but erase provenance; a later escape must not assume
+            // whichever branch happened to be analyzed last.
+            SemanticPointerType unknown = then_pointer
+                ? *then_pointer : *else_pointer;
+            unknown.pointee_binding_id = 0u;
+            unknown.pointee_parameter_index = 0u;
+            unknown.mutable_pointee = then_pointer && else_pointer
+                ? then_pointer->mutable_pointee && else_pointer->mutable_pointee
+                : unknown.mutable_pointee;
+            set_pointer_origin(id, unknown);
+        }
+    }
+
     [[nodiscard]] Symbol* lookup_binding_symbol(const SemanticBindingId id) {
         for (std::size_t index = scopes_.size(); index > 0; --index) {
             for (auto& entry : scopes_[index - 1]) {
