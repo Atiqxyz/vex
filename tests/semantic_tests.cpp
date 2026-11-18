@@ -1403,8 +1403,19 @@ make main() {
 )VEX"};
     const vex::SemanticResult aliased_destination_writes_result =
         analyze(aliased_destination_writes);
+    std::string aliased_destination_diagnostics;
+    for (const vex::Diagnostic& diagnostic : aliased_destination_writes_result.diagnostics)
+        aliased_destination_diagnostics += diagnostic.code + ": " + diagnostic.message + "; ";
+    for (const auto& [declaration, signature] : aliased_destination_writes_result.model.functions) {
+        static_cast<void>(declaration);
+        if (signature.name == "replace_two_slots") {
+            aliased_destination_diagnostics += " summaries=" +
+                std::to_string(signature.pointer_parameter_stores.size());
+        }
+    }
     tests.check(has_code(aliased_destination_writes_result, "SEM072"),
-                "every summarized write is lifetime-checked even when multiple parameters alias the same destination cell");
+                "every summarized write is lifetime-checked even when multiple parameters alias the same destination cell (" +
+                aliased_destination_diagnostics + ")");
 
     const vex::SourceFile aliased_destination_writes_safe{"pointer_parameter_aliased_destinations_safe.vex", R"VEX(
 make replace_two_slots(first_slot: **int, second_slot: **int,
@@ -1423,8 +1434,19 @@ make main() {
 )VEX"};
     const vex::SemanticResult aliased_destination_writes_safe_result =
         analyze(aliased_destination_writes_safe);
+    std::string aliased_destination_safe_diagnostics;
+    for (const vex::Diagnostic& diagnostic : aliased_destination_writes_safe_result.diagnostics)
+        aliased_destination_safe_diagnostics += diagnostic.code + ": " + diagnostic.message + "; ";
+    for (const auto& [declaration, signature] : aliased_destination_writes_safe_result.model.functions) {
+        static_cast<void>(declaration);
+        if (signature.name == "replace_two_slots") {
+            aliased_destination_safe_diagnostics += " summaries=" +
+                std::to_string(signature.pointer_parameter_stores.size());
+        }
+    }
     tests.check(!aliased_destination_writes_safe_result.has_errors(),
-                "multiple writes through aliased destination parameters are accepted when every source outlives the destination");
+                "multiple writes through aliased destination parameters are accepted when every source outlives the destination (" +
+                aliased_destination_safe_diagnostics + ")");
 
     const vex::SourceFile branch_pointer_escape{"pointer_parameter_branch_escape.vex", R"VEX(
 make replace_pointer(slot: **int, replacement: *int) {
