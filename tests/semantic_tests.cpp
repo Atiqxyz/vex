@@ -1289,6 +1289,19 @@ make main() {
     tests.check(has_code(ambiguous_branch_pointer_return_result, "SEM072"),
                 "a branch-dependent pointer alias with unknown joined origin cannot be accepted as a verified null return");
 
+    const vex::SourceFile dangling_null_pointer_cell_return{
+        "dangling_null_pointer_cell_return.vex", R"VEX(
+make dangling_null_cell() -> **int {
+    let empty: *int = null
+    return &empty
+}
+make main() {}
+)VEX"};
+    const vex::SemanticResult dangling_null_pointer_cell_return_result =
+        analyze(dangling_null_pointer_cell_return);
+    tests.check(has_code(dangling_null_pointer_cell_return_result, "SEM072"),
+                "taking the address of a null-valued local pointer is not mistaken for returning null");
+
     const vex::SourceFile immutable{"pointer_to_const.vex",
         "make main() {\n"
         "    const value = 1\n"
