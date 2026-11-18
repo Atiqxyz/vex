@@ -947,6 +947,8 @@ private:
                 signature.parameter_enum_type_ids.push_back(parameter_enum_type_id);
                 signature.parameter_pointer_types.push_back(parameter_pointer_type);
             }
+            signature.pointer_parameter_stores =
+                direct_pointer_parameter_store_summaries(*function);
 
             const std::string name = spelling(function->name);
             const auto existing = scopes_.front().find(name);
