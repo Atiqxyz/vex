@@ -731,10 +731,21 @@ private:
         const FunctionDeclStmt& function) const {
         using AliasScope =
             std::unordered_map<std::string, std::optional<std::uint32_t>>;
-        std::vector<AliasScope> alias_scopes;
+        std::vector<AliasScope> alias_scopes(1u);
         std::optional<std::uint32_t> origin;
         bool saw_return = false;
         bool valid = true;
+
+        for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+            const Parameter& parameter = function.parameters[index];
+            std::optional<std::uint32_t> parameter_origin;
+            if (parameter.type_annotation) {
+                const std::string annotation = spelling(*parameter.type_annotation);
+                if (!annotation.empty() && annotation.front() == '*')
+                    parameter_origin = static_cast<std::uint32_t>(index + 1u);
+            }
+            alias_scopes.front()[spelling(parameter.name)] = parameter_origin;
+        }
 
         const auto pointer_origin_for_name = [&](const std::string& identifier)
             -> std::optional<std::uint32_t> {
@@ -743,16 +754,26 @@ private:
                 if (found != alias_scopes[index - 1u].end())
                     return found->second;
             }
-            for (std::size_t index = 0; index < function.parameters.size(); ++index) {
-                const Parameter& parameter = function.parameters[index];
-                if (spelling(parameter.name) != identifier ||
-                    !parameter.type_annotation) continue;
-                const std::string annotation = spelling(*parameter.type_annotation);
-                if (annotation.empty() || annotation.front() != '*')
-                    return std::nullopt;
-                return static_cast<std::uint32_t>(index + 1u);
-            }
             return std::nullopt;
+        };
+        const auto pointer_origin_for_expression = [&](const Expr* expression)
+            -> std::optional<std::uint32_t> {
+            expression = unwrap_grouped_expression(expression);
+            const auto* name = expression
+                ? std::get_if<NameExpr>(&expression->data) : nullptr;
+            return name
+                ? pointer_origin_for_name(spelling(name->name)) : std::nullopt;
+        };
+        const auto set_pointer_origin_for_name = [&](const std::string& identifier,
+                                                     const std::optional<std::uint32_t>& value) {
+            for (std::size_t index = alias_scopes.size(); index > 0u; --index) {
+                auto found = alias_scopes[index - 1u].find(identifier);
+                if (found != alias_scopes[index - 1u].end()) {
+                    found->second = value;
+                    return;
+                }
+            }
+            alias_scopes.front()[identifier] = value;
         };
 
         const auto visit = [&](const auto& self, const Statement* statement) -> void {
@@ -784,14 +805,25 @@ private:
             } else if (const auto* variable =
                            std::get_if<VariableDeclStmt>(&statement->data)) {
                 if (alias_scopes.empty()) alias_scopes.emplace_back();
-                std::optional<std::uint32_t> alias_origin;
-                const Expr* initializer =
-                    unwrap_grouped_expression(variable->initializer.get());
-                const auto* name = initializer
-                    ? std::get_if<NameExpr>(&initializer->data) : nullptr;
-                if (name)
-                    alias_origin = pointer_origin_for_name(spelling(name->name));
-                alias_scopes.back()[spelling(variable->name)] = alias_origin;
+                alias_scopes.back()[spelling(variable->name)] =
+                    pointer_origin_for_expression(variable->initializer.get());
+            } else if (const auto* expression =
+                           std::get_if<ExpressionStmt>(&statement->data)) {
+                const Expr* value =
+                    unwrap_grouped_expression(expression->expression.get());
+                const auto* assignment = value
+                    ? std::get_if<AssignmentExpr>(&value->data) : nullptr;
+                if (assignment && assignment->op == TokenKind::Equal) {
+                    const Expr* target =
+                        unwrap_grouped_expression(assignment->target.get());
+                    const auto* name = target
+                        ? std::get_if<NameExpr>(&target->data) : nullptr;
+                    if (name) {
+                        set_pointer_origin_for_name(
+                            spelling(name->name),
+                            pointer_origin_for_expression(assignment->value.get()));
+                    }
+                }
             } else if (const auto* conditional = std::get_if<IfStmt>(&statement->data)) {
                 self(self, conditional->then_branch.get());
                 self(self, conditional->else_branch.get());
