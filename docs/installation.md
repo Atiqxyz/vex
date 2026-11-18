@@ -78,7 +78,7 @@ The release package includes Zig 0.17.1, whose Clang/LLVM toolchain is used to c
 
 Advanced users can override toolchain discovery with `VEX_LLVM_ZIG` (path to Zig) or `VEX_LLVM_CC` / `LLVM_CC` (path to a Clang driver). `VEX_HOME` can point to the package root when VEX is launched through a wrapper or custom layout.
 
-The C backend remains available as an explicit fallback:
+The C backend is available through explicitly selected commands:
 
 - `vex emit-c file.vex`
 - `vex build-c file.vex`
