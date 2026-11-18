@@ -707,6 +707,22 @@ private:
         return literal && literal->token_kind == TokenKind::KwNull;
     }
 
+    [[nodiscard]] bool is_known_null_pointer_expression(const Expr* expression) {
+        expression = unwrap_grouped_expression(expression);
+        if (is_null_pointer_literal(expression)) return true;
+        const auto* call = expression
+            ? std::get_if<CallExpr>(&expression->data) : nullptr;
+        const Expr* callee_expression = call
+            ? unwrap_grouped_expression(call->callee.get()) : nullptr;
+        const auto* callee_name = callee_expression
+            ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
+        if (!callee_name) return false;
+        const Symbol* function = lookup(spelling(callee_name->name));
+        return function && function->is_function &&
+            function->return_pointer_parameter_index &&
+            *function->return_pointer_parameter_index == 0u;
+    }
+
     [[nodiscard]] const UnaryExpr* member_root_dereference(const Expr* expression) const {
         while (expression) {
             if (const auto* member = std::get_if<MemberExpr>(&expression->data)) {
@@ -3699,13 +3715,18 @@ private:
                                 current_return_pointer_type_->indirection_depth) {
                             report("SEM028", "returned pointer does not match the function's exact pointee type",
                                    returned->value->span);
-                        } else if (!is_null_pointer_literal(returned->value.get()) &&
-                                   (!current_return_pointer_parameter_index_ ||
-                                    (actual_pointer->second.pointee_parameter_index !=
-                                         *current_return_pointer_parameter_index_ &&
-                                     actual_pointer->second.pointee_parameter_index != 0u))) {
-                            report("SEM072", "a function may return only a pointer derived from one of its pointer parameters or null; returning local storage would create a dangling pointer",
-                                   returned->value->span);
+                        } else {
+                            const bool returned_null =
+                                is_known_null_pointer_expression(returned->value.get());
+                            const bool returned_expected_parameter =
+                                current_return_pointer_parameter_index_ &&
+                                *current_return_pointer_parameter_index_ != 0u &&
+                                actual_pointer->second.pointee_parameter_index ==
+                                    *current_return_pointer_parameter_index_;
+                            if (!returned_null && !returned_expected_parameter) {
+                                report("SEM072", "a function may return only a pointer derived from one of its pointer parameters or a verified null result; returning unknown or local storage could create a dangling pointer",
+                                       returned->value->span);
+                            }
                         }
                     }
                 }
