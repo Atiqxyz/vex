@@ -1298,7 +1298,7 @@ void test_int64_literal_boundaries(TestContext& tests) {
         "    let invalid = 9223372036854775808\n"
         "}\n"};
     const vex::SemanticResult rejected = analyze(positive_overflow);
-    tests.check(has_code(rejected, "SEM074"),
+    tests.check(has_code(rejected, "SEM079"),
                 "the positive magnitude above INT64_MAX is rejected during semantic analysis");
 
     const vex::SourceFile negative_overflow{"negative_int64_overflow.vex",
