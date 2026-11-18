@@ -2589,6 +2589,10 @@ private:
         }
 
         if (const auto* unary = std::get_if<UnaryExpr>(&expression->data)) {
+            if (unary->op == TokenKind::Minus &&
+                is_int64_min_magnitude_literal(unary->operand.get(), source_)) {
+                return std::numeric_limits<std::int64_t>::min();
+            }
             const auto operand = constant_integer(unary->operand.get());
             if (!operand) return std::nullopt;
             if (unary->op == TokenKind::Plus) return operand;
