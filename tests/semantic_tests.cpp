@@ -1252,6 +1252,30 @@ make main() {
     tests.check(has_code(alias_return_short_lived_parameter_result, "SEM072"),
                 "return summaries follow reassigned aliases to the second parameter and reject its shorter-lived caller argument");
 
+    const vex::SourceFile ambiguous_branch_pointer_return{
+        "ambiguous_branch_pointer_return.vex", R"VEX(
+make choose_pointer(first: *int, second: *int, choose_second: bool) -> *int {
+    let selected = first
+    if (choose_second) {
+        selected = second
+    }
+    return selected
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    {
+        let inner = 2
+        let inner_pointer: *int = &inner
+        outer_pointer = choose_pointer(outer_pointer, inner_pointer, true)
+    }
+}
+)VEX"};
+    const vex::SemanticResult ambiguous_branch_pointer_return_result =
+        analyze(ambiguous_branch_pointer_return);
+    tests.check(has_code(ambiguous_branch_pointer_return_result, "SEM072"),
+                "a branch-dependent pointer alias with unknown joined origin cannot be accepted as a verified null return");
+
     const vex::SourceFile immutable{"pointer_to_const.vex",
         "make main() {\n"
         "    const value = 1\n"
