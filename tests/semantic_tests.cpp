@@ -1335,7 +1335,7 @@ make main() {
     const vex::SemanticResult aliased_parameter_store_result =
         analyze(aliased_parameter_store);
     tests.check(has_code(aliased_parameter_store_result, "SEM072"),
-                "pointer-cell writes through unsummarized parameter aliases are rejected conservatively");
+                "pointer-cell writes through aliased parameters remain lifetime-checked at the caller");
 
     const vex::SourceFile aliased_parameter_store_safe{"pointer_parameter_store_alias_safe.vex", R"VEX(
 make replace_pointer(slot: **int, replacement: *int) {
