@@ -1358,6 +1358,10 @@ private:
 
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
             if (!unary->operand) return Type::Error;
+            if (unary->op == TokenKind::Minus &&
+                is_int64_min_magnitude_literal(unary->operand.get(), source_)) {
+                return Type::Int;
+            }
             const Type operand = analyze_expression(*unary->operand);
             if (operand == Type::Error || operand == Type::Unknown) return operand;
             if (unary->op == TokenKind::BitAnd) {
