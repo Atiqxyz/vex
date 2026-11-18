@@ -3541,9 +3541,17 @@ private:
                 require_type(condition, Type::Bool, loop->condition->span,
                              "SEM034", "while condition must be boolean");
             }
+            const PointerOriginSnapshot before = snapshot_pointer_origins();
+            const auto known_condition = constant_boolean(loop->condition.get());
             ++loop_depth_;
             if (loop->body) analyze_statement(*loop->body);
             --loop_depth_;
+            if (known_condition && !*known_condition) {
+                restore_pointer_origins(before);
+            } else {
+                const PointerOriginSnapshot after = snapshot_pointer_origins();
+                join_pointer_origins(before, after, before);
+            }
             return;
         }
         if (const auto* repeat = std::get_if<RepeatStmt>(&statement.data)) {
@@ -3552,9 +3560,17 @@ private:
                 require_type(count, Type::Int, repeat->count->span,
                              "SEM030", "repeat count must be an integer");
             }
+            const PointerOriginSnapshot before = snapshot_pointer_origins();
+            const auto known_count = constant_integer(repeat->count.get());
             ++loop_depth_;
             if (repeat->body) analyze_statement(*repeat->body);
             --loop_depth_;
+            if (known_count && *known_count <= 0) {
+                restore_pointer_origins(before);
+            } else {
+                const PointerOriginSnapshot after = snapshot_pointer_origins();
+                join_pointer_origins(before, after, before);
+            }
             return;
         }
         if (const auto* matched = std::get_if<MatchStmt>(&statement.data)) {
