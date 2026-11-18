@@ -3284,12 +3284,20 @@ private:
             enum_id > model_.enum_types.size()) {
             if (scrutinee_type != Type::Error && scrutinee_type != Type::Unknown)
                 report("SEM070", "match requires a value of a declared enum type", span);
-            for (const MatchArm& arm : matched.arms)
+            const PointerOriginSnapshot before = snapshot_pointer_origins();
+            std::vector<PointerOriginSnapshot> branches;
+            for (const MatchArm& arm : matched.arms) {
+                restore_pointer_origins(before);
                 if (arm.body) analyze_statement(*arm.body);
+                branches.push_back(snapshot_pointer_origins());
+            }
+            join_pointer_origin_branches(before, branches);
             return;
         }
 
         const SemanticEnumType& enumeration = model_.enum_types[enum_id - 1u];
+        const PointerOriginSnapshot before_arms = snapshot_pointer_origins();
+        std::vector<PointerOriginSnapshot> pointer_branches;
         std::vector<bool> seen(enumeration.variants.size(), false);
         bool wildcard_seen = false;
         SemanticMatchInfo info;
@@ -3300,6 +3308,7 @@ private:
             report("SEM078", "match must contain at least one arm", span);
 
         for (std::size_t arm_index = 0; arm_index < matched.arms.size(); ++arm_index) {
+            restore_pointer_origins(before_arms);
             const MatchArm& arm = matched.arms[arm_index];
             SemanticMatchArmInfo arm_info;
             arm_info.wildcard = arm.wildcard;
@@ -3371,6 +3380,7 @@ private:
             }
             if (arm.body) analyze_statement(*arm.body);
             scopes_.pop_back();
+            pointer_branches.push_back(snapshot_pointer_origins());
             info.arms.push_back(std::move(arm_info));
         }
 
@@ -3379,6 +3389,7 @@ private:
             report("SEM077", "match is not exhaustive; add the missing enum variants or a final wildcard arm",
                    span);
         }
+        join_pointer_origin_branches(before_arms, pointer_branches);
         model_.match_statements[&matched] = std::move(info);
     }
 
