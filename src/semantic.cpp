@@ -952,7 +952,9 @@ private:
                             if (callee != functions.end()) {
                                 const auto callee_summaries = summaries.find(callee->second);
                                 if (callee_summaries != summaries.end()) {
-                                    for (const Summary summary : callee_summaries->second) {
+                                    const std::vector<Summary> callee_store_summaries =
+                                        callee_summaries->second;
+                                    for (const Summary summary : callee_store_summaries) {
                                         const std::size_t destination_argument =
                                             static_cast<std::size_t>(summary.first - 1u);
                                         const std::size_t source_argument =
