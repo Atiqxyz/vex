@@ -701,6 +701,7 @@ private:
     }
 
     [[nodiscard]] bool is_null_pointer_literal(const Expr* expression) const {
+        expression = unwrap_grouped_expression(expression);
         const auto* literal = expression
             ? std::get_if<LiteralExpr>(&expression->data) : nullptr;
         return literal && literal->token_kind == TokenKind::KwNull;
