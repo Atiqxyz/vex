@@ -1221,6 +1221,37 @@ make main() {
                 "typed pointers may address mutable structures and project nested fields and arrays");
 }
 
+void test_int64_literal_boundaries(TestContext& tests) {
+    const vex::SourceFile valid{"int64_min_literals.vex",
+        "make main() {\n"
+        "    let direct = -9223372036854775808\n"
+        "    let grouped = -(9223372036854775808)\n"
+        "    let maximum = 9223372036854775807\n"
+        "    say(direct)\n"
+        "    say(grouped)\n"
+        "    say(maximum)\n"
+        "}\n"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "the minimum signed 64-bit value is accepted in direct and grouped negative spellings");
+
+    const vex::SourceFile positive_overflow{"positive_int64_overflow.vex",
+        "make main() {\n"
+        "    let invalid = 9223372036854775808\n"
+        "}\n"};
+    const vex::SemanticResult rejected = analyze(positive_overflow);
+    tests.check(has_code(rejected, "SEM074"),
+                "the positive magnitude above INT64_MAX is rejected during semantic analysis");
+
+    const vex::SourceFile negative_overflow{"negative_int64_overflow.vex",
+        "make main() {\n"
+        "    let invalid = -9223372036854775809\n"
+        "}\n"};
+    const vex::SemanticResult negative_rejected = analyze(negative_overflow);
+    tests.check(has_code(negative_rejected, "SEM074"),
+                "negative integer magnitudes below INT64_MIN are rejected during semantic analysis");
+}
+
 } // namespace
 
 void run_semantic_tests(TestContext& tests) {
