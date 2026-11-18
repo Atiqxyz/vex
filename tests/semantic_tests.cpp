@@ -1154,11 +1154,19 @@ make null_grouped() -> *int {
     return (null)
 }
 
+make identity_alias(pointer: *int) -> *int {
+    let first_alias = pointer
+    let second_alias = (first_alias)
+    return second_alias
+}
+
 make main() {
     let value = 1
     let pointer: *int = &value
     let returned: *int = identity_grouped((pointer))
     *returned = 2
+    let aliased: *int = identity_alias(pointer)
+    *aliased = 3
     let empty: *int = null_grouped()
     say(empty == null)
 }
@@ -1167,6 +1175,20 @@ make main() {
         analyze(grouped_pointer_returns);
     tests.check(!grouped_pointer_returns_result.has_errors(),
                 "grouped pointer-parameter and null returns preserve pointer typing and provenance");
+
+    const vex::SourceFile dangling_alias_return{"dangling_pointer_alias_return.vex", R"VEX(
+make dangling_alias(pointer: *int) -> *int {
+    let local = 3
+    let alias = pointer
+    alias = &local
+    return alias
+}
+make main() {}
+)VEX"};
+    const vex::SemanticResult dangling_alias_return_result =
+        analyze(dangling_alias_return);
+    tests.check(has_code(dangling_alias_return_result, "SEM072"),
+                "reassigning a local pointer alias to callee-local storage remains forbidden on return");
 
     const vex::SourceFile immutable{"pointer_to_const.vex",
         "make main() {\n"
