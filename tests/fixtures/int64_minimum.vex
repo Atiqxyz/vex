@@ -1,0 +1,8 @@
+make main() {
+    let minimum = -9223372036854775808
+    let grouped_minimum = -(9223372036854775808)
+    let maximum = 9223372036854775807
+    say(minimum)
+    say(grouped_minimum == minimum)
+    say(maximum)
+}

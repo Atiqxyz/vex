@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <set>
 #include <optional>
 #include <sstream>
@@ -1012,7 +1013,11 @@ private:
                        instruction.span);
                 return false;
             }
-            output_ << "    " << target << " = INT64_C(" << value << ");\n";
+            output_ << "    " << target << " = ";
+            if (value == std::numeric_limits<std::int64_t>::min())
+                output_ << "INT64_MIN;\n";
+            else
+                output_ << "INT64_C(" << value << ");\n";
             return true;
         }
         case IRType::Byte: {
