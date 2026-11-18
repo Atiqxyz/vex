@@ -974,6 +974,8 @@ private:
             public_signature.return_pointer_type = signature.return_pointer_type;
             public_signature.return_pointer_parameter_index =
                 signature.return_pointer_parameter_index;
+            public_signature.pointer_parameter_stores =
+                signature.pointer_parameter_stores;
             public_signature.declaration = function->name;
             model_.functions.emplace(function, std::move(public_signature));
             signatures_.emplace(function, std::move(signature));
