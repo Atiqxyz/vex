@@ -29,7 +29,7 @@ The current C++20 development build has:
 
 Multiple source files are currently combined in command-line order into one translation unit and one global namespace. This is the first multi-file compilation step; import declarations, module namespaces, visibility controls, and separate compilation are not implemented yet.
 
-The binary file helpers operate on complete files rather than exposing streaming handles. `read_file` appends to a mutable byte array and returns the appended byte count or `-1`; `write_file` replaces the destination file and returns the byte count or `-1`. The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands retain the C11 bootstrap backend for compatibility and fallback use.
+The binary file helpers operate on complete files rather than exposing streaming handles. `read_file` appends to a mutable byte array and returns the appended byte count or `-1`; `write_file` replaces the destination file and returns the byte count or `-1`. The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `build-c` and `run-c` commands select the C11 backend explicitly; it is not invoked automatically as a fallback.
 
 VEX is an early language implementation. It supports nominal structures and enums, fixed and dynamic arrays (including supported nested jagged shapes) of primitive and aggregate values, exhaustive enum matching, nested aggregate updates, functions, control flow, and length-aware byte strings. Modules and a general-purpose ownership/borrowing system remain unfinished. Fixed arrays and structures have value semantics; dynamic arrays are heap-backed shared references whose aliases and function parameters/returns refer to the same collection. Dynamic-array and concatenated-string allocations are tracked by the generated program and reclaimed when its entry function returns. This program-lifetime strategy is an initial runtime contract, not the final memory model.
 
@@ -41,7 +41,7 @@ VEX is an early language implementation. It supports nominal structures and enum
 - Function calls use parentheses.
 - The wider memory model is still under design. Dynamic arrays use shared heap references and dynamic arrays plus concatenated strings currently use program-lifetime allocation tracking. There is no per-scope deallocation, ownership/borrowing checker, or public allocator API yet.
 - VEX is not required to be self-hosted, but its long-term language, runtime, and tooling design must make it feasible to implement the entire compiler in VEX.
-- The C backend remains an optional bootstrap target; the IR and frontend are independent of it. LLVM is the default native compilation path.
+- The C11 backend is an optional secondary target selected explicitly with `emit-c`, `build-c`, or `run-c`. It is not an automatic fallback; LLVM is the default native compilation path.
 
 These are design goals, not claims that every feature is already implemented.
 
@@ -53,7 +53,7 @@ See [the installation guide](docs/installation.md) for complete steps. Native MS
 
 ## Build from source
 
-Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is optional and is only required to use the `build-c` and `run-c` fallback commands.
+Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is optional and is required only when executing `build-c` or `run-c`; `emit-c` does not invoke a C compiler.
 
 ```sh
 cmake -S . -B build
@@ -99,7 +99,7 @@ On Linux or macOS:
 - `emit-c` emits C11 source; `emit-llvm` emits textual LLVM IR.
 - `build` and `run` compile through the LLVM backend and bundled Zig/Clang toolchain.
 - `build-llvm` and `run-llvm` are explicit aliases for the default LLVM path.
-- `build-c` and `run-c` use the optional C11 bootstrap backend.
+- `emit-c` emits source for the optional C11 backend; `build-c` and `run-c` select that backend explicitly.
 
 The compiler remains implemented in C++. Self-hosting is not a release requirement, but VEX is being designed so its language, runtime, and tooling can eventually support implementing the complete compiler in VEX.
 

@@ -62,9 +62,9 @@ Dynamic arrays hold primitive or nominal structure values and are declared with 
 | `push(array, value)` | `(T[], T) -> void` | Appends an element, growing capacity geometrically when needed |
 | `pop(array)` | `T[] -> T` | Removes and returns the final element; traps when the array is empty |
 | `capacity(array)` | `T[] -> int` | Returns the number of allocated element slots |
-| `reserve(array, n)` | `(T[], int) -> void` | Ensures capacity is at least `n` elements without changing length or contents; never shrinks |
+| `reserve(array, n)` | `(T[], int) -> void` | Ensures capacity is at least `n` elements without changing length or contents; never shrinks; traps for negative requests, allocation-size overflow, or allocation failure |
 
-Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive and nominal structure elements; nested arrays, borrowed/non-owning slices, and per-scope deallocation are not implemented. The `byte_slice` helper is a separate copying operation, not a slice type. Use `reserve` when the expected element count is known to avoid geometric growth reallocations; `capacity` reports allocated element slots.
+The requested `reserve` value is an element count, not a byte count. Both backends reject negative requests and check that multiplying the requested count by the element size is representable before reallocating; allocation failure also traps. Requests no greater than current capacity are no-ops. Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive and nominal structure elements; nested arrays, borrowed/non-owning slices, and per-scope deallocation are not implemented. The `byte_slice` helper is a separate copying operation, not a slice type. Use `reserve` when the expected element count is known to avoid geometric growth reallocations; `capacity` reports allocated element slots.
 
 ```vex
 make main() {

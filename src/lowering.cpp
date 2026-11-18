@@ -1,6 +1,8 @@
 #include "vex/lowering.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -247,6 +249,21 @@ private:
 
     [[nodiscard]] std::string spelling(const SourceSpan span) const {
         return std::string(source_.slice(span));
+    }
+
+    [[nodiscard]] bool is_int64_min_magnitude(const Expr& expression) const {
+        const Expr* candidate = &expression;
+        while (const auto* group = std::get_if<GroupExpr>(&candidate->data)) {
+            if (!group->expression) return false;
+            candidate = group->expression.get();
+        }
+        const auto* literal = std::get_if<LiteralExpr>(&candidate->data);
+        if (!literal || literal->token_kind != TokenKind::Integer) return false;
+        const std::string text = spelling(candidate->span);
+        std::uint64_t magnitude = 0u;
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), magnitude, 10);
+        return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
+            magnitude == (std::uint64_t{1} << 63u);
     }
 
     [[nodiscard]] const SemanticBinding* get_binding(
@@ -1666,6 +1683,9 @@ private:
         }
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
             if (!unary->operand) return std::nullopt;
+            if (unary->op == TokenKind::Minus && is_int64_min_magnitude(*unary->operand)) {
+                return emit_constant(IRType::Int, "-9223372036854775808", expression.span);
+            }
             if (unary->op == TokenKind::BitAnd) {
                 const auto* named = std::get_if<NameExpr>(&unary->operand->data);
                 const auto binding = named

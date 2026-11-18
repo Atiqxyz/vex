@@ -921,6 +921,30 @@ void test_bitwise_operator_semantics(TestContext& tests) {
                 "bitwise NOT rejects non-integer operands");
 }
 
+void test_signed_64bit_integer_literal_boundaries(TestContext& tests) {
+    const vex::SourceFile valid{"int64_literal_boundaries.vex", R"VEX(
+make main() {
+    let minimum = -9223372036854775808
+    let grouped_minimum = -(9223372036854775808)
+    let maximum = 9223372036854775807
+    let above_minimum = -9223372036854775807
+}
+)VEX"};
+    const vex::SemanticResult accepted = analyze(valid);
+    tests.check(!accepted.has_errors(),
+                "signed 64-bit minimum and maximum decimal literals are accepted, including grouped minimum magnitude");
+
+    const vex::SourceFile invalid{"int64_literal_out_of_range.vex", R"VEX(
+make main() {
+    let positive_overflow = 9223372036854775808
+    let negative_underflow = -9223372036854775809
+}
+)VEX"};
+    const vex::SemanticResult rejected = analyze(invalid);
+    tests.check(has_code(rejected, "SEM074"),
+                "positive overflow and negative underflow integer magnitudes are rejected during semantic analysis");
+}
+
 void test_byte_type_and_checked_conversions(TestContext& tests) {
     const vex::SourceFile valid{"byte_valid.vex",
         "struct Packet {\n"
@@ -1251,6 +1275,7 @@ void run_semantic_tests(TestContext& tests) {
     test_string_byte_length_semantics(tests);
     test_string_join_semantics(tests);
     test_bitwise_operator_semantics(tests);
+    test_signed_64bit_integer_literal_boundaries(tests);
     test_byte_type_and_checked_conversions(tests);
     test_typed_pointer_semantics(tests);
 }

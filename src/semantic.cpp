@@ -159,6 +159,28 @@ private:
         return std::string(source_.slice(span));
     }
 
+    [[nodiscard]] bool is_int64_min_magnitude(const Expr& expression) const {
+        const Expr* candidate = &expression;
+        while (const auto* group = std::get_if<GroupExpr>(&candidate->data)) {
+            if (!group->expression) return false;
+            candidate = group->expression.get();
+        }
+        const auto* literal = std::get_if<LiteralExpr>(&candidate->data);
+        if (!literal || literal->token_kind != TokenKind::Integer) return false;
+        const std::string text = spelling(candidate->span);
+        std::uint64_t magnitude = 0u;
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), magnitude, 10);
+        return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
+            magnitude == (std::uint64_t{1} << 63u);
+    }
+
+    void record_int64_min_magnitude_expression(const Expr& expression) {
+        model_.expression_types[&expression] = Type::Int;
+        if (const auto* group = std::get_if<GroupExpr>(&expression.data)) {
+            if (group->expression) record_int64_min_magnitude_expression(*group->expression);
+        }
+    }
+
     [[nodiscard]] Type annotation_type(
         const SourceSpan span, const bool allow_void,
         std::optional<SemanticArrayType>* array_shape = nullptr,
@@ -889,7 +911,17 @@ private:
     [[nodiscard]] Type analyze_expression_impl(const Expr& expression) {
         if (const auto* literal = std::get_if<LiteralExpr>(&expression.data)) {
             switch (literal->token_kind) {
-            case TokenKind::Integer: return Type::Int;
+            case TokenKind::Integer: {
+                const std::string text = spelling(expression.span);
+                std::int64_t value = 0;
+                const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value, 10);
+                if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
+                    report("SEM074", "integer literal is outside the signed 64-bit range",
+                           expression.span);
+                    return Type::Error;
+                }
+                return Type::Int;
+            }
             case TokenKind::Float: return Type::Float;
             case TokenKind::String: return Type::String;
             case TokenKind::KwTrue:
@@ -1325,6 +1357,10 @@ private:
 
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
             if (!unary->operand) return Type::Error;
+            if (unary->op == TokenKind::Minus && is_int64_min_magnitude(*unary->operand)) {
+                record_int64_min_magnitude_expression(*unary->operand);
+                return Type::Int;
+            }
             const Type operand = analyze_expression(*unary->operand);
             if (operand == Type::Error || operand == Type::Unknown) return operand;
             if (unary->op == TokenKind::BitAnd) {

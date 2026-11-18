@@ -228,6 +228,33 @@ foreach(reserve_failure_source IN ITEMS
     endif()
 endforeach()
 
+# The signed minimum must be accepted without materializing its positive magnitude.
+set(int64_minimum_source "${CMAKE_CURRENT_LIST_DIR}/fixtures/int64_minimum.vex")
+set(int64_out_of_range_source "${CMAKE_CURRENT_LIST_DIR}/fixtures/int64_out_of_range.vex")
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" run-c "${int64_minimum_source}"
+    RESULT_VARIABLE int64_minimum_result
+    OUTPUT_VARIABLE int64_minimum_output
+    ERROR_VARIABLE int64_minimum_error
+)
+if(NOT int64_minimum_result EQUAL 0)
+    message(FATAL_ERROR "C backend signed-minimum literal test failed: ${int64_minimum_output}${int64_minimum_error}")
+endif()
+string(REPLACE "\r\n" "\n" int64_minimum_output "${int64_minimum_output}")
+set(int64_minimum_expected "-9223372036854775808\ntrue\n9223372036854775807\n")
+if(NOT "${int64_minimum_output}" STREQUAL "${int64_minimum_expected}")
+    message(FATAL_ERROR "C backend signed integer boundary output mismatch: [${int64_minimum_output}]")
+endif()
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${int64_out_of_range_source}"
+    RESULT_VARIABLE int64_out_of_range_result
+    OUTPUT_VARIABLE int64_out_of_range_output
+    ERROR_VARIABLE int64_out_of_range_error
+)
+if("${int64_out_of_range_result}" STREQUAL "0")
+    message(FATAL_ERROR "C backend accepted an out-of-range positive integer literal")
+endif()
+
 # Exercise empty strings, embedded NUL bytes, and string +=.
 execute_process(
     COMMAND "${VEX_EXECUTABLE}" run-c "${STRING_CONCAT_SOURCE_FILE}"
