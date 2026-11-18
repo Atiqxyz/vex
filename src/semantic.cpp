@@ -833,6 +833,8 @@ private:
                                     spelling(*stored.type_annotation);
                                 if (destination_type.size() > 1u &&
                                     destination_type.front() == '*' &&
+                                    source_type.size() > 1u &&
+                                    source_type.front() == '*' &&
                                     destination_type.substr(1u) == source_type) {
                                     const auto summary = std::pair{
                                         static_cast<std::uint32_t>(*destination_index + 1u),
@@ -987,6 +989,8 @@ private:
                                             spelling(*source.type_annotation);
                                         if (destination_type.size() <= 1u ||
                                             destination_type.front() != '*' ||
+                                            source_type.size() <= 1u ||
+                                            source_type.front() != '*' ||
                                             destination_type.substr(1u) != source_type) continue;
                                         auto& current = summaries.at(function);
                                         const Summary propagated{
