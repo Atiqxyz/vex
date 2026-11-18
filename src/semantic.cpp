@@ -1197,6 +1197,22 @@ private:
             set_pointer_origin(id, pointer_type);
     }
 
+    void join_pointer_origin_branches(
+        const PointerOriginSnapshot& before,
+        const std::vector<PointerOriginSnapshot>& branches) {
+        if (branches.empty()) {
+            restore_pointer_origins(before);
+            return;
+        }
+        PointerOriginSnapshot merged = branches.front();
+        for (std::size_t index = 1u; index < branches.size(); ++index) {
+            restore_pointer_origins(before);
+            join_pointer_origins(before, merged, branches[index]);
+            merged = snapshot_pointer_origins();
+        }
+        restore_pointer_origins(merged);
+    }
+
     void join_pointer_origins(
         const PointerOriginSnapshot& before,
         const PointerOriginSnapshot& then_state,
