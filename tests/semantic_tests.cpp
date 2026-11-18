@@ -1294,6 +1294,30 @@ make main() {
     tests.check(!interprocedural_safe_result.has_errors(),
                 "pointer-cell stores remain valid when the replacement outlives the destination cell");
 
+    const vex::SourceFile branch_pointer_escape{"pointer_parameter_branch_escape.vex", R"VEX(
+make replace_pointer(slot: **int, replacement: *int) {
+    *slot = replacement
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    {
+        let inner = 2
+        let selected: *int = &outer
+        if outer == 0 {
+            selected = &inner
+        } else {
+            selected = &outer
+        }
+        replace_pointer(&outer_pointer, selected)
+    }
+}
+)VEX"};
+    const vex::SemanticResult branch_pointer_escape_result =
+        analyze(branch_pointer_escape);
+    tests.check(has_code(branch_pointer_escape_result, "SEM072"),
+                "pointer origins from both conditional branches are joined before interprocedural escape checks");
+
     const vex::SourceFile local_parameter_escape{"pointer_parameter_local_escape.vex", R"VEX(
 make leak_pointer(slot: **int) {
     let inner = 2
