@@ -811,8 +811,10 @@ private:
                     pointer_origin_for_expression(pointer_origin_for_expression,
                                                   returned->value.get());
                 if (!candidate) { valid = false; return; }
-                if (origin && *origin != *candidate) valid = false;
-                else origin = *candidate;
+                if (*candidate != 0u) {
+                    if (origin && *origin != *candidate) valid = false;
+                    else origin = *candidate;
+                }
                 saw_return = true;
                 return;
             }
@@ -3699,8 +3701,9 @@ private:
                                    returned->value->span);
                         } else if (!is_null_pointer_literal(returned->value.get()) &&
                                    (!current_return_pointer_parameter_index_ ||
-                                    actual_pointer->second.pointee_parameter_index !=
-                                        *current_return_pointer_parameter_index_)) {
+                                    (actual_pointer->second.pointee_parameter_index !=
+                                         *current_return_pointer_parameter_index_ &&
+                                     actual_pointer->second.pointee_parameter_index != 0u))) {
                             report("SEM072", "a function may return only a pointer derived from one of its pointer parameters or null; returning local storage would create a dangling pointer",
                                    returned->value->span);
                         }
