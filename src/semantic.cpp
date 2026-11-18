@@ -710,6 +710,11 @@ private:
     [[nodiscard]] bool is_known_null_pointer_expression(const Expr* expression) {
         expression = unwrap_grouped_expression(expression);
         if (is_null_pointer_literal(expression)) return true;
+        const auto pointer = expression
+            ? model_.pointer_expression_types.find(expression)
+            : model_.pointer_expression_types.end();
+        if (pointer != model_.pointer_expression_types.end() &&
+            pointer->second.is_known_null) return true;
         const auto* call = expression
             ? std::get_if<CallExpr>(&expression->data) : nullptr;
         const Expr* callee_expression = call
@@ -1395,7 +1400,8 @@ private:
             left.pointee_struct_type_id == right.pointee_struct_type_id &&
             left.pointee_enum_type_id == right.pointee_enum_type_id &&
             left.pointee_parameter_index == right.pointee_parameter_index &&
-            left.indirection_depth == right.indirection_depth;
+            left.indirection_depth == right.indirection_depth &&
+            left.is_known_null == right.is_known_null;
     }
 
     void set_pointer_origin(
@@ -1464,6 +1470,7 @@ private:
                 ? *then_pointer : *else_pointer;
             unknown.pointee_binding_id = 0u;
             unknown.pointee_parameter_index = 0u;
+            unknown.is_known_null = false;
             unknown.mutable_pointee = then_pointer && else_pointer
                 ? then_pointer->mutable_pointee && else_pointer->mutable_pointee
                 : unknown.mutable_pointee;
@@ -1552,6 +1559,7 @@ private:
                     model_.pointer_expression_types[&expression] =
                         SemanticPointerType{Type::Unknown, 0u, true};
                 }
+                model_.pointer_expression_types[&expression].is_known_null = true;
                 return Type::Pointer;
             default: return Type::Error;
             }
@@ -2298,8 +2306,8 @@ private:
                         report("SEM071", "pointer-to-pointer store requires an identical nested pointer type",
                                expression.span);
                     } else if (pointer_cell_binding_id == 0u) {
-                        if (is_null_pointer_literal(assignment->value.get())) {
-                            // A literal null pointer cannot create a dangling reference.
+                        if (is_known_null_pointer_expression(assignment->value.get())) {
+                            // A verified null pointer cannot create a dangling reference.
                         } else if (pointer->second.pointee_parameter_index != 0u &&
                                    actual_pointer->second.pointee_parameter_index != 0u) {
                             const auto summary = std::pair{
@@ -2328,7 +2336,7 @@ private:
                         const auto destination = model_.bindings.find(
                             pointer_cell_binding_id);
                         const bool source_is_null =
-                            is_null_pointer_literal(assignment->value.get());
+                            is_known_null_pointer_expression(assignment->value.get());
                         if (!source_is_null && origin != model_.bindings.end() &&
                             destination != model_.bindings.end() &&
                             origin->second.scope_depth > destination->second.scope_depth) {
@@ -2960,7 +2968,7 @@ private:
                     ? model_.pointer_expression_types.find(source_argument)
                     : model_.pointer_expression_types.end();
                 const bool source_is_null =
-                    is_null_pointer_literal(source_argument);
+                    is_known_null_pointer_expression(source_argument);
                 if (destination_pointer == model_.pointer_expression_types.end() ||
                     source_pointer == model_.pointer_expression_types.end()) {
                     if (!source_is_null) {
@@ -3032,6 +3040,7 @@ private:
                     SemanticPointerType unknown_origin = source_pointer->second;
                     unknown_origin.pointee_binding_id = 0u;
                     unknown_origin.pointee_parameter_index = 0u;
+                    unknown_origin.is_known_null = false;
                     const std::optional<SemanticPointerType> merged_origin{
                         unknown_origin};
                     set_pointer_origin(cell_id, merged_origin);
@@ -3050,6 +3059,7 @@ private:
                 if (*function->return_pointer_parameter_index == 0u) {
                     model_.pointer_expression_types[&expression] =
                         *function->return_pointer_type;
+                    model_.pointer_expression_types[&expression].is_known_null = true;
                 } else {
                     const std::size_t source_index =
                         static_cast<std::size_t>(*function->return_pointer_parameter_index - 1u);
