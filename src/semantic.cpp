@@ -3606,6 +3606,8 @@ private:
                 report("SEM031", "for-in requires an array or integer range",
                        loop->iterable ? loop->iterable->span : loop->variable);
             }
+            const PointerOriginSnapshot before_loop =
+                snapshot_pointer_origins();
             scopes_.emplace_back();
             Symbol iteration_variable;
             iteration_variable.type = iteration_type;
@@ -3625,6 +3627,8 @@ private:
             if (loop->body) analyze_statement(*loop->body);
             --loop_depth_;
             scopes_.pop_back();
+            const PointerOriginSnapshot after_loop = snapshot_pointer_origins();
+            join_pointer_origins(before_loop, after_loop, before_loop);
             return;
         }
         if (const auto* expression =
