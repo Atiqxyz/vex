@@ -3699,10 +3699,9 @@ private:
                                    returned->value->span);
                         } else if (!is_null_pointer_literal(returned->value.get()) &&
                                    (!current_return_pointer_parameter_index_ ||
-                                    (*current_return_pointer_parameter_index_ == 0u ||
-                                     actual_pointer->second.pointee_parameter_index !=
-                                         *current_return_pointer_parameter_index_))) {
-                            report("SEM072", "a function may return only a pointer derived directly from one of its pointer parameters; returning local storage would create a dangling pointer",
+                                    actual_pointer->second.pointee_parameter_index !=
+                                        *current_return_pointer_parameter_index_)) {
+                            report("SEM072", "a function may return only a pointer derived from one of its pointer parameters or null; returning local storage would create a dangling pointer",
                                    returned->value->span);
                         }
                     }
