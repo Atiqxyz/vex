@@ -131,6 +131,7 @@ struct Symbol {
     std::uint32_t return_enum_type_id{0};
     std::optional<SemanticPointerType> return_pointer_type;
     std::optional<std::uint32_t> return_pointer_parameter_index;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> pointer_parameter_stores;
 };
 
 using Scope = std::unordered_map<std::string, Symbol>;
