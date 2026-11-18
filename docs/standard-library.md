@@ -64,6 +64,8 @@ Dynamic arrays hold primitive or nominal structure values and are declared with 
 | `capacity(array)` | `T[] -> int` | Returns the number of allocated element slots |
 | `reserve(array, n)` | `(T[], int) -> void` | Ensures capacity is at least `n` elements without changing length or contents; never shrinks |
 
+The requested capacity must be non-negative. Before allocating, both backends check that the requested element count multiplied by the element size is representable; a negative request or allocation-size overflow traps. A request at or below the current capacity is a no-op. The integration suite exercises both negative-capacity and overflowing reservation requests on both backends.
+
 Dynamic arrays are shared heap references. Assignments and function calls copy the reference, so mutation is visible through aliases. The runtime tracks allocations and frees them when the generated entry function returns. Fixed arrays remain value aggregates. Dynamic arrays support primitive and nominal structure elements; nested arrays, borrowed/non-owning slices, and per-scope deallocation are not implemented. The `byte_slice` helper is a separate copying operation, not a slice type. Use `reserve` when the expected element count is known to avoid geometric growth reallocations; `capacity` reports allocated element slots.
 
 ```vex
