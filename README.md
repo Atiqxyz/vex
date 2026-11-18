@@ -41,7 +41,7 @@ VEX is an early language implementation. It supports nominal structures and enum
 - Function calls use parentheses.
 - The wider memory model is still under design. Dynamic arrays use shared heap references and dynamic arrays plus concatenated strings currently use program-lifetime allocation tracking. There is no per-scope deallocation, ownership/borrowing checker, or public allocator API yet.
 - VEX is not required to be self-hosted, but its long-term language, runtime, and tooling design must make it feasible to implement the entire compiler in VEX.
-- The C backend remains an optional bootstrap target; the IR and frontend are independent of it. LLVM is the default native compilation path.
+- The C backend is an optional, explicitly selected target; the IR and frontend are independent of it. LLVM is the default native compilation path.
 
 These are design goals, not claims that every feature is already implemented.
 
