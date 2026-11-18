@@ -99,7 +99,7 @@ On Linux or macOS:
 - `emit-c` emits C11 source; `emit-llvm` emits textual LLVM IR.
 - `build` and `run` compile through the LLVM backend and bundled Zig/Clang toolchain.
 - `build-llvm` and `run-llvm` are explicit aliases for the default LLVM path.
-- `build-c` and `run-c` use the optional C11 bootstrap backend.
+- `build-c` and `run-c` explicitly select the optional C11 backend; `emit-c` emits its portable C source.
 
 The compiler remains implemented in C++. Self-hosting is not a release requirement, but VEX is being designed so its language, runtime, and tooling can eventually support implementing the complete compiler in VEX.
 
