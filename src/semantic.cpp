@@ -1979,6 +1979,19 @@ private:
                         report("SEM072",
                                "pointer assignment would store function-local storage into a caller-owned pointer cell",
                                expression.span);
+                    } else if (pointer_cell_binding_id == 0u &&
+                               pointer->second.pointee_parameter_index != 0u &&
+                               actual_pointer->second.pointee_parameter_index != 0u) {
+                        const auto summary = std::pair{
+                            pointer->second.pointee_parameter_index,
+                            actual_pointer->second.pointee_parameter_index};
+                        if (std::find(current_pointer_parameter_stores_.begin(),
+                                      current_pointer_parameter_stores_.end(), summary) ==
+                            current_pointer_parameter_stores_.end()) {
+                            report("SEM072",
+                                   "pointer-cell store through an indirect parameter alias has no verified lifetime summary",
+                                   expression.span);
+                        }
                     } else if (pointer_cell_binding_id != 0u) {
                         // A store through **T can retarget the pointer variable that
                         // the outer pointer addresses. Apply the same lexical escape
