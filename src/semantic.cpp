@@ -2633,15 +2633,21 @@ private:
                 const auto source_pointer = source_argument
                     ? model_.pointer_expression_types.find(source_argument)
                     : model_.pointer_expression_types.end();
+                const bool source_is_null =
+                    is_null_pointer_literal(source_argument);
                 if (destination_pointer == model_.pointer_expression_types.end() ||
-                    source_pointer == model_.pointer_expression_types.end()) continue;
+                    source_pointer == model_.pointer_expression_types.end()) {
+                    if (!source_is_null) {
+                        report("SEM072",
+                               "pointer-cell store is missing provenance metadata and cannot be proven lifetime-safe",
+                               call->arguments[destination_index]->span);
+                    }
+                    continue;
+                }
 
                 const SemanticBindingId cell_id =
                     destination_pointer->second.pointee_binding_id;
                 if (cell_id == 0u) {
-                    const bool source_is_null_or_unknown =
-                        source_pointer->second.pointee_binding_id == 0u &&
-                        source_pointer->second.pointee_parameter_index == 0u;
                     const auto forwarded_summary = std::pair{
                         destination_pointer->second.pointee_parameter_index,
                         source_pointer->second.pointee_parameter_index};
@@ -2652,7 +2658,7 @@ private:
                                   current_pointer_parameter_stores_.end(),
                                   forwarded_summary) !=
                             current_pointer_parameter_stores_.end();
-                    if (!source_is_null_or_unknown && !forwarded_parameter_store) {
+                    if (!source_is_null && !forwarded_parameter_store) {
                         report("SEM072",
                                "cannot prove that a pointer-cell store through this parameter is lifetime-safe",
                                call->arguments[destination_index]->span);
@@ -2661,23 +2667,44 @@ private:
                 }
 
                 const auto destination_binding = model_.bindings.find(cell_id);
-                if (destination_binding == model_.bindings.end()) continue;
+                if (destination_binding == model_.bindings.end()) {
+                    if (!source_is_null) {
+                        report("SEM072",
+                               "pointer-cell destination cannot be resolved for lifetime checking",
+                               call->arguments[destination_index]->span);
+                    }
+                    continue;
+                }
                 const auto origin_binding = model_.bindings.find(
                     source_pointer->second.pointee_binding_id);
-                if (origin_binding != model_.bindings.end() &&
-                    origin_binding->second.scope_depth >
-                        destination_binding->second.scope_depth) {
+                bool lifetime_safe = source_is_null;
+                if (origin_binding != model_.bindings.end()) {
+                    lifetime_safe =
+                        origin_binding->second.scope_depth <=
+                        destination_binding->second.scope_depth;
+                    if (!lifetime_safe) {
+                        report("SEM072",
+                               "pointer assignment would outlive the local variable it points to",
+                               call->arguments[destination_index]->span);
+                    }
+                } else if (!source_is_null &&
+                           source_pointer->second.pointee_parameter_index != 0u) {
+                    // A pointer borrowed from this function's caller cannot be shorter-
+                    // lived than a local cell in the current function.
+                    lifetime_safe = true;
+                } else if (!source_is_null) {
                     report("SEM072",
-                           "pointer assignment would outlive the local variable it points to",
+                           "pointer-cell store has unknown provenance and cannot be proven lifetime-safe",
                            call->arguments[destination_index]->span);
                 }
 
                 // A call that stores through **T changes the caller's pointer cell.
-                // Keep the semantic origin in sync so later reads and stores see
-                // the updated pointee lifetime, just like a direct *slot = value.
-                destination_binding->second.pointer_type = source_pointer->second;
-                if (Symbol* symbol = lookup_binding_symbol(cell_id))
-                    symbol->pointer_type = source_pointer->second;
+                // Only publish the new origin after the store is proven safe.
+                if (lifetime_safe) {
+                    destination_binding->second.pointer_type = source_pointer->second;
+                    if (Symbol* symbol = lookup_binding_symbol(cell_id))
+                        symbol->pointer_type = source_pointer->second;
+                }
             }
 
             if (function->type == Type::Array && function->return_array_type)
