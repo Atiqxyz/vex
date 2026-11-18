@@ -1219,6 +1219,26 @@ make main() {
     tests.check(has_code(interprocedural_escape_result, "SEM072"),
                 "pointer-cell lifetime escapes are detected through direct and forwarded pointer-parameter stores");
 
+    const vex::SourceFile aliased_parameter_store{"pointer_parameter_store_alias.vex", R"VEX(
+make replace_pointer(slot: **int, replacement: *int) {
+    let slot_alias: **int = slot
+    let replacement_alias: *int = replacement
+    *slot_alias = replacement_alias
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    if (true) {
+        let inner = 2
+        replace_pointer(&outer_pointer, &inner)
+    }
+}
+)VEX"};
+    const vex::SemanticResult aliased_parameter_store_result =
+        analyze(aliased_parameter_store);
+    tests.check(has_code(aliased_parameter_store_result, "SEM072"),
+                "pointer-cell writes through unsummarized parameter aliases are rejected conservatively");
+
     const vex::SourceFile interprocedural_safe{"pointer_parameter_store_safe.vex", R"VEX(
 make replace_pointer(slot: **int, replacement: *int) {
     *slot = replacement
