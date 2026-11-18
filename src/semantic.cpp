@@ -2634,9 +2634,16 @@ private:
                     const bool source_is_null_or_unknown =
                         source_pointer->second.pointee_binding_id == 0u &&
                         source_pointer->second.pointee_parameter_index == 0u;
+                    const auto forwarded_summary = std::pair{
+                        destination_pointer->second.pointee_parameter_index,
+                        source_pointer->second.pointee_parameter_index};
                     const bool forwarded_parameter_store = inside_function_ &&
                         destination_pointer->second.pointee_parameter_index != 0u &&
-                        source_pointer->second.pointee_parameter_index != 0u;
+                        source_pointer->second.pointee_parameter_index != 0u &&
+                        std::find(current_pointer_parameter_stores_.begin(),
+                                  current_pointer_parameter_stores_.end(),
+                                  forwarded_summary) !=
+                            current_pointer_parameter_stores_.end();
                     if (!source_is_null_or_unknown && !forwarded_parameter_store) {
                         report("SEM072",
                                "cannot prove that a pointer-cell store through this parameter is lifetime-safe",
