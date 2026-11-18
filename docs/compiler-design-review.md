@@ -35,7 +35,7 @@ GCC separates frontend representations from later optimization and target loweri
 - Plan for a backend-independent IR between semantic analysis and code generation.
 - Keep source-level AST information for diagnostics and developer tools.
 - Introduce optimization only after the language semantics and typed IR are stable.
-- Treat C code generation as a practical bootstrap backend, not as the compiler's permanent internal representation.
+- Keep C11 code generation as an optional, explicitly selected backend; neither C nor LLVM is the compiler's internal representation, which remains the backend-independent IR.
 
 **What VEX does not copy:**
 
