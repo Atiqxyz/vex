@@ -99,6 +99,8 @@ struct SemanticPointerType {
     std::uint32_t pointee_parameter_index{0};
     // Number of pointer indirections before the primitive or nominal pointee.
     std::uint32_t indirection_depth{1};
+    // True only when this expression or binding is known to contain null.
+    bool is_known_null{false};
 };
 
 struct SemanticBinding {
