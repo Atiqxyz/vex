@@ -2782,12 +2782,17 @@ private:
                            call->arguments[destination_index]->span);
                 }
 
-                // A call that stores through **T changes the caller's pointer cell.
-                // Only publish the new origin after the store is proven safe.
+                // A summary represents a may-write: the function may take a
+                // conditional path, and multiple summarized sources may reach the
+                // same cell. Check every possible source above, then erase the
+                // exact origin instead of pretending one branch is always taken.
                 if (lifetime_safe) {
-                    destination_binding->second.pointer_type = source_pointer->second;
-                    if (Symbol* symbol = lookup_binding_symbol(cell_id))
-                        symbol->pointer_type = source_pointer->second;
+                    SemanticPointerType unknown_origin = source_pointer->second;
+                    unknown_origin.pointee_binding_id = 0u;
+                    unknown_origin.pointee_parameter_index = 0u;
+                    const std::optional<SemanticPointerType> merged_origin{
+                        unknown_origin};
+                    set_pointer_origin(cell_id, merged_origin);
                 }
             }
 
