@@ -1369,6 +1369,12 @@ private:
 
         if (const auto* group = std::get_if<GroupExpr>(&expression.data)) {
             if (!group->expression) return Type::Error;
+            const auto contextual_pointer =
+                model_.pointer_expression_types.find(&expression);
+            if (contextual_pointer != model_.pointer_expression_types.end()) {
+                model_.pointer_expression_types[group->expression.get()] =
+                    contextual_pointer->second;
+            }
             const Type grouped_type = analyze_expression(*group->expression);
             const auto shape = model_.array_expression_types.find(group->expression.get());
             if (shape != model_.array_expression_types.end())
