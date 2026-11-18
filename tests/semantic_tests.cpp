@@ -1306,8 +1306,14 @@ void test_int64_literal_boundaries(TestContext& tests) {
         "    let invalid = -9223372036854775809\n"
         "}\n"};
     const vex::SemanticResult negative_rejected = analyze(negative_overflow);
+    std::string negative_diagnostic_summary;
+    for (const vex::Diagnostic& diagnostic : negative_rejected.diagnostics) {
+        if (!negative_diagnostic_summary.empty()) negative_diagnostic_summary += ", ";
+        negative_diagnostic_summary += diagnostic.code + ": " + diagnostic.message;
+    }
     tests.check(has_code(negative_rejected, "SEM079"),
-                "negative integer magnitudes below INT64_MIN are rejected during semantic analysis");
+                "negative integer magnitudes below INT64_MIN are rejected during semantic analysis; diagnostics: " +
+                    negative_diagnostic_summary);
 }
 
 } // namespace
