@@ -903,7 +903,173 @@ private:
         return summaries;
     }
 
+    [[nodiscard]] std::unordered_map<
+        const FunctionDeclStmt*,
+        std::vector<std::pair<std::uint32_t, std::uint32_t>>>
+    collect_pointer_parameter_store_summaries() const {
+        using Summary = std::pair<std::uint32_t, std::uint32_t>;
+        std::unordered_map<const FunctionDeclStmt*, std::vector<Summary>> summaries;
+        std::unordered_map<std::string, const FunctionDeclStmt*> functions;
+        for (const StmtPtr& statement : program_.statements) {
+            const auto* function = statement
+                ? std::get_if<FunctionDeclStmt>(&statement->data) : nullptr;
+            if (!function) continue;
+            functions.emplace(spelling(function->name), function);
+            summaries.emplace(function,
+                direct_pointer_parameter_store_summaries(*function));
+        }
+
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (const auto& [function, function_summaries] : summaries) {
+                static_cast<void>(function_summaries);
+                const auto parameter_index = [&](const SourceSpan name)
+                    -> std::optional<std::size_t> {
+                    const std::string identifier = spelling(name);
+                    for (std::size_t index = 0; index < function->parameters.size(); ++index) {
+                        if (spelling(function->parameters[index].name) == identifier)
+                            return index;
+                    }
+                    return std::nullopt;
+                };
+                const auto unwrap_group = [](const Expr* expression) {
+                    while (expression) {
+                        const auto* group = std::get_if<GroupExpr>(&expression->data);
+                        if (!group) break;
+                        expression = group->expression.get();
+                    }
+                    return expression;
+                };
+                const auto inspect_expression = [&](const auto& self, const Expr* expression) -> void {
+                    if (!expression) return;
+                    if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
+                        const auto* callee_name = call->callee
+                            ? std::get_if<NameExpr>(&unwrap_group(call->callee.get())->data)
+                            : nullptr;
+                        if (callee_name) {
+                            const auto callee = functions.find(spelling(callee_name->name));
+                            if (callee != functions.end()) {
+                                const auto callee_summaries = summaries.find(callee->second);
+                                if (callee_summaries != summaries.end()) {
+                                    for (const Summary summary : callee_summaries->second) {
+                                        const std::size_t destination_argument =
+                                            static_cast<std::size_t>(summary.first - 1u);
+                                        const std::size_t source_argument =
+                                            static_cast<std::size_t>(summary.second - 1u);
+                                        if (destination_argument >= call->arguments.size() ||
+                                            source_argument >= call->arguments.size()) continue;
+                                        const auto* destination_name = call->arguments[destination_argument]
+                                            ? std::get_if<NameExpr>(&unwrap_group(
+                                                call->arguments[destination_argument].get())->data)
+                                            : nullptr;
+                                        const auto* source_name = call->arguments[source_argument]
+                                            ? std::get_if<NameExpr>(&unwrap_group(
+                                                call->arguments[source_argument].get())->data)
+                                            : nullptr;
+                                        if (!destination_name || !source_name) continue;
+                                        const auto destination_index =
+                                            parameter_index(destination_name->name);
+                                        const auto source_index =
+                                            parameter_index(source_name->name);
+                                        if (!destination_index || !source_index) continue;
+                                        const Parameter& destination =
+                                            function->parameters[*destination_index];
+                                        const Parameter& source =
+                                            function->parameters[*source_index];
+                                        if (!destination.type_annotation || !source.type_annotation)
+                                            continue;
+                                        const std::string destination_type =
+                                            spelling(*destination.type_annotation);
+                                        const std::string source_type =
+                                            spelling(*source.type_annotation);
+                                        if (destination_type.size() <= 1u ||
+                                            destination_type.front() != '*' ||
+                                            destination_type.substr(1u) != source_type) continue;
+                                        auto& current = summaries.at(function);
+                                        const Summary propagated{
+                                            static_cast<std::uint32_t>(*destination_index + 1u),
+                                            static_cast<std::uint32_t>(*source_index + 1u)};
+                                        if (std::find(current.begin(), current.end(), propagated) ==
+                                            current.end()) {
+                                            current.push_back(propagated);
+                                            changed = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        self(self, call->callee.get());
+                        for (const ExprPtr& argument : call->arguments) self(self, argument.get());
+                    } else if (const auto* assignment =
+                                   std::get_if<AssignmentExpr>(&expression->data)) {
+                        self(self, assignment->target.get());
+                        self(self, assignment->value.get());
+                    } else if (const auto* unary = std::get_if<UnaryExpr>(&expression->data)) {
+                        self(self, unary->operand.get());
+                    } else if (const auto* binary = std::get_if<BinaryExpr>(&expression->data)) {
+                        self(self, binary->left.get());
+                        self(self, binary->right.get());
+                    } else if (const auto* group = std::get_if<GroupExpr>(&expression->data)) {
+                        self(self, group->expression.get());
+                    } else if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression->data)) {
+                        for (const ExprPtr& element : array->elements) self(self, element.get());
+                    } else if (const auto* index = std::get_if<IndexExpr>(&expression->data)) {
+                        self(self, index->object.get());
+                        self(self, index->index.get());
+                    } else if (const auto* range = std::get_if<RangeExpr>(&expression->data)) {
+                        self(self, range->start.get());
+                        self(self, range->end.get());
+                    } else if (const auto* member = std::get_if<MemberExpr>(&expression->data)) {
+                        self(self, member->object.get());
+                    } else if (const auto* structure =
+                                   std::get_if<StructLiteralExpr>(&expression->data)) {
+                        for (const StructLiteralField& field : structure->fields)
+                            self(self, field.value.get());
+                    }
+                };
+                const auto inspect_statement = [&](const auto& self,
+                                                   const Statement* statement) -> void {
+                    if (!statement) return;
+                    if (const auto* block = std::get_if<BlockStmt>(&statement->data)) {
+                        for (const StmtPtr& child : block->statements) self(self, child.get());
+                    } else if (const auto* variable =
+                                   std::get_if<VariableDeclStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, variable->initializer.get());
+                    } else if (const auto* returned =
+                                   std::get_if<ReturnStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, returned->value.get());
+                    } else if (const auto* expression =
+                                   std::get_if<ExpressionStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, expression->expression.get());
+                    } else if (const auto* conditional =
+                                   std::get_if<IfStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, conditional->condition.get());
+                        self(self, conditional->then_branch.get());
+                        self(self, conditional->else_branch.get());
+                    } else if (const auto* loop = std::get_if<WhileStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, loop->condition.get());
+                        self(self, loop->body.get());
+                    } else if (const auto* loop = std::get_if<RepeatStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, loop->count.get());
+                        self(self, loop->body.get());
+                    } else if (const auto* loop = std::get_if<ForStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, loop->iterable.get());
+                        self(self, loop->body.get());
+                    } else if (const auto* matched = std::get_if<MatchStmt>(&statement->data)) {
+                        inspect_expression(inspect_expression, matched->value.get());
+                        for (const MatchArm& arm : matched->arms) self(self, arm.body.get());
+                    }
+                };
+                inspect_statement(inspect_statement, function->body.get());
+            }
+        }
+        return summaries;
+    }
+
     void collect_function_signatures() {
+        const auto pointer_store_summaries =
+            collect_pointer_parameter_store_summaries();
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
             const auto* function =
@@ -947,8 +1113,9 @@ private:
                 signature.parameter_enum_type_ids.push_back(parameter_enum_type_id);
                 signature.parameter_pointer_types.push_back(parameter_pointer_type);
             }
-            signature.pointer_parameter_stores =
-                direct_pointer_parameter_store_summaries(*function);
+            const auto pointer_summaries = pointer_store_summaries.find(function);
+            if (pointer_summaries != pointer_store_summaries.end())
+                signature.pointer_parameter_stores = pointer_summaries->second;
 
             const std::string name = spelling(function->name);
             const auto existing = scopes_.front().find(name);
