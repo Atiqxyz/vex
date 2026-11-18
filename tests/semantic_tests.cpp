@@ -1306,7 +1306,7 @@ void test_int64_literal_boundaries(TestContext& tests) {
         "    let invalid = -9223372036854775809\n"
         "}\n"};
     const vex::SemanticResult negative_rejected = analyze(negative_overflow);
-    tests.check(has_code(negative_rejected, "SEM074"),
+    tests.check(has_code(negative_rejected, "SEM079"),
                 "negative integer magnitudes below INT64_MIN are rejected during semantic analysis");
 }
 
