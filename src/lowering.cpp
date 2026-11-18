@@ -1687,6 +1687,11 @@ private:
         }
         if (const auto* unary = std::get_if<UnaryExpr>(&expression.data)) {
             if (!unary->operand) return std::nullopt;
+            if (unary->op == TokenKind::Minus &&
+                is_int64_min_magnitude_literal(unary->operand.get(), source_)) {
+                return emit_constant(
+                    IRType::Int, "-9223372036854775808", expression.span);
+            }
             if (unary->op == TokenKind::BitAnd) {
                 const auto* named = std::get_if<NameExpr>(&unary->operand->data);
                 const auto binding = named
