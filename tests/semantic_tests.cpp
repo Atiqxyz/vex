@@ -1198,6 +1198,28 @@ make main() {}
     tests.check(has_code(dangling_alias_return_result, "SEM072"),
                 "reassigning a local pointer alias to callee-local storage remains forbidden on return");
 
+    const vex::SourceFile alias_return_short_lived_parameter{
+        "pointer_alias_return_short_lived_parameter.vex", R"VEX(
+make reborrow_alias(first: *int, second: *int) -> *int {
+    let alias = first
+    alias = second
+    return alias
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    {
+        let inner = 2
+        let inner_pointer: *int = &inner
+        outer_pointer = reborrow_alias(outer_pointer, inner_pointer)
+    }
+}
+)VEX"};
+    const vex::SemanticResult alias_return_short_lived_parameter_result =
+        analyze(alias_return_short_lived_parameter);
+    tests.check(has_code(alias_return_short_lived_parameter_result, "SEM072"),
+                "return summaries follow reassigned aliases to the second parameter and reject its shorter-lived caller argument");
+
     const vex::SourceFile immutable{"pointer_to_const.vex",
         "make main() {\n"
         "    const value = 1\n"
