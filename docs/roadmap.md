@@ -50,7 +50,7 @@ The language should not force every scientific feature into the compiler. Keep t
 
 **Purpose:** Make simple VEX programs run end to end.
 
-- Implement the first backend; evaluate portable C generation as the bootstrap route.
+- [x] Implement the first executable backend: portable C11 generation was introduced as the initial route; C11 and LLVM backends are now available behind the backend-independent IR, with LLVM as the default and C11 explicitly selected.
 - Define a stable compiler pipeline: source → lexer/parser → semantic analysis → IR → backend → executable.
 - Support the currently implemented language subset, including functions, primitive values, expressions, conditionals, repetition, and returns.
 - Add linking and clear compiler diagnostics.
