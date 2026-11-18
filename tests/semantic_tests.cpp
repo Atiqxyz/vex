@@ -1154,6 +1154,10 @@ make null_grouped() -> *int {
     return (null)
 }
 
+make null_forwarder() -> *int {
+    return null_grouped()
+}
+
 make identity_alias(pointer: *int) -> *int {
     let first_alias = pointer
     let second_alias = (first_alias)
@@ -1190,6 +1194,8 @@ make main() {
     *forwarded_reborrow = 6
     let empty: *int = null_grouped()
     say(empty == null)
+    let forwarded_empty: *int = null_forwarder()
+    say(forwarded_empty == null)
 }
 )VEX"};
     const vex::SemanticResult grouped_pointer_returns_result =
