@@ -2585,6 +2585,63 @@ private:
                     }
                 }
             }
+            for (const auto [destination_parameter, source_parameter] :
+                 function->pointer_parameter_stores) {
+                const std::size_t destination_index =
+                    static_cast<std::size_t>(destination_parameter - 1u);
+                const std::size_t source_index =
+                    static_cast<std::size_t>(source_parameter - 1u);
+                if (destination_index >= call->arguments.size() ||
+                    source_index >= call->arguments.size()) continue;
+                const Expr* destination_argument =
+                    call->arguments[destination_index].get();
+                const Expr* source_argument = call->arguments[source_index].get();
+                const auto destination_pointer = destination_argument
+                    ? model_.pointer_expression_types.find(destination_argument)
+                    : model_.pointer_expression_types.end();
+                const auto source_pointer = source_argument
+                    ? model_.pointer_expression_types.find(source_argument)
+                    : model_.pointer_expression_types.end();
+                if (destination_pointer == model_.pointer_expression_types.end() ||
+                    source_pointer == model_.pointer_expression_types.end()) continue;
+
+                const SemanticBindingId cell_id =
+                    destination_pointer->second.pointee_binding_id;
+                if (cell_id == 0u) {
+                    const bool source_is_null_or_unknown =
+                        source_pointer->second.pointee_binding_id == 0u &&
+                        source_pointer->second.pointee_parameter_index == 0u;
+                    const bool forwarded_parameter_store = inside_function_ &&
+                        destination_pointer->second.pointee_parameter_index != 0u &&
+                        source_pointer->second.pointee_parameter_index != 0u;
+                    if (!source_is_null_or_unknown && !forwarded_parameter_store) {
+                        report("SEM072",
+                               "cannot prove that a pointer-cell store through this parameter is lifetime-safe",
+                               call->arguments[destination_index]->span);
+                    }
+                    continue;
+                }
+
+                const auto destination_binding = model_.bindings.find(cell_id);
+                if (destination_binding == model_.bindings.end()) continue;
+                const auto origin_binding = model_.bindings.find(
+                    source_pointer->second.pointee_binding_id);
+                if (origin_binding != model_.bindings.end() &&
+                    origin_binding->second.scope_depth >
+                        destination_binding->second.scope_depth) {
+                    report("SEM072",
+                           "pointer assignment would outlive the local variable it points to",
+                           call->arguments[destination_index]->span);
+                }
+
+                // A call that stores through **T changes the caller's pointer cell.
+                // Keep the semantic origin in sync so later reads and stores see
+                // the updated pointee lifetime, just like a direct *slot = value.
+                destination_binding->second.pointer_type = source_pointer->second;
+                if (Symbol* symbol = lookup_binding_symbol(cell_id))
+                    symbol->pointer_type = source_pointer->second;
+            }
+
             if (function->type == Type::Array && function->return_array_type)
                 model_.array_expression_types[&expression] =
                     *function->return_array_type;
