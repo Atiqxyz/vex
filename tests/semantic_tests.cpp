@@ -1386,8 +1386,7 @@ make main() {
                 "pointer-cell stores remain valid when the replacement outlives the destination cell");
 
     const vex::SourceFile aliased_destination_writes{"pointer_parameter_aliased_destinations.vex", R"VEX(
-make replace_two_slots(first_slot: **int, second_slot: **int,
-                       first_replacement: *int, second_replacement: *int) {
+make replace_two_slots(first_slot: **int, second_slot: **int, first_replacement: *int, second_replacement: *int) {
     *first_slot = first_replacement
     *second_slot = second_replacement
 }
@@ -1418,8 +1417,7 @@ make main() {
                 aliased_destination_diagnostics + ")");
 
     const vex::SourceFile aliased_destination_writes_safe{"pointer_parameter_aliased_destinations_safe.vex", R"VEX(
-make replace_two_slots(first_slot: **int, second_slot: **int,
-                       first_replacement: *int, second_replacement: *int) {
+make replace_two_slots(first_slot: **int, second_slot: **int, first_replacement: *int, second_replacement: *int) {
     *first_slot = first_replacement
     *second_slot = second_replacement
 }
