@@ -909,7 +909,20 @@ private:
     [[nodiscard]] Type analyze_expression_impl(const Expr& expression) {
         if (const auto* literal = std::get_if<LiteralExpr>(&expression.data)) {
             switch (literal->token_kind) {
-            case TokenKind::Integer: return Type::Int;
+            case TokenKind::Integer: {
+                const std::string_view text = source_.slice(expression.span);
+                std::int64_t value = 0;
+                const auto parsed = std::from_chars(
+                    text.data(), text.data() + text.size(), value);
+                if (parsed.ec != std::errc{} ||
+                    parsed.ptr != text.data() + text.size()) {
+                    report("SEM074",
+                        "integer literal is outside the supported signed 64-bit range",
+                        expression.span);
+                    return Type::Error;
+                }
+                return Type::Int;
+            }
             case TokenKind::Float: return Type::Float;
             case TokenKind::String: return Type::String;
             case TokenKind::KwTrue:
