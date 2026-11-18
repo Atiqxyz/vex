@@ -2027,6 +2027,7 @@ private:
                 addressed.pointee_binding_id = binding->second.id;
                 addressed.pointee_parameter_index = 0u;
                 addressed.mutable_pointee = true;
+                addressed.is_known_null = false;
                 model_.pointer_expression_types[&expression] = addressed;
                 return Type::Pointer;
             }
@@ -2045,6 +2046,7 @@ private:
                     --dereferenced.indirection_depth;
                     dereferenced.pointee_binding_id = 0u;
                     dereferenced.pointee_parameter_index = 0u;
+                    dereferenced.is_known_null = false;
                     if (pointer->second.pointee_binding_id != 0u) {
                         const auto origin = model_.bindings.find(
                             pointer->second.pointee_binding_id);
