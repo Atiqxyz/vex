@@ -1160,10 +1160,19 @@ make identity_alias(pointer: *int) -> *int {
     return second_alias
 }
 
+make identity_forwarder(pointer: *int) -> *int {
+    let alias = identity_alias(pointer)
+    return alias
+}
+
 make reborrow_alias(first: *int, second: *int) -> *int {
     let alias = first
     alias = second
     return alias
+}
+
+make reborrow_forwarder(first: *int, second: *int) -> *int {
+    return reborrow_alias(first, second)
 }
 
 make main() {
@@ -1173,8 +1182,12 @@ make main() {
     *returned = 2
     let aliased: *int = identity_alias(pointer)
     *aliased = 3
+    let forwarded: *int = identity_forwarder(pointer)
+    *forwarded = 4
     let reborrowed: *int = reborrow_alias(pointer, pointer)
-    *reborrowed = 4
+    *reborrowed = 5
+    let forwarded_reborrow: *int = reborrow_forwarder(pointer, pointer)
+    *forwarded_reborrow = 6
     let empty: *int = null_grouped()
     say(empty == null)
 }
@@ -1205,13 +1218,16 @@ make reborrow_alias(first: *int, second: *int) -> *int {
     alias = second
     return alias
 }
+make reborrow_forwarder(first: *int, second: *int) -> *int {
+    return reborrow_alias(first, second)
+}
 make main() {
     let outer = 1
     let outer_pointer: *int = &outer
     {
         let inner = 2
         let inner_pointer: *int = &inner
-        outer_pointer = reborrow_alias(outer_pointer, inner_pointer)
+        outer_pointer = reborrow_forwarder(outer_pointer, inner_pointer)
     }
 }
 )VEX"};
