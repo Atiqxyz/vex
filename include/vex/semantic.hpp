@@ -128,6 +128,8 @@ struct SemanticFunctionSignature {
     std::uint32_t return_enum_type_id{0};
     std::optional<SemanticPointerType> return_pointer_type;
     std::optional<std::uint32_t> return_pointer_parameter_index;
+    // Direct pointer-cell stores: (destination **T parameter, source *T parameter), one-based.
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> pointer_parameter_stores;
     SourceSpan declaration{};
 };
 
