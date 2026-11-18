@@ -1158,6 +1158,14 @@ make null_forwarder() -> *int {
     return null_grouped()
 }
 
+make maybe_identity(pointer: *int, take_pointer: bool) -> *int {
+    if (take_pointer) {
+        return pointer
+    } else {
+        return null_forwarder()
+    }
+}
+
 make identity_alias(pointer: *int) -> *int {
     let first_alias = pointer
     let second_alias = (first_alias)
@@ -1196,6 +1204,8 @@ make main() {
     say(empty == null)
     let forwarded_empty: *int = null_forwarder()
     say(forwarded_empty == null)
+    let maybe: *int = maybe_identity(pointer, true)
+    *maybe = 7
 }
 )VEX"};
     const vex::SemanticResult grouped_pointer_returns_result =
