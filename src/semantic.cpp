@@ -728,7 +728,10 @@ private:
     }
 
     [[nodiscard]] std::optional<std::uint32_t> direct_pointer_return_parameter(
-        const FunctionDeclStmt& function) const {
+        const FunctionDeclStmt& function,
+        const std::unordered_map<const FunctionDeclStmt*,
+                                 std::optional<std::uint32_t>>& return_summaries,
+        const std::unordered_map<std::string, const FunctionDeclStmt*>& functions) const {
         using AliasScope =
             std::unordered_map<std::string, std::optional<std::uint32_t>>;
         std::vector<AliasScope> alias_scopes(1u);
@@ -756,13 +759,33 @@ private:
             }
             return std::nullopt;
         };
-        const auto pointer_origin_for_expression = [&](const Expr* expression)
-            -> std::optional<std::uint32_t> {
+        const auto pointer_origin_for_expression =
+            [&](const auto& self, const Expr* expression)
+                -> std::optional<std::uint32_t> {
             expression = unwrap_grouped_expression(expression);
-            const auto* name = expression
-                ? std::get_if<NameExpr>(&expression->data) : nullptr;
-            return name
-                ? pointer_origin_for_name(spelling(name->name)) : std::nullopt;
+            if (!expression) return std::nullopt;
+            if (const auto* name = std::get_if<NameExpr>(&expression->data))
+                return pointer_origin_for_name(spelling(name->name));
+            if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
+                const Expr* callee_expression =
+                    unwrap_grouped_expression(call->callee.get());
+                const auto* callee_name = callee_expression
+                    ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
+                if (!callee_name) return std::nullopt;
+                const auto callee = functions.find(spelling(callee_name->name));
+                if (callee == functions.end()) return std::nullopt;
+                const auto summary = return_summaries.find(callee->second);
+                if (summary == return_summaries.end() || !summary->second)
+                    return std::nullopt;
+                const std::uint32_t returned_parameter = *summary->second;
+                if (returned_parameter == 0u) return 0u;
+                const std::size_t argument_index =
+                    static_cast<std::size_t>(returned_parameter - 1u);
+                if (argument_index >= call->arguments.size())
+                    return std::nullopt;
+                return self(self, call->arguments[argument_index].get());
+            }
+            return std::nullopt;
         };
         const auto set_pointer_origin_for_name = [&](const std::string& identifier,
                                                      const std::optional<std::uint32_t>& value) {
@@ -784,13 +807,9 @@ private:
                     saw_return = true;
                     return;
                 }
-                const Expr* return_value =
-                    unwrap_grouped_expression(returned->value.get());
-                const auto* name = return_value
-                    ? std::get_if<NameExpr>(&return_value->data) : nullptr;
-                if (!name) { valid = false; return; }
                 const std::optional<std::uint32_t> candidate =
-                    pointer_origin_for_name(spelling(name->name));
+                    pointer_origin_for_expression(pointer_origin_for_expression,
+                                                  returned->value.get());
                 if (!candidate) { valid = false; return; }
                 if (origin && *origin != *candidate) valid = false;
                 else origin = *candidate;
@@ -806,7 +825,8 @@ private:
                            std::get_if<VariableDeclStmt>(&statement->data)) {
                 if (alias_scopes.empty()) alias_scopes.emplace_back();
                 alias_scopes.back()[spelling(variable->name)] =
-                    pointer_origin_for_expression(variable->initializer.get());
+                    pointer_origin_for_expression(pointer_origin_for_expression,
+                                                  variable->initializer.get());
             } else if (const auto* expression =
                            std::get_if<ExpressionStmt>(&statement->data)) {
                 const Expr* value =
@@ -821,7 +841,8 @@ private:
                     if (name) {
                         set_pointer_origin_for_name(
                             spelling(name->name),
-                            pointer_origin_for_expression(assignment->value.get()));
+                            pointer_origin_for_expression(pointer_origin_for_expression,
+                                                          assignment->value.get()));
                     }
                 }
             } else if (const auto* conditional = std::get_if<IfStmt>(&statement->data)) {
@@ -842,6 +863,37 @@ private:
         return valid && saw_return
             ? std::optional<std::uint32_t>{origin.value_or(0u)}
             : std::nullopt;
+    }
+
+    [[nodiscard]] std::unordered_map<const FunctionDeclStmt*,
+                                     std::optional<std::uint32_t>>
+    collect_pointer_return_parameter_summaries() const {
+        std::unordered_map<std::string, const FunctionDeclStmt*> functions;
+        std::unordered_map<const FunctionDeclStmt*, std::optional<std::uint32_t>> summaries;
+        for (const StmtPtr& statement : program_.statements) {
+            const auto* function = statement
+                ? std::get_if<FunctionDeclStmt>(&statement->data) : nullptr;
+            if (!function) continue;
+            functions.emplace(spelling(function->name), function);
+            const bool returns_pointer = function->return_type &&
+                !spelling(*function->return_type).empty() &&
+                spelling(*function->return_type).front() == '*';
+            if (returns_pointer) summaries.emplace(function, std::nullopt);
+        }
+
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (auto& [function, summary] : summaries) {
+                if (summary) continue;
+                const auto candidate =
+                    direct_pointer_return_parameter(*function, summaries, functions);
+                if (!candidate) continue;
+                summary = candidate;
+                changed = true;
+            }
+        }
+        return summaries;
     }
 
     [[nodiscard]] std::vector<std::pair<std::uint32_t, std::uint32_t>>
@@ -1222,6 +1274,8 @@ private:
     void collect_function_signatures() {
         const auto pointer_store_summaries =
             collect_pointer_parameter_store_summaries();
+        const auto pointer_return_summaries =
+            collect_pointer_return_parameter_summaries();
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
             const auto* function =
@@ -1239,9 +1293,11 @@ private:
                                   &signature.return_enum_type_id,
                                   &signature.return_pointer_type)
                 : Type::Void;
-            if (signature.type == Type::Pointer)
-                signature.return_pointer_parameter_index =
-                    direct_pointer_return_parameter(*function);
+            if (signature.type == Type::Pointer) {
+                const auto return_summary = pointer_return_summaries.find(function);
+                if (return_summary != pointer_return_summaries.end())
+                    signature.return_pointer_parameter_index = return_summary->second;
+            }
 
             for (const Parameter& parameter : function->parameters) {
                 Type parameter_type = Type::Unknown;
