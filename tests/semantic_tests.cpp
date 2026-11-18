@@ -1160,6 +1160,12 @@ make identity_alias(pointer: *int) -> *int {
     return second_alias
 }
 
+make reborrow_alias(first: *int, second: *int) -> *int {
+    let alias = first
+    alias = second
+    return alias
+}
+
 make main() {
     let value = 1
     let pointer: *int = &value
@@ -1167,6 +1173,8 @@ make main() {
     *returned = 2
     let aliased: *int = identity_alias(pointer)
     *aliased = 3
+    let reborrowed: *int = reborrow_alias(pointer, pointer)
+    *reborrowed = 4
     let empty: *int = null_grouped()
     say(empty == null)
 }
