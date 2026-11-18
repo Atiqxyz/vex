@@ -1296,12 +1296,17 @@ make replace_pointer(slot: **int, replacement: *int) {
     let replacement_alias_again: *int = replacement_alias
     *slot_alias_again = replacement_alias_again
 }
+make forward_pointer(slot: **int, replacement: *int) {
+    let slot_alias: **int = slot
+    let replacement_alias: *int = replacement
+    replace_pointer(slot_alias, replacement_alias)
+}
 make main() {
     let outer = 1
     let outer_pointer: *int = &outer
     if (true) {
         let inner = 2
-        replace_pointer(&outer_pointer, &inner)
+        forward_pointer(&outer_pointer, &inner)
     }
 }
 )VEX"};
@@ -1318,11 +1323,21 @@ make replace_pointer(slot: **int, replacement: *int) {
     let replacement_alias_again: *int = replacement_alias
     *slot_alias_again = replacement_alias_again
 }
+make forward_pointer(slot: **int, replacement: *int) {
+    let slot_alias: **int = slot
+    let replacement_alias: *int = replacement
+    replace_pointer(slot_alias, replacement_alias)
+}
+make forward_again(slot: **int, replacement: *int) {
+    let slot_alias: **int = slot
+    let replacement_alias: *int = replacement
+    forward_pointer(slot_alias, replacement_alias)
+}
 make main() {
     let first = 1
     let second = 2
     let pointer: *int = &first
-    replace_pointer(&pointer, &second)
+    forward_again(&pointer, &second)
     say(*pointer)
 }
 )VEX"};
