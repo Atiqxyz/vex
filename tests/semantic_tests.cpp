@@ -1385,6 +1385,47 @@ make main() {
     tests.check(!interprocedural_safe_result.has_errors(),
                 "pointer-cell stores remain valid when the replacement outlives the destination cell");
 
+    const vex::SourceFile aliased_destination_writes{"pointer_parameter_aliased_destinations.vex", R"VEX(
+make replace_two_slots(first_slot: **int, second_slot: **int,
+                       first_replacement: *int, second_replacement: *int) {
+    *first_slot = first_replacement
+    *second_slot = second_replacement
+}
+make main() {
+    let outer = 1
+    let first_replacement = 2
+    let pointer: *int = &outer
+    {
+        let inner = 3
+        replace_two_slots(&pointer, &pointer, &first_replacement, &inner)
+    }
+}
+)VEX"};
+    const vex::SemanticResult aliased_destination_writes_result =
+        analyze(aliased_destination_writes);
+    tests.check(has_code(aliased_destination_writes_result, "SEM072"),
+                "every summarized write is lifetime-checked even when multiple parameters alias the same destination cell");
+
+    const vex::SourceFile aliased_destination_writes_safe{"pointer_parameter_aliased_destinations_safe.vex", R"VEX(
+make replace_two_slots(first_slot: **int, second_slot: **int,
+                       first_replacement: *int, second_replacement: *int) {
+    *first_slot = first_replacement
+    *second_slot = second_replacement
+}
+make main() {
+    let outer = 1
+    let first_replacement = 2
+    let second_replacement = 3
+    let pointer: *int = &outer
+    replace_two_slots(&pointer, &pointer, &first_replacement, &second_replacement)
+    say(*pointer)
+}
+)VEX"};
+    const vex::SemanticResult aliased_destination_writes_safe_result =
+        analyze(aliased_destination_writes_safe);
+    tests.check(!aliased_destination_writes_safe_result.has_errors(),
+                "multiple writes through aliased destination parameters are accepted when every source outlives the destination");
+
     const vex::SourceFile branch_pointer_escape{"pointer_parameter_branch_escape.vex", R"VEX(
 make replace_pointer(slot: **int, replacement: *int) {
     *slot = replacement
