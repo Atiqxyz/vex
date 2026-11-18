@@ -14,6 +14,26 @@ namespace {
 using Environment = std::unordered_map<SemanticBindingId, IRValue>;
 using MutablePlaces = std::unordered_map<SemanticBindingId, IRPlaceId>;
 
+constexpr std::string_view int64_min_magnitude = "9223372036854775808";
+
+const Expr* unwrap_grouped_expression(const Expr* expression) noexcept {
+    while (expression) {
+        const auto* group = std::get_if<GroupExpr>(&expression->data);
+        if (!group) break;
+        expression = group->expression.get();
+    }
+    return expression;
+}
+
+bool is_int64_min_magnitude_literal(
+    const Expr* expression, const SourceFile& source) {
+    expression = unwrap_grouped_expression(expression);
+    const auto* literal = expression
+        ? std::get_if<LiteralExpr>(&expression->data) : nullptr;
+    return literal && literal->token_kind == TokenKind::Integer &&
+        source.slice(expression->span) == int64_min_magnitude;
+}
+
 std::optional<IRType> to_ir_type(const SemanticType type) {
     switch (type) {
     case SemanticType::Void: return IRType::Void;
