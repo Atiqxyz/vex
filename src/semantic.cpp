@@ -1971,6 +1971,14 @@ private:
                         target_pointer_type->indirection_depth != actual_pointer->second.indirection_depth) {
                         report("SEM071", "pointer-to-pointer store requires an identical nested pointer type",
                                expression.span);
+                    } else if (pointer_cell_binding_id == 0u &&
+                               pointer->second.pointee_parameter_index != 0u &&
+                               actual_pointer->second.pointee_binding_id != 0u) {
+                        // The destination cell is supplied by the caller. A pointer
+                        // to storage owned by this function cannot be written there.
+                        report("SEM072",
+                               "pointer assignment would store function-local storage into a caller-owned pointer cell",
+                               expression.span);
                     } else if (pointer_cell_binding_id != 0u) {
                         // A store through **T can retarget the pointer variable that
                         // the outer pointer addresses. Apply the same lexical escape
