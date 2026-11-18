@@ -847,7 +847,12 @@ private:
     [[nodiscard]] std::vector<std::pair<std::uint32_t, std::uint32_t>>
     direct_pointer_parameter_store_summaries(
         const FunctionDeclStmt& function) const {
-        std::vector<std::pair<std::uint32_t, std::uint32_t>> summaries;
+        using Summary = std::pair<std::uint32_t, std::uint32_t>;
+        using AliasScope =
+            std::unordered_map<std::string, std::optional<std::size_t>>;
+        std::vector<Summary> summaries;
+        std::vector<AliasScope> alias_scopes(1u);
+
         const auto unwrap_group = [](const Expr* expression) {
             while (expression) {
                 const auto* group = std::get_if<GroupExpr>(&expression->data);
@@ -856,57 +861,82 @@ private:
             }
             return expression;
         };
+        for (std::size_t index = 0; index < function.parameters.size(); ++index)
+            alias_scopes.front()[spelling(function.parameters[index].name)] = index;
+
         const auto parameter_index = [&](const SourceSpan name)
             -> std::optional<std::size_t> {
             const std::string identifier = spelling(name);
-            for (std::size_t index = 0; index < function.parameters.size(); ++index) {
-                if (spelling(function.parameters[index].name) == identifier)
-                    return index;
+            for (std::size_t index = alias_scopes.size(); index > 0u; --index) {
+                const auto found = alias_scopes[index - 1u].find(identifier);
+                if (found != alias_scopes[index - 1u].end())
+                    return found->second;
             }
             return std::nullopt;
         };
+        const auto parameter_index_for_expression = [&](const Expr* expression)
+            -> std::optional<std::size_t> {
+            expression = unwrap_group(expression);
+            const auto* name = expression
+                ? std::get_if<NameExpr>(&expression->data) : nullptr;
+            return name ? parameter_index(name->name) : std::nullopt;
+        };
+        const auto set_parameter_index = [&](const SourceSpan name,
+                                             const std::optional<std::size_t>& index) {
+            const std::string identifier = spelling(name);
+            for (std::size_t scope = alias_scopes.size(); scope > 0u; --scope) {
+                auto found = alias_scopes[scope - 1u].find(identifier);
+                if (found != alias_scopes[scope - 1u].end()) {
+                    found->second = index;
+                    return;
+                }
+            }
+            alias_scopes.front()[identifier] = index;
+        };
+        const auto add_summary = [&](const std::size_t destination_index,
+                                     const std::size_t source_index) {
+            if (destination_index >= function.parameters.size() ||
+                source_index >= function.parameters.size()) return;
+            const Parameter& destination = function.parameters[destination_index];
+            const Parameter& stored = function.parameters[source_index];
+            if (!destination.type_annotation || !stored.type_annotation) return;
+            const std::string destination_type = spelling(*destination.type_annotation);
+            const std::string source_type = spelling(*stored.type_annotation);
+            if (destination_type.size() <= 1u || destination_type.front() != '*' ||
+                source_type.size() <= 1u || source_type.front() != '*' ||
+                destination_type.substr(1u) != source_type) return;
+            const Summary summary{
+                static_cast<std::uint32_t>(destination_index + 1u),
+                static_cast<std::uint32_t>(source_index + 1u)};
+            if (std::find(summaries.begin(), summaries.end(), summary) == summaries.end())
+                summaries.push_back(summary);
+        };
+
         const auto inspect_expression = [&](const auto& self, const Expr* expression) -> void {
             if (!expression) return;
             if (const auto* assignment = std::get_if<AssignmentExpr>(&expression->data)) {
                 if (assignment->op == TokenKind::Equal) {
-                    const auto* target = unwrap_group(assignment->target.get());
+                    const Expr* target = unwrap_group(assignment->target.get());
                     const auto* dereference = target
                         ? std::get_if<UnaryExpr>(&target->data) : nullptr;
                     const auto* destination_name = dereference &&
                         dereference->op == TokenKind::Star
                         ? std::get_if<NameExpr>(&unwrap_group(dereference->operand.get())->data)
                         : nullptr;
-                    const auto* source = unwrap_group(assignment->value.get());
-                    const auto* source_name = source
-                        ? std::get_if<NameExpr>(&source->data) : nullptr;
-                    if (destination_name && source_name) {
-                        const auto destination_index = parameter_index(destination_name->name);
-                        const auto source_index = parameter_index(source_name->name);
-                        if (destination_index && source_index &&
-                            *destination_index < function.parameters.size() &&
-                            *source_index < function.parameters.size()) {
-                            const Parameter& destination =
-                                function.parameters[*destination_index];
-                            const Parameter& stored =
-                                function.parameters[*source_index];
-                            if (destination.type_annotation && stored.type_annotation) {
-                                const std::string destination_type =
-                                    spelling(*destination.type_annotation);
-                                const std::string source_type =
-                                    spelling(*stored.type_annotation);
-                                if (destination_type.size() > 1u &&
-                                    destination_type.front() == '*' &&
-                                    source_type.size() > 1u &&
-                                    source_type.front() == '*' &&
-                                    destination_type.substr(1u) == source_type) {
-                                    const auto summary = std::pair{
-                                        static_cast<std::uint32_t>(*destination_index + 1u),
-                                        static_cast<std::uint32_t>(*source_index + 1u)};
-                                    if (std::find(summaries.begin(), summaries.end(), summary) ==
-                                        summaries.end()) summaries.push_back(summary);
-                                }
-                            }
-                        }
+                    const std::optional<std::size_t> destination_index =
+                        destination_name ? parameter_index(destination_name->name)
+                                         : std::nullopt;
+                    const std::optional<std::size_t> source_index =
+                        parameter_index_for_expression(assignment->value.get());
+                    if (destination_index && source_index)
+                        add_summary(*destination_index, *source_index);
+
+                    const auto* target_name = target
+                        ? std::get_if<NameExpr>(&target->data) : nullptr;
+                    if (target_name) {
+                        set_parameter_index(
+                            target_name->name,
+                            parameter_index_for_expression(assignment->value.get()));
                     }
                 }
                 self(self, assignment->target.get());
@@ -918,11 +948,13 @@ private:
                 self(self, binary->right.get());
             } else if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
                 self(self, call->callee.get());
-                for (const ExprPtr& argument : call->arguments) self(self, argument.get());
+                for (const ExprPtr& argument : call->arguments)
+                    self(self, argument.get());
             } else if (const auto* group = std::get_if<GroupExpr>(&expression->data)) {
                 self(self, group->expression.get());
             } else if (const auto* array = std::get_if<ArrayLiteralExpr>(&expression->data)) {
-                for (const ExprPtr& element : array->elements) self(self, element.get());
+                for (const ExprPtr& element : array->elements)
+                    self(self, element.get());
             } else if (const auto* index = std::get_if<IndexExpr>(&expression->data)) {
                 self(self, index->object.get());
                 self(self, index->index.get());
@@ -939,8 +971,15 @@ private:
         const auto inspect_statement = [&](const auto& self, const Statement* statement) -> void {
             if (!statement) return;
             if (const auto* block = std::get_if<BlockStmt>(&statement->data)) {
-                for (const StmtPtr& child : block->statements) self(self, child.get());
-            } else if (const auto* variable = std::get_if<VariableDeclStmt>(&statement->data)) {
+                alias_scopes.emplace_back();
+                for (const StmtPtr& child : block->statements)
+                    self(self, child.get());
+                alias_scopes.pop_back();
+            } else if (const auto* variable =
+                           std::get_if<VariableDeclStmt>(&statement->data)) {
+                if (alias_scopes.empty()) alias_scopes.emplace_back();
+                alias_scopes.back()[spelling(variable->name)] =
+                    parameter_index_for_expression(variable->initializer.get());
                 inspect_expression(inspect_expression, variable->initializer.get());
             } else if (const auto* returned = std::get_if<ReturnStmt>(&statement->data)) {
                 inspect_expression(inspect_expression, returned->value.get());
@@ -961,7 +1000,8 @@ private:
                 self(self, loop->body.get());
             } else if (const auto* matched = std::get_if<MatchStmt>(&statement->data)) {
                 inspect_expression(inspect_expression, matched->value.get());
-                for (const MatchArm& arm : matched->arms) self(self, arm.body.get());
+                for (const MatchArm& arm : matched->arms)
+                    self(self, arm.body.get());
             }
         };
         inspect_statement(inspect_statement, function.body.get());
