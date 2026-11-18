@@ -17,7 +17,7 @@ This document distinguishes current project decisions from provisional syntax an
 - **Square brackets:** comma-separated values form fixed-size array literals; a single expression without a comma remains the existing multiline/grouping form. Postfix brackets index an array.
 - **Compiler implementation:** the initial compiler is written in C++20. This does not constrain the language implementation forever.
 - **Self-hosting capability:** VEX is not required to be self-hosted, but its language, runtime, and build tooling should eventually be capable of implementing the full compiler in VEX.
-- **Backend direction:** the IR is backend-independent and has C11 and LLVM code-generation backends. LLVM is the default native build path; C remains an optional bootstrap/fallback backend. Neither backend defines language semantics.
+- **Backend direction:** the IR is backend-independent and has C11 and LLVM code-generation backends. LLVM is the default native build path; the C backend is optional and is selected explicitly with the `emit-c`, `build-c`, or `run-c` command. Neither backend defines language semantics.
 
 ## 2. Provisional syntax
 
