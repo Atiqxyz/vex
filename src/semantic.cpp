@@ -3451,6 +3451,8 @@ private:
     std::uint32_t current_return_enum_type_id_{0};
     std::optional<SemanticPointerType> current_return_pointer_type_;
     std::optional<std::uint32_t> current_return_pointer_parameter_index_;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>>
+        current_pointer_parameter_stores_;
     std::vector<const Expr*> null_pointer_literals_;
 };
 
