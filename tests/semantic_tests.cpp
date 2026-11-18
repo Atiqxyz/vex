@@ -1027,6 +1027,22 @@ make main() {
     tests.check(!pointer_parameters_result.has_errors(),
                 "typed pointers may be passed to functions as typed pointer parameters");
 
+    const vex::SourceFile pointer_parameter_value_store{"pointer_parameter_value_store.vex", R"VEX(
+make set_value(pointer: *int, value: int) {
+    *pointer = value
+}
+make main() {
+    let value = 1
+    let pointer: *int = &value
+    set_value(pointer, 7)
+    say(value)
+}
+)VEX"};
+    const vex::SemanticResult pointer_parameter_value_store_result =
+        analyze(pointer_parameter_value_store);
+    tests.check(!pointer_parameter_value_store_result.has_errors(),
+                "ordinary scalar stores through *T parameters do not become pointer-cell lifetime summaries");
+
     const vex::SourceFile pointer_returns{"pointer_returns.vex", R"VEX(
 make identity(pointer: *int) -> *int {
     return pointer
