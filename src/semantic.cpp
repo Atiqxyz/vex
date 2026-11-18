@@ -1639,6 +1639,20 @@ private:
                         report("SEM071", "pointer-to-pointer store requires an identical nested pointer type",
                                expression.span);
                     } else if (pointer_cell_binding_id != 0u) {
+                        // A store through **T can retarget the pointer variable that
+                        // the outer pointer addresses. Apply the same lexical escape
+                        // check as a direct assignment to that pointer variable.
+                        const auto origin = model_.bindings.find(
+                            actual_pointer->second.pointee_binding_id);
+                        const auto destination = model_.bindings.find(
+                            pointer_cell_binding_id);
+                        if (origin != model_.bindings.end() &&
+                            destination != model_.bindings.end() &&
+                            origin->second.scope_depth > destination->second.scope_depth) {
+                            report("SEM072",
+                                   "pointer assignment would outlive the local variable it points to",
+                                   expression.span);
+                        }
                         const auto cell = model_.bindings.find(pointer_cell_binding_id);
                         if (cell != model_.bindings.end()) {
                             cell->second.pointer_type = actual_pointer->second;

@@ -1151,6 +1151,38 @@ make main() {}
     tests.check(has_code(escaping_result, "SEM072"),
                 "pointer assignment rejects a pointer to a shorter-lived local");
 
+    const vex::SourceFile indirect_escaping{"pointer_cell_escape.vex", R"VEX(
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    let pointer_cell: **int = &outer_pointer
+    if (true) {
+        let inner = 2
+        let alias = pointer_cell
+        *alias = &inner
+    }
+}
+)VEX"};
+    const vex::SemanticResult indirect_escaping_result = analyze(indirect_escaping);
+    tests.check(has_code(indirect_escaping_result, "SEM072"),
+                "stores through aliases to a pointer cell reject shorter-lived pointees");
+
+    const vex::SourceFile indirect_retargeted{"pointer_cell_retarget.vex", R"VEX(
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    let pointer_cell: **int = &outer_pointer
+    if (true) {
+        let inner = 2
+        let alias = pointer_cell
+        *alias = &outer
+    }
+}
+)VEX"};
+    const vex::SemanticResult indirect_retargeted_result = analyze(indirect_retargeted);
+    tests.check(!indirect_retargeted_result.has_errors(),
+                "pointer-cell stores may retarget to a value with a sufficiently long lifetime");
+
     const vex::SourceFile retargeted{"pointer_retarget.vex",
         "make main() {\n"
         "    let outer = 1\n"
