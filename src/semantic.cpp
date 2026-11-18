@@ -2907,6 +2907,7 @@ private:
         current_return_pointer_type_ = previous_return_pointer_type;
         current_return_pointer_parameter_index_ =
             previous_return_pointer_parameter_index;
+        current_pointer_parameter_stores_ = previous_pointer_parameter_stores;
         inside_function_ = was_in_function;
         scopes_.pop_back();
     }
