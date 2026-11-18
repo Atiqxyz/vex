@@ -1198,6 +1198,47 @@ make main() {
     tests.check(!retargeted_result.has_errors(),
                 "pointer reassignment refreshes the target origin before alias propagation");
 
+    const vex::SourceFile interprocedural_escape{"pointer_parameter_store_escape.vex", R"VEX(
+make replace_pointer(slot: **int, replacement: *int) {
+    *slot = replacement
+}
+make forward_pointer(slot: **int, replacement: *int) {
+    replace_pointer(slot, replacement)
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    if (true) {
+        let inner = 2
+        forward_pointer(&outer_pointer, &inner)
+    }
+}
+)VEX"};
+    const vex::SemanticResult interprocedural_escape_result =
+        analyze(interprocedural_escape);
+    tests.check(has_code(interprocedural_escape_result, "SEM072"),
+                "pointer-cell lifetime escapes are detected through direct and forwarded pointer-parameter stores");
+
+    const vex::SourceFile interprocedural_safe{"pointer_parameter_store_safe.vex", R"VEX(
+make replace_pointer(slot: **int, replacement: *int) {
+    *slot = replacement
+}
+make forward_pointer(slot: **int, replacement: *int) {
+    replace_pointer(slot, replacement)
+}
+make main() {
+    let first = 1
+    let second = 2
+    let pointer: *int = &first
+    forward_pointer(&pointer, &second)
+    say(*pointer)
+}
+)VEX"};
+    const vex::SemanticResult interprocedural_safe_result =
+        analyze(interprocedural_safe);
+    tests.check(!interprocedural_safe_result.has_errors(),
+                "pointer-cell stores remain valid when the replacement outlives the destination cell");
+
     const vex::SourceFile aggregate{"aggregate_pointers.vex", R"VEX(
 struct Inner { value: int }
 struct Outer { inner: Inner, values: int[2] }
