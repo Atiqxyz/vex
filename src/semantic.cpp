@@ -1971,28 +1971,29 @@ private:
                         target_pointer_type->indirection_depth != actual_pointer->second.indirection_depth) {
                         report("SEM071", "pointer-to-pointer store requires an identical nested pointer type",
                                expression.span);
-                    } else if (pointer_cell_binding_id == 0u &&
-                               pointer->second.pointee_parameter_index != 0u &&
-                               actual_pointer->second.pointee_binding_id != 0u) {
-                        // The destination cell is supplied by the caller. A pointer
-                        // to storage owned by this function cannot be written there.
-                        report("SEM072",
-                               "pointer assignment would store function-local storage into a caller-owned pointer cell",
-                               expression.span);
-                    } else if (pointer_cell_binding_id == 0u &&
-                               pointer->second.pointee_parameter_index != 0u &&
-                               actual_pointer->second.pointee_parameter_index != 0u) {
-                        const auto summary = std::pair{
-                            pointer->second.pointee_parameter_index,
-                            actual_pointer->second.pointee_parameter_index};
-                        if (std::find(current_pointer_parameter_stores_.begin(),
-                                      current_pointer_parameter_stores_.end(), summary) ==
-                            current_pointer_parameter_stores_.end()) {
+                    } else if (pointer_cell_binding_id == 0u) {
+                        if (is_null_pointer_literal(assignment->value.get())) {
+                            // A literal null pointer cannot create a dangling reference.
+                        } else if (pointer->second.pointee_parameter_index != 0u &&
+                                   actual_pointer->second.pointee_parameter_index != 0u) {
+                            const auto summary = std::pair{
+                                pointer->second.pointee_parameter_index,
+                                actual_pointer->second.pointee_parameter_index};
+                            if (std::find(current_pointer_parameter_stores_.begin(),
+                                          current_pointer_parameter_stores_.end(), summary) ==
+                                current_pointer_parameter_stores_.end()) {
+                                report("SEM072",
+                                       "pointer-cell store through a parameter has no verified lifetime summary",
+                                       expression.span);
+                            }
+                        } else {
+                            // Unknown provenance is not equivalent to null. Do not
+                            // let an untracked pointer value escape through a caller cell.
                             report("SEM072",
-                                   "pointer-cell store through an indirect parameter alias has no verified lifetime summary",
+                                   "pointer-cell store has unknown provenance and cannot be proven lifetime-safe",
                                    expression.span);
                         }
-                    } else if (pointer_cell_binding_id != 0u) {
+                    } else {
                         // A store through **T can retarget the pointer variable that
                         // the outer pointer addresses. Apply the same lexical escape
                         // check as a direct assignment to that pointer variable.
@@ -2000,11 +2001,18 @@ private:
                             actual_pointer->second.pointee_binding_id);
                         const auto destination = model_.bindings.find(
                             pointer_cell_binding_id);
-                        if (origin != model_.bindings.end() &&
+                        const bool source_is_null =
+                            is_null_pointer_literal(assignment->value.get());
+                        if (!source_is_null && origin != model_.bindings.end() &&
                             destination != model_.bindings.end() &&
                             origin->second.scope_depth > destination->second.scope_depth) {
                             report("SEM072",
                                    "pointer assignment would outlive the local variable it points to",
+                                   expression.span);
+                        } else if (!source_is_null && origin == model_.bindings.end() &&
+                                   actual_pointer->second.pointee_parameter_index == 0u) {
+                            report("SEM072",
+                                   "pointer-cell store has unknown provenance and cannot be proven lifetime-safe",
                                    expression.span);
                         }
                         const auto cell = model_.bindings.find(pointer_cell_binding_id);
