@@ -1013,7 +1013,11 @@ private:
                        instruction.span);
                 return false;
             }
-            output_ << "    " << target << " = INT64_C(" << value << ");\n";
+            if (value == std::numeric_limits<std::int64_t>::min()) {
+                output_ << "    " << target << " = INT64_MIN;\n";
+            } else {
+                output_ << "    " << target << " = INT64_C(" << value << ");\n";
+            }
             return true;
         }
         case IRType::Byte: {
