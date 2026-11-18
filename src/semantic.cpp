@@ -1212,7 +1212,7 @@ private:
                     text.data(), text.data() + text.size(), value);
                 if (parsed.ec != std::errc{} ||
                     parsed.ptr != text.data() + text.size()) {
-                    report("SEM074",
+                    report("SEM079",
                         "integer literal is outside the supported signed 64-bit range",
                         expression.span);
                     return Type::Error;
