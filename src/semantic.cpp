@@ -3486,8 +3486,32 @@ private:
                 require_type(condition, Type::Bool, conditional->condition->span,
                              "SEM029", "if condition must be boolean");
             }
-            if (conditional->then_branch) analyze_statement(*conditional->then_branch);
-            if (conditional->else_branch) analyze_statement(*conditional->else_branch);
+            const PointerOriginSnapshot before = snapshot_pointer_origins();
+            const auto known_condition =
+                constant_boolean(conditional->condition.get());
+            if (known_condition) {
+                const StmtPtr& selected = *known_condition
+                    ? conditional->then_branch : conditional->else_branch;
+                const StmtPtr& unselected = *known_condition
+                    ? conditional->else_branch : conditional->then_branch;
+                if (selected) analyze_statement(*selected);
+                const PointerOriginSnapshot selected_state =
+                    snapshot_pointer_origins();
+                restore_pointer_origins(before);
+                if (unselected) analyze_statement(*unselected);
+                restore_pointer_origins(selected_state);
+            } else {
+                if (conditional->then_branch)
+                    analyze_statement(*conditional->then_branch);
+                const PointerOriginSnapshot then_state =
+                    snapshot_pointer_origins();
+                restore_pointer_origins(before);
+                if (conditional->else_branch)
+                    analyze_statement(*conditional->else_branch);
+                const PointerOriginSnapshot else_state =
+                    snapshot_pointer_origins();
+                join_pointer_origins(before, then_state, else_state);
+            }
             return;
         }
         if (const auto* loop = std::get_if<WhileStmt>(&statement.data)) {
