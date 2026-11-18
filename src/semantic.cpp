@@ -2888,6 +2888,7 @@ private:
         current_return_pointer_type_ = signature.return_pointer_type;
         current_return_pointer_parameter_index_ =
             signature.return_pointer_parameter_index;
+        current_pointer_parameter_stores_ = signature.pointer_parameter_stores;
 
         if (function.body) {
             analyze_block(*function.body, false);
