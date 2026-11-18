@@ -1283,5 +1283,6 @@ void run_semantic_tests(TestContext& tests) {
     test_string_join_semantics(tests);
     test_bitwise_operator_semantics(tests);
     test_byte_type_and_checked_conversions(tests);
+    test_int64_literal_boundaries(tests);
     test_typed_pointer_semantics(tests);
 }
