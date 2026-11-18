@@ -1239,6 +1239,23 @@ make main() {
     tests.check(!interprocedural_safe_result.has_errors(),
                 "pointer-cell stores remain valid when the replacement outlives the destination cell");
 
+    const vex::SourceFile local_parameter_escape{"pointer_parameter_local_escape.vex", R"VEX(
+make leak_pointer(slot: **int) {
+    let inner = 2
+    let inner_pointer: *int = &inner
+    *slot = inner_pointer
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    leak_pointer(&outer_pointer)
+}
+)VEX"};
+    const vex::SemanticResult local_parameter_escape_result =
+        analyze(local_parameter_escape);
+    tests.check(has_code(local_parameter_escape_result, "SEM072"),
+                "pointer parameters cannot publish addresses of the callee's local storage");
+
     const vex::SourceFile aggregate{"aggregate_pointers.vex", R"VEX(
 struct Inner { value: int }
 struct Outer { inner: Inner, values: int[2] }
