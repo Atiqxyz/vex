@@ -1318,6 +1318,28 @@ make main() {
     tests.check(has_code(branch_pointer_escape_result, "SEM072"),
                 "pointer origins from both conditional branches are joined before interprocedural escape checks");
 
+    const vex::SourceFile loop_pointer_escape{"pointer_parameter_loop_escape.vex", R"VEX(
+make replace_pointer(slot: **int, replacement: *int) {
+    *slot = replacement
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    {
+        let inner = 2
+        let selected: *int = &inner
+        while outer == 0 {
+            selected = &outer
+        }
+        replace_pointer(&outer_pointer, selected)
+    }
+}
+)VEX"};
+    const vex::SemanticResult loop_pointer_escape_result =
+        analyze(loop_pointer_escape);
+    tests.check(has_code(loop_pointer_escape_result, "SEM072"),
+                "possibly skipped loop iterations are joined with the incoming pointer origin");
+
     const vex::SourceFile local_parameter_escape{"pointer_parameter_local_escape.vex", R"VEX(
 make leak_pointer(slot: **int) {
     let inner = 2
