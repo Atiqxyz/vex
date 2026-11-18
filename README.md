@@ -53,7 +53,7 @@ See [the installation guide](docs/installation.md) for complete steps. Native MS
 
 ## Build from source
 
-Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is optional and is only required to use the `build-c` and `run-c` fallback commands.
+Requirements: CMake 3.20+ and a C++20 compiler (GCC, Clang, or MSVC). A C11 compiler is optional and is only required to use `build-c` and `run-c`.
 
 ```sh
 cmake -S . -B build
