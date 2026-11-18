@@ -2878,6 +2878,8 @@ private:
         const auto previous_return_pointer_type = current_return_pointer_type_;
         const auto previous_return_pointer_parameter_index =
             current_return_pointer_parameter_index_;
+        const auto previous_pointer_parameter_stores =
+            current_pointer_parameter_stores_;
         inside_function_ = true;
         current_return_type_ = signature.type;
         current_return_array_type_ = signature.return_array_type;
