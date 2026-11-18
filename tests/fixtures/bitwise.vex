@@ -36,6 +36,8 @@ make main() {
     say(low_mask)
     say(all_ones)
     say(high_bit)
+    say(signed_min_literal)
+    say(grouped_signed_min_literal)
     say(high_mix)
     say(precedence)
     say(logical)
