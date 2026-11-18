@@ -1291,8 +1291,10 @@ make main() {
     const vex::SourceFile aliased_parameter_store{"pointer_parameter_store_alias.vex", R"VEX(
 make replace_pointer(slot: **int, replacement: *int) {
     let slot_alias: **int = slot
+    let slot_alias_again: **int = slot_alias
     let replacement_alias: *int = replacement
-    *slot_alias = replacement_alias
+    let replacement_alias_again: *int = replacement_alias
+    *slot_alias_again = replacement_alias_again
 }
 make main() {
     let outer = 1
@@ -1307,6 +1309,27 @@ make main() {
         analyze(aliased_parameter_store);
     tests.check(has_code(aliased_parameter_store_result, "SEM072"),
                 "pointer-cell writes through unsummarized parameter aliases are rejected conservatively");
+
+    const vex::SourceFile aliased_parameter_store_safe{"pointer_parameter_store_alias_safe.vex", R"VEX(
+make replace_pointer(slot: **int, replacement: *int) {
+    let slot_alias: **int = slot
+    let slot_alias_again: **int = slot_alias
+    let replacement_alias: *int = replacement
+    let replacement_alias_again: *int = replacement_alias
+    *slot_alias_again = replacement_alias_again
+}
+make main() {
+    let first = 1
+    let second = 2
+    let pointer: *int = &first
+    replace_pointer(&pointer, &second)
+    say(*pointer)
+}
+)VEX"};
+    const vex::SemanticResult aliased_parameter_store_safe_result =
+        analyze(aliased_parameter_store_safe);
+    tests.check(!aliased_parameter_store_safe_result.has_errors(),
+                "pointer-cell stores through local alias chains preserve verified parameter-store summaries");
 
     const vex::SourceFile unknown_pointer_cell_source{"pointer_parameter_store_unknown_source.vex", R"VEX(
 make copy_pointer_cell(destination: **int, source: **int) {
