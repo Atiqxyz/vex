@@ -1145,6 +1145,29 @@ make main() {}
     tests.check(has_code(dangling_return_result, "SEM072"),
                 "a function cannot return a pointer into its own local stack storage");
 
+    const vex::SourceFile grouped_pointer_returns{"grouped_pointer_returns.vex", R"VEX(
+make identity_grouped(pointer: *int) -> *int {
+    return (pointer)
+}
+
+make null_grouped() -> *int {
+    return (null)
+}
+
+make main() {
+    let value = 1
+    let pointer: *int = &value
+    let returned: *int = identity_grouped((pointer))
+    *returned = 2
+    let empty: *int = null_grouped()
+    say(empty == null)
+}
+)VEX"};
+    const vex::SemanticResult grouped_pointer_returns_result =
+        analyze(grouped_pointer_returns);
+    tests.check(!grouped_pointer_returns_result.has_errors(),
+                "grouped pointer-parameter and null returns preserve pointer typing and provenance");
+
     const vex::SourceFile immutable{"pointer_to_const.vex",
         "make main() {\n"
         "    const value = 1\n"
