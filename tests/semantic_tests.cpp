@@ -1158,6 +1158,15 @@ make null_forwarder() -> *int {
     return null_grouped()
 }
 
+make null_alias_forwarder() -> *int {
+    let empty = null_forwarder()
+    return empty
+}
+
+make clear_pointer_cell(slot: **int) {
+    *slot = null_forwarder()
+}
+
 make maybe_identity(pointer: *int, take_pointer: bool) -> *int {
     if (take_pointer) {
         return pointer
@@ -1204,6 +1213,10 @@ make main() {
     say(empty == null)
     let forwarded_empty: *int = null_forwarder()
     say(forwarded_empty == null)
+    let forwarded_alias_empty: *int = null_alias_forwarder()
+    say(forwarded_alias_empty == null)
+    clear_pointer_cell(&pointer)
+    say(pointer == null)
     let maybe: *int = maybe_identity(pointer, true)
     *maybe = 7
 }
