@@ -1239,6 +1239,25 @@ make main() {
     tests.check(has_code(aliased_parameter_store_result, "SEM072"),
                 "pointer-cell writes through unsummarized parameter aliases are rejected conservatively");
 
+    const vex::SourceFile unknown_pointer_cell_source{"pointer_parameter_store_unknown_source.vex", R"VEX(
+make copy_pointer_cell(destination: **int, source: **int) {
+    *destination = *source
+}
+make main() {
+    let first = 1
+    let second = 2
+    let first_pointer: *int = &first
+    let second_pointer: *int = &second
+    let first_cell: **int = &first_pointer
+    let second_cell: **int = &second_pointer
+    copy_pointer_cell(first_cell, second_cell)
+}
+)VEX"};
+    const vex::SemanticResult unknown_pointer_cell_source_result =
+        analyze(unknown_pointer_cell_source);
+    tests.check(has_code(unknown_pointer_cell_source_result, "SEM072"),
+                "pointer values loaded from an untracked pointer cell are not assumed to be null or lifetime-safe");
+
     const vex::SourceFile interprocedural_safe{"pointer_parameter_store_safe.vex", R"VEX(
 make replace_pointer(slot: **int, replacement: *int) {
     *slot = replacement
