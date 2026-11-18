@@ -115,8 +115,8 @@ The complete upstream Zig directory is staged so its compiler libraries and acco
 
 - **VS Code cannot start VEX:** confirm that the VEX `bin` directory is on PATH, restart VS Code, or set `vex.compilerPath` to the full executable path.
 - **VEX reports that its bundled Zig toolchain is missing:** restore the complete package layout; do not move `bin/vex` away from its sibling `toolchain` directory.
-- **The LLVM build fails on a particular platform:** check the diagnostic in the VEX output channel. The default path uses the bundled Clang/LLVM driver; the C fallback is available with `build-c` and `run-c`.
-- **The C fallback cannot find a compiler:** install a C11 compiler and ensure it is on PATH, or set `VEX_CC`.
+- **The LLVM build fails on a particular platform:** check the diagnostic in the VEX output channel. The default path uses the bundled Clang/LLVM driver; the C11 backend can be selected explicitly with `build-c` and `run-c`.
+- **The C11 backend cannot find a compiler:** install a C11 compiler and ensure it is on PATH, or set `VEX_CC`.
 - **The VS Code extension does not activate:** confirm that the file extension is `.vex` and reload the VS Code window.
 
 ## Distribution status
