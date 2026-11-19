@@ -1392,6 +1392,31 @@ make main() {
     tests.check(has_code(interprocedural_escape_result, "SEM072"),
                 "pointer-cell lifetime escapes are detected through direct and forwarded pointer-parameter stores");
 
+    const vex::SourceFile helper_returned_pointer_escape{
+        "pointer_parameter_store_return_helper_escape.vex", R"VEX(
+make store_pointer(slot: **int, replacement: *int) {
+    *slot = forward_identity(replacement)
+}
+make forward_identity(pointer: *int) -> *int {
+    return identity_pointer(pointer)
+}
+make identity_pointer(pointer: *int) -> *int {
+    return pointer
+}
+make main() {
+    let outer = 1
+    let outer_pointer: *int = &outer
+    {
+        let inner = 2
+        store_pointer(&outer_pointer, &inner)
+    }
+}
+)VEX"};
+    const vex::SemanticResult helper_returned_pointer_escape_result =
+        analyze(helper_returned_pointer_escape);
+    tests.check(has_code(helper_returned_pointer_escape_result, "SEM072"),
+                "pointer-cell stores through later-declared pointer-returning helper chains retain source-parameter provenance at the caller");
+
     const vex::SourceFile aliased_parameter_store{"pointer_parameter_store_alias.vex", R"VEX(
 make replace_pointer(slot: **int, replacement: *int) {
     let slot_alias: **int = slot

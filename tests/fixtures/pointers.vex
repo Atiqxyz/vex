@@ -8,6 +8,14 @@ make identity(pointer: *int) -> *int {
     return pointer
 }
 
+make forward_identity(pointer: *int) -> *int {
+    return identity(pointer)
+}
+
+make replace_indirect_via_identity(slot: **int, replacement: *int) {
+    *slot = forward_identity(replacement)
+}
+
 make is_null(pointer: *int) -> bool {
     return pointer == null
 }
@@ -73,6 +81,11 @@ make main() {
     say(update(outer))
     say(set_outer_value(outer_pointer))
     say(outer.inner.value)
+
+    let helper_value = 30
+    let helper_pointer: *int = &helper_value
+    replace_indirect_via_identity(&helper_pointer, &first)
+    say(*helper_pointer)
 }
 
 struct Inner {

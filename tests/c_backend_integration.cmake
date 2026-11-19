@@ -416,6 +416,6 @@ execute_process(
 if(NOT pointer_result EQUAL 0)
     message(FATAL_ERROR "C backend pointer fixture failed: ${pointer_error}")
 endif()
-if(NOT pointer_output STREQUAL "42\n43\n43\n43\n44\n11\n11\n22\n22\n23\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n10\n16\n11\n11\n")
+if(NOT pointer_output STREQUAL "42\n43\n43\n43\n44\n11\n11\n22\n22\n23\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n10\n16\n11\n11\n11\n")
     message(FATAL_ERROR "C backend pointer fixture produced unexpected output: [${pointer_output}]")
 endif()

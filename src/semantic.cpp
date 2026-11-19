@@ -921,7 +921,10 @@ private:
 
     [[nodiscard]] std::vector<std::pair<std::uint32_t, std::uint32_t>>
     direct_pointer_parameter_store_summaries(
-        const FunctionDeclStmt& function) const {
+        const FunctionDeclStmt& function,
+        const std::unordered_map<const FunctionDeclStmt*,
+                                 std::optional<std::uint32_t>>& return_summaries,
+        const std::unordered_map<std::string, const FunctionDeclStmt*>& functions) const {
         using Summary = std::pair<std::uint32_t, std::uint32_t>;
         using AliasScope =
             std::unordered_map<std::string, std::optional<std::size_t>>;
@@ -949,12 +952,30 @@ private:
             }
             return std::nullopt;
         };
-        const auto parameter_index_for_expression = [&](const Expr* expression)
-            -> std::optional<std::size_t> {
+        const auto parameter_index_for_expression =
+            [&](const auto& self, const Expr* expression)
+                -> std::optional<std::size_t> {
             expression = unwrap_group(expression);
-            const auto* name = expression
-                ? std::get_if<NameExpr>(&expression->data) : nullptr;
-            return name ? parameter_index(name->name) : std::nullopt;
+            if (!expression) return std::nullopt;
+            if (const auto* name = std::get_if<NameExpr>(&expression->data))
+                return parameter_index(name->name);
+            if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
+                const Expr* callee_expression = unwrap_group(call->callee.get());
+                const auto* callee_name = callee_expression
+                    ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
+                if (!callee_name) return std::nullopt;
+                const auto callee = functions.find(spelling(callee_name->name));
+                if (callee == functions.end()) return std::nullopt;
+                const auto summary = return_summaries.find(callee->second);
+                if (summary == return_summaries.end() || !summary->second ||
+                    *summary->second == 0u) return std::nullopt;
+                const std::size_t argument_index =
+                    static_cast<std::size_t>(*summary->second - 1u);
+                if (argument_index >= call->arguments.size())
+                    return std::nullopt;
+                return self(self, call->arguments[argument_index].get());
+            }
+            return std::nullopt;
         };
         const auto set_parameter_index = [&](const SourceSpan name,
                                              const std::optional<std::size_t>& index) {
@@ -1002,7 +1023,7 @@ private:
                         destination_name ? parameter_index(destination_name->name)
                                          : std::nullopt;
                     const std::optional<std::size_t> source_index =
-                        parameter_index_for_expression(assignment->value.get());
+                        parameter_index_for_expression(parameter_index_for_expression, assignment->value.get());
                     if (destination_index && source_index)
                         add_summary(*destination_index, *source_index);
 
@@ -1011,7 +1032,7 @@ private:
                     if (target_name) {
                         set_parameter_index(
                             target_name->name,
-                            parameter_index_for_expression(assignment->value.get()));
+                            parameter_index_for_expression(parameter_index_for_expression, assignment->value.get()));
                     }
                 }
                 self(self, assignment->target.get());
@@ -1054,7 +1075,7 @@ private:
                            std::get_if<VariableDeclStmt>(&statement->data)) {
                 if (alias_scopes.empty()) alias_scopes.emplace_back();
                 alias_scopes.back()[spelling(variable->name)] =
-                    parameter_index_for_expression(variable->initializer.get());
+                    parameter_index_for_expression(parameter_index_for_expression, variable->initializer.get());
                 inspect_expression(inspect_expression, variable->initializer.get());
             } else if (const auto* returned = std::get_if<ReturnStmt>(&statement->data)) {
                 inspect_expression(inspect_expression, returned->value.get());
@@ -1086,19 +1107,26 @@ private:
     [[nodiscard]] std::unordered_map<
         const FunctionDeclStmt*,
         std::vector<std::pair<std::uint32_t, std::uint32_t>>>
-    collect_pointer_parameter_store_summaries() const {
+    collect_pointer_parameter_store_summaries(
+        const std::unordered_map<const FunctionDeclStmt*,
+                                 std::optional<std::uint32_t>>& return_summaries) const {
         using Summary = std::pair<std::uint32_t, std::uint32_t>;
         using AliasScope =
             std::unordered_map<std::string, std::optional<std::size_t>>;
         std::unordered_map<const FunctionDeclStmt*, std::vector<Summary>> summaries;
         std::unordered_map<std::string, const FunctionDeclStmt*> functions;
+        std::vector<const FunctionDeclStmt*> declarations;
         for (const StmtPtr& statement : program_.statements) {
             const auto* function = statement
                 ? std::get_if<FunctionDeclStmt>(&statement->data) : nullptr;
             if (!function) continue;
             functions.emplace(spelling(function->name), function);
+            declarations.push_back(function);
+        }
+        for (const FunctionDeclStmt* function : declarations) {
             summaries.emplace(function,
-                direct_pointer_parameter_store_summaries(*function));
+                direct_pointer_parameter_store_summaries(
+                    *function, return_summaries, functions));
         }
 
         const auto unwrap_group = [](const Expr* expression) {
@@ -1129,12 +1157,30 @@ private:
                     }
                     return std::nullopt;
                 };
-                const auto parameter_index_for_expression = [&](const Expr* expression)
-                    -> std::optional<std::size_t> {
+                const auto parameter_index_for_expression =
+                    [&](const auto& self, const Expr* expression)
+                        -> std::optional<std::size_t> {
                     expression = unwrap_group(expression);
-                    const auto* name = expression
-                        ? std::get_if<NameExpr>(&expression->data) : nullptr;
-                    return name ? parameter_index(name->name) : std::nullopt;
+                    if (!expression) return std::nullopt;
+                    if (const auto* name = std::get_if<NameExpr>(&expression->data))
+                        return parameter_index(name->name);
+                    if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
+                        const Expr* callee_expression = unwrap_group(call->callee.get());
+                        const auto* callee_name = callee_expression
+                            ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
+                        if (!callee_name) return std::nullopt;
+                        const auto callee = functions.find(spelling(callee_name->name));
+                        if (callee == functions.end()) return std::nullopt;
+                        const auto summary = return_summaries.find(callee->second);
+                        if (summary == return_summaries.end() || !summary->second ||
+                            *summary->second == 0u) return std::nullopt;
+                        const std::size_t argument_index =
+                            static_cast<std::size_t>(*summary->second - 1u);
+                        if (argument_index >= call->arguments.size())
+                            return std::nullopt;
+                        return self(self, call->arguments[argument_index].get());
+                    }
+                    return std::nullopt;
                 };
                 const auto set_parameter_index = [&](const SourceSpan name,
                                                      const std::optional<std::size_t>& index) {
@@ -1196,10 +1242,10 @@ private:
                                         if (destination_argument >= call->arguments.size() ||
                                             source_argument >= call->arguments.size()) continue;
                                         const std::optional<std::size_t> destination_index =
-                                            parameter_index_for_expression(
+                                            parameter_index_for_expression(parameter_index_for_expression,
                                                 call->arguments[destination_argument].get());
                                         const std::optional<std::size_t> source_index =
-                                            parameter_index_for_expression(
+                                            parameter_index_for_expression(parameter_index_for_expression,
                                                 call->arguments[source_argument].get());
                                         if (destination_index && source_index)
                                             add_summary(*destination_index, *source_index);
@@ -1219,7 +1265,7 @@ private:
                             if (name) {
                                 set_parameter_index(
                                     name->name,
-                                    parameter_index_for_expression(assignment->value.get()));
+                                    parameter_index_for_expression(parameter_index_for_expression, assignment->value.get()));
                             }
                         }
                         self(self, assignment->target.get());
@@ -1260,7 +1306,7 @@ private:
                                    std::get_if<VariableDeclStmt>(&statement->data)) {
                         if (alias_scopes.empty()) alias_scopes.emplace_back();
                         alias_scopes.back()[spelling(variable->name)] =
-                            parameter_index_for_expression(variable->initializer.get());
+                            parameter_index_for_expression(parameter_index_for_expression, variable->initializer.get());
                         inspect_expression(inspect_expression, variable->initializer.get());
                     } else if (const auto* returned =
                                    std::get_if<ReturnStmt>(&statement->data)) {
@@ -1295,10 +1341,10 @@ private:
     }
 
     void collect_function_signatures() {
-        const auto pointer_store_summaries =
-            collect_pointer_parameter_store_summaries();
         const auto pointer_return_summaries =
             collect_pointer_return_parameter_summaries();
+        const auto pointer_store_summaries =
+            collect_pointer_parameter_store_summaries(pointer_return_summaries);
         for (const StmtPtr& statement : program_.statements) {
             if (!statement) continue;
             const auto* function =
