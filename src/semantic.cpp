@@ -221,7 +221,7 @@ private:
                 return Type::Error;
             }
             if (!pointer_type) {
-                report("SEM070", "pointer parameters and return types are not supported yet", span);
+                report("SEM070", "pointer types are not supported in this declaration context", span);
                 return Type::Error;
             }
             SemanticPointerType descriptor{

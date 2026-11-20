@@ -1637,6 +1637,42 @@ make main() {
     const vex::SemanticResult aggregate_result = analyze(aggregate);
     tests.check(!aggregate_result.has_errors(),
                 "typed pointers may address mutable structures and project nested fields and arrays");
+
+    const vex::SourceFile pointer_aggregate_field{"pointer_aggregate_field.vex", R"VEX(
+struct Holder { target: *int }
+make main() {
+    let value = 1
+    let holder = Holder { target: &value }
+}
+)VEX"};
+    const vex::SemanticResult pointer_aggregate_field_result =
+        analyze(pointer_aggregate_field);
+    bool has_contextual_pointer_field_diagnostic = false;
+    for (const vex::Diagnostic& diagnostic : pointer_aggregate_field_result.diagnostics) {
+        if (diagnostic.code == "SEM070" &&
+            diagnostic.message.find("declaration context") != std::string::npos) {
+            has_contextual_pointer_field_diagnostic = true;
+        }
+    }
+    tests.check(has_contextual_pointer_field_diagnostic,
+                "pointer-valued structure fields are rejected with a declaration-context diagnostic until aggregate pointer metadata exists");
+
+    const vex::SourceFile projected_address{"projected_pointer_address.vex", R"VEX(
+struct Holder { value: int }
+make main() {
+    let holder = Holder { value: 1 }
+    let field_pointer: *int = &holder.value
+    let values: int[2] = [1, 2]
+    let element_pointer: *int = &values[0]
+}
+)VEX"};
+    const vex::SemanticResult projected_address_result = analyze(projected_address);
+    std::size_t projected_address_diagnostics = 0u;
+    for (const vex::Diagnostic& diagnostic : projected_address_result.diagnostics) {
+        if (diagnostic.code == "SEM070") ++projected_address_diagnostics;
+    }
+    tests.check(projected_address_diagnostics >= 2u,
+                "address-of rejects structure-field and fixed-array-element projections until location provenance is modelled");
 }
 
 void test_int64_literal_boundaries(TestContext& tests) {
