@@ -2391,6 +2391,12 @@ private:
                             report("SEM072",
                                    "pointer assignment would outlive the local variable it points to",
                                    expression.span);
+                        } else if (!source_is_null && destination != model_.bindings.end() &&
+                                   actual_pointer->second.pointee_parameter_index != 0u &&
+                                   destination->second.scope_depth < current_function_scope_depth_) {
+                            report("SEM072",
+                                   "borrowed pointer parameter cannot be stored in a pointer cell that outlives the current function",
+                                   expression.span);
                         } else if (!source_is_null && origin == model_.bindings.end() &&
                                    actual_pointer->second.pointee_parameter_index == 0u) {
                             report("SEM072",
@@ -2512,8 +2518,15 @@ private:
                     const auto origin = model_.bindings.find(pointer->second.pointee_binding_id);
                     const auto destination = model_.bindings.find(symbol->id);
                     if (origin != model_.bindings.end() && destination != model_.bindings.end() &&
-                        origin->second.scope_depth > destination->second.scope_depth)
+                        origin->second.scope_depth > destination->second.scope_depth) {
                         report("SEM072", "pointer assignment would outlive the local variable it points to", expression.span);
+                    } else if (destination != model_.bindings.end() &&
+                               pointer->second.pointee_parameter_index != 0u &&
+                               destination->second.scope_depth < current_function_scope_depth_) {
+                        report("SEM072",
+                               "borrowed pointer parameter cannot be stored in a binding that outlives the current function",
+                               expression.span);
+                    }
                     // Later reads of this pointer binding must observe its current target origin,
                     // otherwise a subsequent copy could inherit a stale lifetime origin.
                     symbol->pointer_type = pointer->second;
@@ -3071,9 +3084,15 @@ private:
                     }
                 } else if (!source_is_null &&
                            source_pointer->second.pointee_parameter_index != 0u) {
-                    // A pointer borrowed from this function's caller cannot be shorter-
-                    // lived than a local cell in the current function.
-                    lifetime_safe = true;
+                    // A borrowed parameter is valid for this function activation,
+                    // not for bindings that outlive it (for example top-level state).
+                    lifetime_safe =
+                        destination_binding->second.scope_depth >= current_function_scope_depth_;
+                    if (!lifetime_safe) {
+                        report("SEM072",
+                               "borrowed pointer argument cannot be stored in a pointer cell that outlives the current function",
+                               call->arguments[destination_index]->span);
+                    }
                 } else if (!source_is_null) {
                     report("SEM072",
                            "pointer-cell store has unknown provenance and cannot be proven lifetime-safe",
@@ -3282,7 +3301,9 @@ private:
         if (found != signatures_.end()) signature = found->second;
         else signature.type = Type::Void;
 
+        const std::size_t previous_function_scope_depth = current_function_scope_depth_;
         scopes_.emplace_back();
+        current_function_scope_depth_ = scopes_.size();
         const std::size_t count = std::min(function.parameters.size(),
                                            signature.parameters.size());
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
@@ -3353,6 +3374,7 @@ private:
             previous_return_pointer_parameter_index;
         current_pointer_parameter_stores_ = previous_pointer_parameter_stores;
         inside_function_ = was_in_function;
+        current_function_scope_depth_ = previous_function_scope_depth;
         scopes_.pop_back();
     }
 
@@ -3951,6 +3973,7 @@ private:
     SemanticModel model_;
     SemanticBindingId next_binding_id_{1};
     bool inside_function_{false};
+    std::size_t current_function_scope_depth_{0};
     std::size_t loop_depth_{0};
     bool allow_range_expression_{false};
     Type current_return_type_{Type::Void};

@@ -1133,6 +1133,41 @@ make main() {
     tests.check(has_code(ambiguous_null_result, "SEM073"),
                 "untyped null values and comparisons between two untyped nulls are rejected");
 
+    const vex::SourceFile direct_borrowed_parameter_global_escape{
+        "pointer_parameter_global_escape.vex", R"VEX(
+let saved_pointer: *int = null
+make retain_pointer(pointer: *int) {
+    saved_pointer = pointer
+}
+make main() {
+    let local = 7
+    retain_pointer(&local)
+}
+)VEX"};
+    const vex::SemanticResult direct_borrowed_parameter_global_escape_result =
+        analyze(direct_borrowed_parameter_global_escape);
+    tests.check(has_code(direct_borrowed_parameter_global_escape_result, "SEM072"),
+                "a borrowed pointer parameter cannot escape into a top-level pointer binding");
+
+    const vex::SourceFile indirect_borrowed_parameter_global_escape{
+        "pointer_parameter_global_cell_escape.vex", R"VEX(
+let saved_pointer: *int = null
+make store_pointer(slot: **int, replacement: *int) {
+    *slot = replacement
+}
+make retain_pointer(pointer: *int) {
+    store_pointer(&saved_pointer, pointer)
+}
+make main() {
+    let local = 9
+    retain_pointer(&local)
+}
+)VEX"};
+    const vex::SemanticResult indirect_borrowed_parameter_global_escape_result =
+        analyze(indirect_borrowed_parameter_global_escape);
+    tests.check(has_code(indirect_borrowed_parameter_global_escape_result, "SEM072"),
+                "interprocedural pointer-cell summaries reject storing a borrowed parameter into a top-level pointer cell");
+
     const vex::SourceFile dangling_return{"dangling_pointer_return.vex", R"VEX(
 make dangling() -> *int {
     let local = 3
