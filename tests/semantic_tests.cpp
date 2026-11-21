@@ -1148,6 +1148,26 @@ make main() {
         analyze(direct_borrowed_parameter_global_escape);
     tests.check(has_code(direct_borrowed_parameter_global_escape_result, "SEM072"),
                 "a borrowed pointer parameter cannot escape into a top-level pointer binding");
+    tests.check(!has_code(direct_borrowed_parameter_global_escape_result, "SEM001"),
+                "the direct escape test resolves its top-level destination");
+    tests.check(!has_code(direct_borrowed_parameter_global_escape_result, "SEM071"),
+                "the direct escape test uses matching pointer types");
+    bool found_saved_pointer = false;
+    bool found_pointer_parameter = false;
+    for (const auto& [binding_id, binding] :
+         direct_borrowed_parameter_global_escape_result.model.bindings) {
+        static_cast<void>(binding_id);
+        if (binding.name == "saved_pointer")
+            found_saved_pointer = binding.scope_depth == 1u && binding.pointer_type.has_value();
+        if (binding.name == "pointer")
+            found_pointer_parameter = binding.scope_depth == 2u &&
+                binding.pointer_type.has_value() &&
+                binding.pointer_type->pointee_parameter_index == 1u;
+    }
+    tests.check(found_saved_pointer,
+                "the direct escape test records its destination at global scope");
+    tests.check(found_pointer_parameter,
+                "the direct escape test records the borrowed parameter origin");
 
     const vex::SourceFile indirect_borrowed_parameter_global_escape{
         "pointer_parameter_global_cell_escape.vex", R"VEX(
