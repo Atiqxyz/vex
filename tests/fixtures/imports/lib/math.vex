@@ -1,0 +1,5 @@
+import "constants.vex"
+
+make double_base(value: int) -> int {
+    return value * base_value()
+}

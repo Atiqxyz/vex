@@ -44,3 +44,54 @@ endif()
 if(NOT "${DUPLICATE_OUTPUT}${DUPLICATE_ERROR}" MATCHES "duplicate|already")
     message(FATAL_ERROR "duplicate source declaration did not produce a useful diagnostic")
 endif()
+
+# Recursive relative imports, repeated imports, and cycles share the current
+# merged-namespace translation-unit model.
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/main.vex"
+    RESULT_VARIABLE IMPORT_CHECK_STATUS
+    OUTPUT_VARIABLE IMPORT_CHECK_OUTPUT
+    ERROR_VARIABLE IMPORT_CHECK_ERROR
+)
+if(NOT IMPORT_CHECK_STATUS EQUAL 0)
+    message(FATAL_ERROR "recursive import check failed:\n${IMPORT_CHECK_OUTPUT}\n${IMPORT_CHECK_ERROR}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" ir "${SOURCE_DIR}/fixtures/imports/main.vex"
+    RESULT_VARIABLE IMPORT_IR_STATUS
+    OUTPUT_VARIABLE IMPORT_IR_OUTPUT
+    ERROR_VARIABLE IMPORT_IR_ERROR
+)
+if(NOT IMPORT_IR_STATUS EQUAL 0)
+    message(FATAL_ERROR "recursive import IR lowering failed:\n${IMPORT_IR_OUTPUT}\n${IMPORT_IR_ERROR}")
+endif()
+if(NOT IMPORT_IR_OUTPUT MATCHES "double_base" OR NOT IMPORT_IR_OUTPUT MATCHES "base_value")
+    message(FATAL_ERROR "recursive import declarations were not included in the IR")
+endif()
+
+if(DEFINED VEX_HAS_C_COMPILER AND NOT VEX_HAS_C_COMPILER STREQUAL "")
+    execute_process(
+        COMMAND "${VEX_EXECUTABLE}" run-c "${SOURCE_DIR}/fixtures/imports/main.vex"
+        RESULT_VARIABLE IMPORT_RUN_STATUS
+        OUTPUT_VARIABLE IMPORT_RUN_OUTPUT
+        ERROR_VARIABLE IMPORT_RUN_ERROR
+    )
+    if(NOT IMPORT_RUN_STATUS EQUAL 0)
+        message(FATAL_ERROR "native import execution failed:\n${IMPORT_RUN_OUTPUT}\n${IMPORT_RUN_ERROR}")
+    endif()
+    string(REPLACE "\r\n" "\n" IMPORT_RUN_OUTPUT "${IMPORT_RUN_OUTPUT}")
+    if(NOT IMPORT_RUN_OUTPUT STREQUAL "42\n")
+        message(FATAL_ERROR "native import execution returned unexpected output: ${IMPORT_RUN_OUTPUT}")
+    endif()
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/missing.vex"
+    RESULT_VARIABLE MISSING_IMPORT_STATUS
+    OUTPUT_VARIABLE MISSING_IMPORT_OUTPUT
+    ERROR_VARIABLE MISSING_IMPORT_ERROR
+)
+if(MISSING_IMPORT_STATUS EQUAL 0 OR NOT "${MISSING_IMPORT_OUTPUT}${MISSING_IMPORT_ERROR}" MATCHES "MOD001")
+    message(FATAL_ERROR "missing imports must fail with a source-located MOD001 diagnostic")
+endif()

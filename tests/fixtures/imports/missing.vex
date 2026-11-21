@@ -1,0 +1,3 @@
+import "absent.vex"
+
+make main() {}

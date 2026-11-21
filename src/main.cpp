@@ -4,6 +4,7 @@
 #include "vex/lexer.hpp"
 #include "vex/ir.hpp"
 #include "vex/lowering.hpp"
+#include "vex/module.hpp"
 #include "vex/parser.hpp"
 #include "vex/semantic.hpp"
 #include "vex/source.hpp"
@@ -41,8 +42,8 @@ void print_help() {
         << "  vex run-llvm <file.vex> Build and execute using LLVM\n"
         << "  vex --version           Show compiler version\n"
         << "  vex --help              Show this help message\n\n"
-        << "Multiple source files are combined in command-line order into one translation unit and global namespace.\n"
-        << "Imports, namespaces, and separate compilation are not implemented yet.\n"
+        << "Explicit source files and recursively imported files are combined into one translation unit and global namespace.\n"
+        << "Imports use quoted paths relative to the importing file; namespaces and separate compilation are not implemented yet.\n"
         << "emit-c and emit-llvm write generated source to standard output.\n"
         << "build/run use the bundled Zig/LLVM toolchain (or installed Clang); build-c/run-c require a C11 compiler.\n";
 }
@@ -92,15 +93,7 @@ int run_parser(const std::string& path) {
 }
 std::optional<vex::SourceFile> read_source_bundle(
     const std::vector<std::string>& paths) {
-    if (paths.empty()) return std::nullopt;
-    std::vector<std::pair<std::string, std::string>> files;
-    files.reserve(paths.size());
-    for (const std::string& path : paths) {
-        std::string contents;
-        if (!read_source_file(path, contents)) return std::nullopt;
-        files.emplace_back(path, std::move(contents));
-    }
-    return vex::SourceFile::from_files(std::move(files));
+    return vex::load_source_bundle_with_imports(paths, std::cerr);
 }
 
 int run_check(const std::vector<std::string>& paths) {
@@ -112,11 +105,12 @@ int run_check(const std::vector<std::string>& paths) {
         vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
         return 1;
     }
-    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
     if (parsed.has_errors()) {
         vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
         return 1;
     }
+    vex::strip_resolved_imports(parsed.program);
     const vex::SemanticResult checked =
         vex::SemanticAnalyzer(source, parsed.program).analyze();
     vex::print_diagnostics(std::cerr, source, checked.diagnostics);
@@ -134,11 +128,12 @@ int run_ir(const std::vector<std::string>& paths) {
         vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
         return 1;
     }
-    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
     if (parsed.has_errors()) {
         vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
         return 1;
     }
+    vex::strip_resolved_imports(parsed.program);
     const vex::SemanticResult checked =
         vex::SemanticAnalyzer(source, parsed.program).analyze();
     vex::print_diagnostics(std::cerr, source, checked.diagnostics);
@@ -166,11 +161,12 @@ int run_emit_backend(const std::vector<std::string>& paths, const vex::BackendKi
         vex::print_diagnostics(std::cerr, source, lexed.diagnostics);
         return 1;
     }
-    const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
+    vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
     if (parsed.has_errors()) {
         vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
         return 1;
     }
+    vex::strip_resolved_imports(parsed.program);
     const vex::SemanticResult checked =
         vex::SemanticAnalyzer(source, parsed.program).analyze();
     vex::print_diagnostics(std::cerr, source, checked.diagnostics);

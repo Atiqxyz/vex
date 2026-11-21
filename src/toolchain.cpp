@@ -6,6 +6,7 @@
 #include "vex/ir.hpp"
 #include "vex/lexer.hpp"
 #include "vex/lowering.hpp"
+#include "vex/module.hpp"
 #include "vex/parser.hpp"
 #include "vex/process.hpp"
 #include "vex/semantic.hpp"
@@ -145,35 +146,21 @@ bool generate_with_backend(const std::vector<std::string>& paths,
         std::cerr << "error: at least one VEX source file is required\n";
         return false;
     }
-    std::vector<std::pair<std::string, std::string>> files;
-    files.reserve(paths.size());
-    for (const std::string& path : paths) {
-        std::ifstream input(path, std::ios::binary);
-        if (!input) {
-            std::cerr << "error: could not open source file: " << path << '\n';
-            return false;
-        }
-        std::string contents{
-            std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-        if (input.bad()) {
-            std::cerr << "error: failed while reading source file: " << path << '\n';
-            return false;
-        }
-        files.emplace_back(path, std::move(contents));
-    }
-
-    const SourceFile source = SourceFile::from_files(std::move(files));
+    const auto source_bundle = load_source_bundle_with_imports(paths, std::cerr);
+    if (!source_bundle) return false;
+    const SourceFile& source = *source_bundle;
     const LexResult lexed = Lexer(source).scan();
     if (lexed.has_errors()) {
         print_diagnostics(std::cerr, source, lexed.diagnostics);
         return false;
     }
 
-    const ParseResult parsed = Parser(source, lexed.tokens).parse();
+    ParseResult parsed = Parser(source, lexed.tokens).parse();
     if (parsed.has_errors()) {
         print_diagnostics(std::cerr, source, parsed.diagnostics);
         return false;
     }
+    strip_resolved_imports(parsed.program);
 
     const SemanticResult checked =
         SemanticAnalyzer(source, parsed.program).analyze();

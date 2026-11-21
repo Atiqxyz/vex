@@ -93,3 +93,32 @@ The C and LLVM backends must agree on pointer field layout and the observed muta
 ## Current status
 
 This run does **not** implement pointer-valued aggregate fields or projected addresses. It corrects the diagnostic for pointer types used in unsupported declaration contexts, adds regression tests for the current rejection boundary, and records the prerequisite sequence so the next implementation does not build lifetime summaries on a location model that does not yet exist.
+
+
+## Core pointer-safety checkpoint — 2026-11-22
+
+The core typed-pointer milestone is substantially complete for the pointer forms VEX
+currently represents directly. The implemented and regression-tested subset includes
+typed local and parameter pointers, pointer aliases, dereference and mutation, typed
+null values, pointer-return provenance through forwarding helpers, pointer-cell stores
+through supported double-pointer parameters, and conservative lifetime checks across
+the supported branch and loop joins.
+
+This is a core-language checkpoint, not a claim that VEX has a complete borrow
+checker or that every projected pointer cell is safe. The following remain deliberately
+deferred and must not be enabled by merely relaxing a type diagnostic:
+
+- Pointer-valued structure fields, enum payload fields, and pointer arrays. Their
+  descriptors are not yet carried through semantic types, IR verification, layouts,
+  and both native backends.
+- Address-of for structure fields or array elements, plus field-level provenance across
+  aggregate copies, branches, calls, and returns.
+- Path-aware interprocedural summaries for projected pointer-cell destinations.
+- Dynamic-array element addresses, until pointer invalidation after push/reserve
+  has a defined borrow or pinning rule.
+- Pointer arithmetic, integer-pointer conversions, and an explicit unsafe boundary.
+
+The analyzer must continue rejecting unsupported forms conservatively. The next
+implementation of projected pointer cells must add a distinct storage-root and
+projection-path model, then prove the lifetime behavior end to end in IR and both
+backends before changing these boundaries.

@@ -32,6 +32,7 @@ else()
 endif()
 add_library(vex_frontend STATIC
     src/source.cpp
+    src/module.cpp
     src/diagnostic.cpp
     src/token.cpp
     src/lexer.cpp
@@ -131,6 +132,7 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
             -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests
+            -DVEX_HAS_C_COMPILER=$<BOOL:${CMAKE_C_COMPILER}>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/multifile_compilation_integration.cmake
     )
     set_tests_properties(vex_frontend_tests PROPERTIES TIMEOUT 15)
