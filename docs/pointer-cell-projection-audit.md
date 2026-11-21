@@ -93,10 +93,3 @@ The C and LLVM backends must agree on pointer field layout and the observed muta
 ## Current status
 
 This run does **not** implement pointer-valued aggregate fields or projected addresses. It corrects the diagnostic for pointer types used in unsupported declaration contexts, adds regression tests for the current rejection boundary, and records the prerequisite sequence so the next implementation does not build lifetime summaries on a location model that does not yet exist.
-
-## Additional lifetime audit: borrowed parameters and longer-lived cells
-
-The 2026-11-21 follow-up audit found that the earlier call-site rule treated every pointer borrowed from a caller as safe for any resolved local pointer cell. That assumption was too broad: a function can access a top-level pointer binding, whose lifetime exceeds the caller's activation. The same issue existed for direct assignment to a top-level pointer binding. A parameter pointer is guaranteed only for the duration of the current function activation; it is not automatically safe to publish into longer-lived state.
-
-The analyzer now records the function-root scope depth and rejects both direct assignments and summarized `**T` stores when the destination binding is shallower than that activation. Regression cases cover direct and helper-mediated attempts to save a caller-borrowed pointer in top-level state. Local aliases inside the function remain permitted. This rule is intentionally conservative: it rejects even a parameter that happens to point to globally lived storage, because the callee cannot prove that from the parameter type alone.
-

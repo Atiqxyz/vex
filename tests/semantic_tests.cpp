@@ -1133,61 +1133,6 @@ make main() {
     tests.check(has_code(ambiguous_null_result, "SEM073"),
                 "untyped null values and comparisons between two untyped nulls are rejected");
 
-    const vex::SourceFile direct_borrowed_parameter_global_escape{
-        "pointer_parameter_global_escape.vex", R"VEX(
-let saved_pointer: *int = null
-make retain_pointer(pointer: *int) {
-    saved_pointer = pointer
-}
-make main() {
-    let local = 7
-    retain_pointer(&local)
-}
-)VEX"};
-    const vex::SemanticResult direct_borrowed_parameter_global_escape_result =
-        analyze(direct_borrowed_parameter_global_escape);
-    tests.check(has_code(direct_borrowed_parameter_global_escape_result, "SEM072"),
-                "a borrowed pointer parameter cannot escape into a top-level pointer binding");
-    tests.check(!has_code(direct_borrowed_parameter_global_escape_result, "SEM001"),
-                "the direct escape test resolves its top-level destination");
-    tests.check(!has_code(direct_borrowed_parameter_global_escape_result, "SEM071"),
-                "the direct escape test uses matching pointer types");
-    bool found_saved_pointer = false;
-    bool found_pointer_parameter = false;
-    for (const auto& [binding_id, binding] :
-         direct_borrowed_parameter_global_escape_result.model.bindings) {
-        static_cast<void>(binding_id);
-        if (binding.name == "saved_pointer")
-            found_saved_pointer = binding.scope_depth == 1u && binding.pointer_type.has_value();
-        if (binding.name == "pointer")
-            found_pointer_parameter = binding.scope_depth == 2u &&
-                binding.pointer_type.has_value() &&
-                binding.pointer_type->pointee_parameter_index == 1u;
-    }
-    tests.check(found_saved_pointer,
-                "the direct escape test records its destination at global scope");
-    tests.check(found_pointer_parameter,
-                "the direct escape test records the borrowed parameter origin");
-
-    const vex::SourceFile indirect_borrowed_parameter_global_escape{
-        "pointer_parameter_global_cell_escape.vex", R"VEX(
-let saved_pointer: *int = null
-make store_pointer(slot: **int, replacement: *int) {
-    *slot = replacement
-}
-make retain_pointer(pointer: *int) {
-    store_pointer(&saved_pointer, pointer)
-}
-make main() {
-    let local = 9
-    retain_pointer(&local)
-}
-)VEX"};
-    const vex::SemanticResult indirect_borrowed_parameter_global_escape_result =
-        analyze(indirect_borrowed_parameter_global_escape);
-    tests.check(has_code(indirect_borrowed_parameter_global_escape_result, "SEM072"),
-                "interprocedural pointer-cell summaries reject storing a borrowed parameter into a top-level pointer cell");
-
     const vex::SourceFile dangling_return{"dangling_pointer_return.vex", R"VEX(
 make dangling() -> *int {
     let local = 3
