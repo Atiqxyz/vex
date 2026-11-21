@@ -1,7 +1,7 @@
 # Pointer-cell projection and addressability audit
 
 **Audit date:** 2026-11-20  
-**Audited `dev` baseline:** `8dd6c925db0c6926e38ce69c633879f54f78ee07`
+**Audited `dev` baseline:** `d2fed76337d84a374a8b997d9d6bf1b94bd2a2b3`
 
 ## Finding
 
@@ -60,6 +60,18 @@ Extend the current parameter-store summary from a pair of parameter indices to a
 ### 5. Array-element addresses only after invalidation rules
 
 Fixed-array element addresses can be stable for the lifetime of their containing storage. Dynamic-array element addresses are different: a successful growth operation can move the backing buffer. Do not expose such addresses until VEX has a borrow/pinning/invalidation rule that prevents use after reallocation. Pointer arrays also need recursive pointer leaf metadata before their cells can be addressed.
+
+## Control-flow origin joins
+
+The whole-binding pointer-origin analysis snapshots pointer bindings before conditional branches and joins the resulting states. If every reachable branch preserves the same pointee binding/parameter origin, that exact origin remains available. If branches disagree, the analyzer deliberately erases the exact origin and marks it unknown; a later store through a `**T` parameter must then be rejected with `SEM072` unless a supported summary proves the source.
+
+This is a conservative boundary, not a claim that every branch-dependent store is inherently unsafe. For example, two branches that both select the same pointer parameter are accepted, while a conditional choice between two different pointer parameters is currently rejected because the summary model stores one exact source parameter per store. Do not let the summary collector's AST traversal order choose whichever branch happened to be visited last.
+
+Regression coverage in `tests/semantic_tests.cpp` now locks down both outcomes:
+- a branch-dependent source with disagreeing origins is rejected;
+- a branch join whose every arm agrees on one source parameter is accepted.
+
+Supporting multiple possible source origins in one summary is a future analysis extension. It must represent the union of possible origins and prove every candidate at the call site; it must not weaken the current unknown-origin rejection.
 
 ## Required regression matrix
 

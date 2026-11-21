@@ -1475,6 +1475,49 @@ make main() {
     tests.check(!aliased_parameter_store_safe_result.has_errors(),
                 "pointer-cell stores through local alias chains preserve verified parameter-store summaries");
 
+    const vex::SourceFile branch_joined_pointer_cell_store{
+        "pointer_parameter_store_branch_join.vex", R"VEX(
+make store_selected(slot: **int, first: *int, second: *int, choose_second: bool) {
+    let selected: *int = first
+    if (choose_second) {
+        selected = second
+    }
+    *slot = selected
+}
+make main() {
+    let first = 1
+    let second = 2
+    let destination: *int = &first
+    store_selected(&destination, &first, &second, true)
+}
+)VEX"};
+    const vex::SemanticResult branch_joined_pointer_cell_store_result =
+        analyze(branch_joined_pointer_cell_store);
+    tests.check(has_code(branch_joined_pointer_cell_store_result, "SEM072"),
+                "pointer-cell stores reject a branch-joined source whose exact parameter origin is unknown");
+
+    const vex::SourceFile branch_stable_pointer_cell_store{
+        "pointer_parameter_store_branch_stable.vex", R"VEX(
+make store_selected(slot: **int, source: *int, choose_source: bool) {
+    let selected: *int = source
+    if (choose_source) {
+        selected = source
+    } else {
+        selected = source
+    }
+    *slot = selected
+}
+make main() {
+    let value = 1
+    let destination: *int = &value
+    store_selected(&destination, &value, true)
+}
+)VEX"};
+    const vex::SemanticResult branch_stable_pointer_cell_store_result =
+        analyze(branch_stable_pointer_cell_store);
+    tests.check(!branch_stable_pointer_cell_store_result.has_errors(),
+                "pointer-cell summaries preserve a source parameter when every control-flow branch agrees on its origin");
+
     const vex::SourceFile unknown_pointer_cell_source{"pointer_parameter_store_unknown_source.vex", R"VEX(
 make copy_pointer_cell(destination: **int, source: **int) {
     *destination = *source
