@@ -254,8 +254,8 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** Multi-file programs and reuse require a compilation and dependency model, not just import syntax.
 
-- [ ] Multi-file compilation and cross-file name resolution
-- [ ] Modules, imports, and exports
+- [ ] Multi-file compilation and cross-file name resolution (partial source-bundle expansion and cross-file calls exist; separate compilation remains open)
+- [ ] Modules, imports, and exports (quoted relative-import expansion exists, but module namespaces, visibility, and exports do not)
 - [ ] Public/private visibility
 - [ ] Namespace and package identity rules
 - [ ] Separate compilation and linking model
@@ -373,8 +373,8 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 5. SIMD and performance-oriented numerical operations.
 
 ### Milestone 6 — Modules and ecosystem
-1. Multi-file compilation.
-2. Module visibility and imports.
+1. Multi-file compilation (initial merged-translation-unit expansion exists; separate compilation remains open).
+2. Module visibility and imports (relative import expansion exists; namespace and visibility semantics remain open).
 3. Separate compilation and linking.
 4. Build manifests and package/dependency management.
 5. C ABI and foreign-library bindings.
@@ -427,7 +427,7 @@ A feature is complete only when its behavior is implemented and verified end to 
 
 ## 7. Current starting point
 
-At the 2026-11-18 audited baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures and enums/tagged unions; fixed, dynamic, mixed, and all-fixed nested jagged arrays of primitive and structure values with target-aware storage budgets, capacity inspection, and reservation; nested aggregate reads, writes, iteration, collection operations, and compound assignment; typed SSA IR with recursive array descriptors, function-local typed places, and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with concatenation and chunk joining; an unsigned `byte`; dynamic `byte[]` buffers; checked owning byte slices; 16-/32-bit endian-aware binary access; whole-file binary read/write; and a partial typed raw-pointer subset with up to eight levels of indirection, pointer parameters, parameter-borrowed returns, typed nulls, and projected aggregate mutation. The pointer model is not yet a complete safety contract: pointer arithmetic, unsafe boundaries, general provenance/lifetime/aliasing, pointer-valued aggregate fields/elements, projected address-of, and path-aware pointer-cell escape analysis remain open. See [the pointer-cell projection audit](pointer-cell-projection-audit.md). Borrowed slices, user-visible allocators, deterministic allocation-failure injection, per-scope cleanup, contiguous rectangular multidimensional arrays, generics, modules, and FFI remain future work. The latest pointer-indirection milestone passed four-platform CI run [#44180509312](https://github.com/Atiqxyz/vex/actions/runs/44180509312) at commit `9e305e8` (Ubuntu, Windows, macOS ARM, macOS Intel). The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority. The [nested-array design proposal](nested-array-design.md) records the supported jagged shapes and all-fixed target-size/stack budgets.
+At the 2026-11-22 audited baseline, VEX has static primitive types and local inference; functions, control flow, ranges and loop control; nominal structures and enums/tagged unions; fixed, dynamic, mixed, and all-fixed nested jagged arrays of primitive and structure values with target-aware storage budgets, capacity inspection, and reservation; nested aggregate reads, writes, iteration, collection operations, and compound assignment; typed SSA IR with recursive array descriptors, function-local typed places, and an independent verifier; C11 and LLVM backends; native build/run paths; length-aware byte strings with byte-preserving concatenation and chunk joining; unsigned `byte` buffers, owning byte slices, endian-aware binary access, and whole-file binary I/O; and a partial typed raw-pointer subset with up to eight levels of indirection, pointer parameters, parameter-borrowed returns, typed nulls, pointer-cell forwarding summaries, and conservative lifetime checks across supported branch/loop joins. Pointer-valued aggregate fields/elements, projected address-of, pointer arithmetic, unsafe boundaries, and complete provenance/lifetime/aliasing remain open; see [the pointer-cell projection audit](pointer-cell-projection-audit.md). The CLI now expands recursive quoted relative imports into a single translation unit with a shared namespace; module visibility, exports, module identity, separate compilation, and package management remain future work. Borrowed slices, user-visible allocators, deterministic allocation-failure injection, per-scope cleanup, contiguous rectangular multidimensional arrays, generics, and FFI remain open. The current head passed all four CI platforms in [run #44939001989](https://github.com/Atiqxyz/vex/actions/runs/44939001989) at commit `9d4b9070ac5b31fb35eeb2cf17df2b6f983615e1`. The [language completeness matrix](language-completeness-matrix.md) is the detailed status authority. The [nested-array design proposal](nested-array-design.md) records the supported jagged shapes and all-fixed target-size/stack budgets.
 
 The binary layer deliberately uses owned byte slices rather than borrowed views: the latter must wait for a sound lifetime and aliasing model. Whole-file I/O opens in binary mode, closes before returning, and reports ordinary I/O failures with `-1`; a general `Result` type, streaming handles, directories, paths, networking, and FFI remain future work. These foundations matter for a capable self-hosted compiler and later graphics, audio, and interactive applications.
 

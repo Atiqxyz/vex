@@ -29,8 +29,14 @@ duplicate declaration, preserving the previous multi-file command behavior.
 This is import expansion, not yet separate compilation or namespace support.
 All imported declarations still share the translation unit's global namespace.
 The check, ir, backend-emission, and native build/run compilation paths resolve
-imports. The standalone parse command continues to parse only the file explicitly
-named on its command line.
+imports. The standalone `lex` and `parse` commands inspect only the file explicitly named
+on the command line; they do not resolve imports. The `check`, `ir`, `emit-c`,
+`emit-llvm`, `build`, `build-c`, `build-llvm`, `run`, `run-c`, and `run-llvm`
+commands use the import-aware source-bundle loader.
+
+The integration fixture exercises nested relative lookup, repeated imports,
+a two-file import cycle, semantic diagnostics originating in an imported file,
+missing-import diagnostics, and native execution through both C and LLVM.
 
 Future module work can add aliases, exported/private visibility, module interfaces,
 and cached separate compilation without silently changing the current behavior.

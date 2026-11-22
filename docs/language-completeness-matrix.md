@@ -44,7 +44,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Foreign-function interface | Design undecided | ABI, calling conventions, symbol visibility and ownership across boundary need design. |
 | Function visibility / public-private | Design undecided | Depends on module and package model. |
 | Entry point | Implemented | Explicit zero-argument \`main\` is optional; implicit top-level entry is synthesized otherwise. |
-| Multiple source files / cross-file calls | Partial | CLI commands accept multiple source files as one ordered translation unit; declarations share a global namespace. Top-level quoted import syntax parses, but semantic analysis rejects it until module resolution exists; there are no module namespaces or separate compilation yet. |
+| Multiple source files / cross-file calls | Partial | Compilation commands accept explicit root files and recursively expand top-level quoted relative imports into one ordered translation unit. Canonical paths are deduplicated, cycles terminate, and declarations share one global namespace. `lex` and `parse` inspect only the named file. There are no module namespaces, visibility rules, aliases, or separate compilation yet; see [import resolution](import-resolution.md). |
 
 ## 2. Bindings, scopes and declarations
 
@@ -266,9 +266,9 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 
 | Capability | Status | Audit notes / questions |
 |---|---|---|
-| Multiple-file compilation | Not implemented | Current compiler is single-compilation-unit oriented. |
-| Module declarations | Deferred | Intentionally postponed until core types and APIs stabilize. |
-| Module resolution and imported declarations | Deferred | Top-level quoted import syntax is parsed but rejected by semantic analysis; path resolution, namespaces, exports, dependency ordering, and separate compilation remain unimplemented. |
+| Multiple-file compilation | Partial | Explicit source files and recursively imported files are expanded into one translation unit; cross-file calls and both native build paths are tested. There is no separate compilation or linking model. |
+| Module declarations | Deferred | Intentionally postponed until core types, memory rules, and reusable APIs stabilize. |
+| Module resolution and imported declarations | Partial | Top-level quoted relative imports resolve relative to the importing file, deduplicate canonical paths, terminate cycles, and preserve source locations. All declarations share one namespace; aliases, visibility/exports, module identity, and separate compilation remain unimplemented. |
 | Visibility / export rules | Design undecided | Needs module boundary. |
 | Package manager | Not implemented | Dependency resolution, versions and registries. |
 | Build manifest | Not implemented | Build configuration and reproducibility. |
@@ -326,6 +326,6 @@ These are decisions to make consciously, not features to add automatically:
 
 ## 15. Current known baseline
 
-The current `dev` baseline includes statically typed primitives and inferred locals; functions, forward and recursive calls, control flow and ranges; nominal structures with documented target-native layout; fixed one-dimensional arrays plus dynamic and mixed fixed/dynamic jagged nested arrays of primitive and structure values; nested aggregate reads, writes, iteration, collection operations, and compound assignment; strings with byte-preserving concatenation and chunk joining; the unsigned 8-bit `byte` type and mutable `byte[]` buffers; checked owning byte slices; 16-/32-bit unsigned little-/big-endian binary codecs; whole-file binary `read_file`/`write_file`; typed SSA IR with recursive array descriptors and an independent verifier; C11 and LLVM backends; native CLI build/run paths; cross-platform CI; and initial VS Code integration. All-fixed nested aggregates, contiguous rectangular multidimensional arrays, and module resolution remain deferred; parsed import declarations are rejected until module support exists.
+The current `dev` baseline includes statically typed primitives and inferred locals; functions, forward and recursive calls, control flow and ranges; nominal structures and enums/tagged unions; fixed, dynamic, mixed, and all-fixed nested jagged arrays of primitive and structure values with target-aware storage budgets; nested aggregate reads, writes, iteration, collection operations, and compound assignment; byte-preserving string concatenation and chunk joining; unsigned `byte` buffers, owning byte slices, endian-aware binary codecs, and whole-file binary I/O; typed SSA IR with recursive array descriptors, function-local typed places, and an independent verifier; C11 and LLVM backends; native build/run paths; and partial typed pointers with up to eight indirection levels, parameter-borrowed returns, typed nulls, and conservative pointer-cell lifetime summaries. Recursive quoted relative imports are expanded into a shared translation unit, but namespaces, visibility, and separate compilation remain deferred. Pointer-valued aggregate fields, projected address-of, complete pointer provenance/lifetime rules, borrowed slices, user-visible allocators, per-scope cleanup, contiguous rectangular arrays, generics, and FFI remain open.
 
 The binary-buffer and file-I/O implementation is present end to end in the C and LLVM paths. It passed CI run [#271](https://github.com/Atiqxyz/vex/actions/runs/43743633949) on Ubuntu, Windows, macOS ARM, and macOS Intel at commit `e6286e1`. This does **not** mean VEX has borrowed/zero-copy slices, streaming file handles, a general `Result` type, a complete ownership/lifetime model, or all numeric widths. Items marked **Verify** still need focused tests before being promoted to **Implemented**.

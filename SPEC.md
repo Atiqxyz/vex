@@ -57,6 +57,12 @@ make calculate_force(mass: float, acceleration: float) -> float {
 
 Top-level function signatures are collected before function bodies are checked, so functions may call functions declared later in the file. Function overloading is not implemented.
 
+### Source files and imports
+
+Compilation commands accept one or more explicit root files. A top-level declaration such as `import "math/geometry.vex"` recursively adds the referenced file to the same compilation unit. The path is resolved relative to the file containing the import, not the process working directory; absolute paths are rejected. String-literal escapes are decoded before lookup. Each canonical file is loaded once, so repeated imports are deduplicated and import cycles terminate. Imported files are placed before their importers, and diagnostics retain each original file path and line location.
+
+This is source expansion into one translation unit, not a module system: imported declarations share the global namespace, and there are no import aliases, exports, private visibility, module identities, or separate compilation. Passing the same root file more than once remains a duplicate-declaration error. The `lex` and `parse` commands inspect only the explicitly named file; `check`, `ir`, backend emission, and native build/run commands resolve imports. See [the import-resolution implementation note](docs/import-resolution.md).
+
 
 ### User-defined structures
 
@@ -203,7 +209,8 @@ A newline ends an expression unless it is inside the explicit square-bracket gro
 The parser currently accepts this subset:
 
 ~~~text
-program          := newline* (function | statement)* EOF
+program          := newline* (import_decl | function | statement)* EOF
+import_decl      := "import" string_literal
 function         := "make" identifier "(" parameters? ")" ("->" type)? block
 parameters       := parameter ("," parameter)*
 parameter        := identifier (":" type)?
@@ -389,6 +396,6 @@ The C backend can emit C11 source; the compiler's build/run commands can invoke 
 - function overloading and default arguments;
 - array and structure layout;
 - ownership, borrowing, and pointer safety;
-- module resolution, imported declarations, exports, and separate compilation (top-level quoted import syntax currently parses but is rejected during semantic analysis);
+- module namespaces, import aliases, visibility/exports, package identity, and separate compilation (initial quoted relative-import expansion into a merged translation unit is implemented; see [import resolution](docs/import-resolution.md));
 - ABI and foreign-function interface;
 - target architectures and optimization strategy.
