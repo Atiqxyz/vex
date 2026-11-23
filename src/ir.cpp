@@ -1680,7 +1680,7 @@ IRVerificationResult IRVerifier::verify(const IRModule& module) const {
             const bool invalid_enum_identity =
                 field.type == IRType::Enum
                     ? (field.enum_type_id == 0u || field.enum_type_id > module.enum_types.size())
-                    : field.enum_type_id != 0u;
+                    : field.type != IRType::Array && field.enum_type_id != 0u;
             if (field.name.empty() || !fields.emplace(field.name, true).second ||
                 field.type == IRType::Void ||
                 (field.type == IRType::Struct &&

@@ -1123,6 +1123,7 @@ void test_byte_lowering_and_backends(TestContext& tests) {
 void test_source_enum_declarations_lower_to_ir(TestContext& tests) {
     const vex::SourceFile source{"enum_ir.vex",
         "struct Point { x: int, y: float }\n"
+        "struct EventLog { current: Event, history: Event[2] }\n"
         "enum Event { Started, Moved(Point), Bytes(byte[3]), Failed(string) }\n"
         "make main() { }\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
@@ -1132,10 +1133,20 @@ void test_source_enum_declarations_lower_to_ir(TestContext& tests) {
         source, parsed.program, semantic.model).lower();
     tests.check(!lexed.has_errors() && !parsed.has_errors() &&
                 !semantic.has_errors() && !lowered.has_errors() &&
-                lowered.module.enum_types.size() == 1u,
+                lowered.module.enum_types.size() == 1u &&
+                lowered.module.struct_types.size() == 2u,
                 "validated source enums lower into the canonical IR type table");
     if (lowered.has_errors() || lowered.module.enum_types.empty()) return;
     const auto& event = lowered.module.enum_types.front();
+    const auto& event_log = lowered.module.struct_types[1];
+    tests.check(event_log.fields.size() == 2u &&
+                event_log.fields[0].type == vex::IRType::Enum &&
+                event_log.fields[0].enum_type_id == 1u &&
+                event_log.fields[1].type == vex::IRType::Array &&
+                event_log.fields[1].element_type == vex::IRType::Enum &&
+                event_log.fields[1].enum_type_id == 1u &&
+                event_log.fields[1].array_dimensions == std::vector<std::uint32_t>{2u},
+                "IR structure fields preserve direct and fixed-array enum identity");
     tests.check(event.id == 1u && event.name == "Event" && event.variants.size() == 4u &&
                 event.variants[1].fields.size() == 1u &&
                 event.variants[1].fields[0].type == vex::IRType::Struct &&

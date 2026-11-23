@@ -115,6 +115,7 @@ The shared TargetDataLayout service must compute each variant's tuple layout, th
 8. Cross-platform CI verification. Ubuntu and Windows have passed on the latest enum pipeline commit; macOS ARM and Intel jobs remain queued at the time of this update.
 
 The feature is complete only when construction, passing/returning, matching, layout, verifier checks, tests, and documentation work end to end in both backends.
-## 6. Native runtime verification
+
+## 8. Native runtime verification
 
 The `tests/fixtures/enums.vex` program is executed independently through `run-c` and `run-llvm` by the platform integration suites. It checks every variant, including a unit variant, a structure payload, a fixed-array payload, a dynamic-array payload, and a string payload. It also stores enum values in a structure field and in a fixed array of enum values, then matches values reached through those aggregate projections. The two backends must produce the same output; this runtime coverage complements the frontend, typed-IR, verifier, layout, and code-generation unit tests.
