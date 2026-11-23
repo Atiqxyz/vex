@@ -205,6 +205,7 @@ if(BUILD_TESTING)
                 -DDYNAMIC_ARRAY_RESERVE_OVERFLOW_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_reserve_overflow.vex
                 -DSTRUCT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_values.vex
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
+                -DENUM_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/enums.vex
                 -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
                 -DPROJECTED_PLACES_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/projected_places.vex
                 -DPOINTERS_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pointers.vex
@@ -276,6 +277,7 @@ if(BUILD_TESTING)
                 -DDYNAMIC_ARRAY_RESERVE_OVERFLOW_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/dynamic_array_reserve_overflow.vex
                 -DSTRUCT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_values.vex
                 -DSTRUCT_LAYOUT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/struct_layout.vex
+                -DENUM_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/enums.vex
                 -DCOMPOUND_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/compound_assignment.vex
                 -DPROJECTED_PLACES_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/projected_places.vex
                 -DSTRING_CONCAT_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/string_concat.vex

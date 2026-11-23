@@ -1,6 +1,6 @@
 # VEX enums and tagged unions
 
-**Status:** Implemented end to end for statement-form enums: declarations, nominal values, typed constructors, payload projection, exhaustive matching with scoped payload bindings, verified IR, target layout, and C/LLVM backend support. Expression-valued matching, guards, nested destructuring, and named payload fields remain deferred.
+**Status:** Implemented end to end for statement-form enums: declarations, nominal values, typed constructors, payload projection, exhaustive matching with scoped payload bindings, verified IR, target layout, and C/LLVM native execution. Integration tests cover enum fields and fixed arrays of enums inside structures plus unit, primitive, structure, fixed-array, dynamic-array, and string payloads. Expression-valued matching, guards, nested destructuring, and named payload fields remain deferred.
 
 This design treats an enum as a nominal, inline tagged union. It is not a boxed object, an untagged union, or merely a collection of integer constants. The value contains a discriminant and storage for the largest variant payload. Construction and pattern matching are typed operations, and storage is calculated by the shared target data-layout service.
 
@@ -115,3 +115,6 @@ The shared TargetDataLayout service must compute each variant's tuple layout, th
 8. Cross-platform CI verification. Ubuntu and Windows have passed on the latest enum pipeline commit; macOS ARM and Intel jobs remain queued at the time of this update.
 
 The feature is complete only when construction, passing/returning, matching, layout, verifier checks, tests, and documentation work end to end in both backends.
+## 6. Native runtime verification
+
+The `tests/fixtures/enums.vex` program is executed independently through `run-c` and `run-llvm` by the platform integration suites. It checks every variant, including a unit variant, a structure payload, a fixed-array payload, a dynamic-array payload, and a string payload. It also stores enum values in a structure field and in a fixed array of enum values, then matches values reached through those aggregate projections. The two backends must produce the same output; this runtime coverage complements the frontend, typed-IR, verifier, layout, and code-generation unit tests.

@@ -4,6 +4,7 @@ if(NOT DEFINED VEX_EXECUTABLE OR NOT DEFINED LLVM_CLANG OR
    NOT DEFINED DYNAMIC_ARRAY_POP_EMPTY_SOURCE_FILE OR
    NOT DEFINED DYNAMIC_ARRAY_BOUNDS_SOURCE_FILE OR
    NOT DEFINED STRUCT_SOURCE_FILE OR NOT DEFINED STRUCT_LAYOUT_SOURCE_FILE OR
+   NOT DEFINED ENUM_SOURCE_FILE OR
    NOT DEFINED COMPOUND_SOURCE_FILE OR NOT DEFINED PROJECTED_PLACES_SOURCE_FILE OR
    NOT DEFINED STRING_CONCAT_SOURCE_FILE OR
    NOT DEFINED BITWISE_SOURCE_FILE OR NOT DEFINED BYTE_SOURCE_FILE OR
@@ -108,6 +109,21 @@ string(REPLACE "\r\n" "\n" layout_output "${layout_output}")
 set(layout_expected "true\ntrue\n1.5\n17\n3.5\ntrue\n18\n3.5\n2.5\n8.5\n3.5\n99.5\n7.5\n9.25\nfalse\n17\n42.5\n41\n42.5\n4\n37\n2026\n")
 if(NOT "${layout_output}" STREQUAL "${layout_expected}")
     message(FATAL_ERROR "LLVM backend mixed-layout structure behavior mismatch. Expected:${layout_expected}Actual:${layout_output}")
+endif()
+
+# Exercise enum constructors, struct fields, fixed-array and dynamic-array payloads, and exhaustive matching.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "VEX_LLVM_CC=${LLVM_CLANG}"
+            "${VEX_EXECUTABLE}" run-llvm "${ENUM_SOURCE_FILE}"
+    RESULT_VARIABLE enum_result OUTPUT_VARIABLE enum_output ERROR_VARIABLE enum_error
+)
+if(NOT enum_result EQUAL 0)
+    message(FATAL_ERROR "LLVM backend enum program failed: ${enum_output}${enum_error}")
+endif()
+string(REPLACE "\r\n" "\n" enum_output "${enum_output}")
+set(enum_expected "42\n1\n504\n34\n216\n")
+if(NOT "${enum_output}" STREQUAL "${enum_expected}")
+    message(FATAL_ERROR "LLVM backend enum behavior mismatch. Expected:${enum_expected}Actual:${enum_output}")
 endif()
 
 # Exercise nested compound writes and once-only path/RHS evaluation.

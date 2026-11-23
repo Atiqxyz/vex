@@ -88,7 +88,7 @@ make main() {
 ~~~
 
 - A `struct` declaration is file-scope only. Field names must be unique, and a structure must have at least one field.
-- A field type may be a primitive, an earlier-declared structure, or a fixed/dynamic nested array of either. Repeated dimensions support dynamic, mixed, and all-fixed jagged shapes (for example, `Point[][]`, `int[2][]`, and `int[2][3]`). Nested fixed inline storage is subject to the target-aware object and per-function budgets described below.
+- A field type may be a primitive, an earlier-declared structure, a declared enum, or a fixed/dynamic nested array whose leaf is one of these supported types. Enum names are collected before structure fields are resolved, so an enum field may refer to an enum declared later in the file; structure-by-value fields still require an earlier declaration. Repeated dimensions support dynamic, mixed, and all-fixed jagged shapes (for example, `Point[][]`, `int[2][]`, and `int[2][3]`). Nested fixed inline storage is subject to the target-aware object and per-function budgets described below.
 - A fixed array stores its elements by value. Fixed arrays of structures can be fields, local values, function parameters, and return values.
 - A dynamic array stores a shared runtime-managed reference to contiguous elements. Dynamic arrays of structures are supported; copying a structure that contains a dynamic array copies that reference, so the nested dynamic collection remains shared.
 - Direct recursive by-value fields and fixed arrays that would create a by-value cycle are rejected. A dynamic array field may refer to its own containing structure because it is pointer-backed (for example, `Node { children: Node[] }`). Forward structure references remain unsupported.
