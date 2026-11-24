@@ -1125,6 +1125,12 @@ void test_source_enum_declarations_lower_to_ir(TestContext& tests) {
         "struct Point { x: int, y: float }\n"
         "struct EventLog { current: Event, history: Event[2] }\n"
         "enum Event { Started, Moved(Point), Bytes(byte[3]), Failed(string) }\n"
+        "make roundtrip_events(values: Event[]) -> Event[] {\n"
+        "    let result: Event[] = []\n"
+        "    reserve(result, 4)\n"
+        "    push(result, pop(values))\n"
+        "    return result\n"
+        "}\n"
         "make main() { }\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
@@ -1160,6 +1166,48 @@ void test_source_enum_declarations_lower_to_ir(TestContext& tests) {
     const auto llvm = vex::LLVMBackend{}.emit(lowered.module);
     tests.check(!c.has_errors() && !llvm.has_errors(),
                 "both backends accept declared enum types even before enum values are used");
+
+    const vex::IRFunction* roundtrip = nullptr;
+    for (const vex::IRFunction& function : lowered.module.functions)
+        if (function.name == "roundtrip_events") roundtrip = &function;
+    bool signature_identity = roundtrip && roundtrip->parameters.size() == 1u &&
+        roundtrip->parameters.front().value.type == vex::IRType::Array &&
+        roundtrip->parameters.front().value.element_type == vex::IRType::Enum &&
+        roundtrip->parameters.front().value.enum_type_id == 1u &&
+        roundtrip->parameters.front().value.array_dimensions == std::vector<std::uint32_t>{0u} &&
+        roundtrip->return_type == vex::IRType::Array &&
+        roundtrip->return_element_type == vex::IRType::Enum &&
+        roundtrip->return_element_enum_type_id == 1u &&
+        roundtrip->return_array_dimensions == std::vector<std::uint32_t>{0u};
+    bool has_array_make = false;
+    bool has_array_reserve = false;
+    bool has_array_push = false;
+    bool has_enum_array_pop = false;
+    if (roundtrip) for (const vex::IRBlock& block : roundtrip->blocks)
+        for (const vex::IRInstruction& instruction : block.instructions) {
+            has_array_make |= instruction.op == vex::IROp::ArrayMake &&
+                instruction.result && instruction.result->type == vex::IRType::Array &&
+                instruction.result->element_type == vex::IRType::Enum &&
+                instruction.result->enum_type_id == 1u;
+            has_array_reserve |= instruction.op == vex::IROp::ArrayReserve;
+            has_array_push |= instruction.op == vex::IROp::ArrayPush;
+            has_enum_array_pop |= instruction.op == vex::IROp::ArrayPop &&
+                instruction.result && instruction.result->type == vex::IRType::Enum &&
+                instruction.result->enum_type_id == 1u;
+        }
+    tests.check(signature_identity && has_array_make && has_array_reserve &&
+                has_array_push && has_enum_array_pop,
+                "dynamic enum arrays preserve nominal identity through signatures and typed collection IR");
+    const auto dynamic_c = vex::CBackend{}.generate(lowered.module);
+    const auto dynamic_llvm = vex::LLVMBackend{}.emit(lowered.module);
+    tests.check(!dynamic_c.has_errors() &&
+                dynamic_c.source.find("vex_array_push(") != std::string::npos &&
+                dynamic_c.source.find("vex_enum_1") != std::string::npos,
+                "C backend emits dynamic enum storage using the nominal enum aggregate");
+    tests.check(!dynamic_llvm.has_errors() &&
+                dynamic_llvm.output.find("call void @vex_array_push") != std::string::npos &&
+                dynamic_llvm.output.find("%vex.enum.1") != std::string::npos,
+                "LLVM backend emits dynamic enum storage using the nominal enum aggregate");
 }
 
 void test_target_data_layout_service(TestContext& tests) {

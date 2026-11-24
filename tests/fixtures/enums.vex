@@ -21,6 +21,17 @@ make inspect(event: Event) -> int {
     return result
 }
 
+make create_events() -> Event[] {
+    let values: Event[] = []
+    push(values, Event.Started)
+    push(values, Event.Moved(Point { x: 1, y: 2 }))
+    return values
+}
+
+make append_event(values: Event[], event: Event) {
+    push(values, event)
+}
+
 make main() {
     let packet = Packet {
         event: Event.Moved(Point { x: 20, y: 22 }),
@@ -31,4 +42,23 @@ make main() {
     say(inspect(packet.history[1]))
     say(inspect(Event.Pair([3, 4])))
     say(inspect(create_samples()))
+
+    let events = create_events()
+    let alias = events
+    append_event(events, create_samples())
+    reserve(alias, 8)
+
+    let total = 0
+    for event in events {
+        total += inspect(event)
+    }
+    say(total)
+    say(length(events))
+    say(capacity(alias) >= 8)
+
+    events[1] = Event.Pair([3, 4])
+    say(inspect(events[1]))
+    let removed = pop(alias)
+    say(inspect(removed))
+    say(length(events))
 }

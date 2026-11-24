@@ -779,6 +779,83 @@ void test_enum_and_structure_type_composition(TestContext& tests) {
                 "structure fields preserve enum nominal identity");
 }
 
+void test_dynamic_enum_array_semantics(TestContext& tests) {
+    const vex::SourceFile valid{"dynamic_enum_array_semantics.vex",
+        "enum Event { Started, Count(int) }\n"
+        "make make_events() -> Event[] {\n"
+        "    let events: Event[] = []\n"
+        "    push(events, Event.Started)\n"
+        "    push(events, Event.Count(3))\n"
+        "    return events\n"
+        "}\n"
+        "make append_event(events: Event[], event: Event) {\n"
+        "    push(events, event)\n"
+        "}\n"
+        "make inspect(events: Event[]) {\n"
+        "    for event in events {\n"
+        "        match event {\n"
+        "            Event.Started => { say(0) }\n"
+        "            Event.Count(value) => { say(value) }\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "make main() {\n"
+        "    let events = make_events()\n"
+        "    append_event(events, Event.Count(4))\n"
+        "    inspect(events)\n"
+        "    reserve(events, 8)\n"
+        "    let removed = pop(events)\n"
+        "    match removed {\n"
+        "        Event.Started => { say(0) }\n"
+        "        Event.Count(value) => { say(value) }\n"
+        "    }\n"
+        "}\n"};
+    const vex::SemanticResult valid_result = analyze(valid);
+    tests.check(!valid_result.has_errors(),
+                "dynamic enum arrays support construction, push/pop, reserve, iteration, and function calls");
+
+    bool return_shape_preserved = false;
+    bool parameter_shape_preserved = false;
+    bool iteration_identity_preserved = false;
+    for (const auto& entry : valid_result.model.functions) {
+        const vex::SemanticFunctionSignature& signature = entry.second;
+        if (signature.name == "make_events" && signature.return_array_type) {
+            const vex::SemanticArrayType& shape = *signature.return_array_type;
+            return_shape_preserved = shape.element_type == vex::SemanticType::Enum &&
+                shape.element_enum_type_id == 1u && shape.dimensions == std::vector<std::uint32_t>{0u};
+        }
+        if (signature.name == "inspect" && !signature.parameter_array_types.empty() &&
+            signature.parameter_array_types.front()) {
+            const vex::SemanticArrayType& shape = *signature.parameter_array_types.front();
+            parameter_shape_preserved = shape.element_type == vex::SemanticType::Enum &&
+                shape.element_enum_type_id == 1u && shape.dimensions == std::vector<std::uint32_t>{0u};
+        }
+    }
+    for (const auto& entry : valid_result.model.for_bindings) {
+        const auto binding = valid_result.model.bindings.find(entry.second);
+        if (binding != valid_result.model.bindings.end() &&
+            binding->second.name == "event" &&
+            binding->second.type == vex::SemanticType::Enum &&
+            binding->second.enum_type_id == 1u) iteration_identity_preserved = true;
+    }
+    tests.check(return_shape_preserved && parameter_shape_preserved &&
+                iteration_identity_preserved,
+                "dynamic enum array signatures and for-in bindings preserve nominal enum identity");
+
+    const vex::SourceFile invalid{"wrong_dynamic_enum_array_element.vex",
+        "enum Event { Started }\n"
+        "enum Other { Started }\n"
+        "make main() {\n"
+        "    let events: Event[] = []\n"
+        "    let others: Other[] = []\n"
+        "    push(events, Other.Started)\n"
+        "    push(events, pop(others))\n"
+        "}\n"};
+    const vex::SemanticResult invalid_result = analyze(invalid);
+    tests.check(has_code(invalid_result, "SEM021"),
+                "dynamic enum arrays reject values and popped elements from a different nominal enum");
+}
+
 void test_enum_match_semantics(TestContext& tests) {
     const vex::SourceFile valid{"valid_enum_match.vex",
         "enum Result { Success(int), Failure(string), Cancelled }\n"
@@ -1781,6 +1858,7 @@ void run_semantic_tests(TestContext& tests) {
     test_structure_types_value_semantics_and_diagnostics(tests);
     test_enum_declaration_semantics(tests);
     test_enum_and_structure_type_composition(tests);
+    test_dynamic_enum_array_semantics(tests);
     test_enum_match_semantics(tests);
     test_string_byte_length_semantics(tests);
     test_string_join_semantics(tests);

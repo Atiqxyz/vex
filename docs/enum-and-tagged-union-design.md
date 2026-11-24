@@ -1,6 +1,6 @@
 # VEX enums and tagged unions
 
-**Status:** Implemented end to end for statement-form enums: declarations, nominal values, typed constructors, payload projection, exhaustive matching with scoped payload bindings, verified IR, target layout, and C/LLVM native execution. Integration tests cover enum fields and fixed arrays of enums inside structures plus unit, primitive, structure, fixed-array, dynamic-array, and string payloads. Expression-valued matching, guards, nested destructuring, and named payload fields remain deferred.
+**Status:** Implemented end to end for statement-form enums: declarations, nominal values, typed constructors, payload projection, exhaustive matching with scoped payload bindings, verified IR, target layout, and C/LLVM native execution. Integration tests cover enum fields and fixed arrays of enums inside structures, dynamic enum arrays through collection operations and function boundaries, plus unit, primitive, structure, fixed-array, dynamic-array, and string payloads. Expression-valued matching, guards, nested destructuring, and named payload fields remain deferred.
 
 This design treats an enum as a nominal, inline tagged union. It is not a boxed object, an untagged union, or merely a collection of integer constants. The value contains a discriminant and storage for the largest variant payload. Construction and pattern matching are typed operations, and storage is calculated by the shared target data-layout service.
 
@@ -111,11 +111,11 @@ The shared TargetDataLayout service must compute each variant's tuple layout, th
 4. Add qualified variant construction and typed IR representation. **Implemented.**
 5. Add match statement parsing, scoped payload bindings, exhaustiveness checks, and typed control-flow lowering. **Implemented.**
 6. Add independent verifier rules and C/LLVM value construction, tag dispatch, and payload access. **Implemented.**
-7. Test unit variants, mixed payload sizes and alignments, nested structures/fixed arrays, dynamic references inside payloads, function parameters/returns, arrays of enums, exact-once scrutinee evaluation, and invalid-match cases. **Implemented and covered by the test suite.**
-8. Cross-platform CI verification. Ubuntu and Windows have passed on the latest enum pipeline commit; macOS ARM and Intel jobs remain queued at the time of this update.
+7. Test unit variants, mixed payload sizes and alignments, nested structures/fixed arrays, dynamic references inside payloads, function parameters/returns, fixed arrays of enums, and dynamic enum arrays through construction, indexing, updates, push/pop/reserve, aliasing, iteration, and function boundaries. **Implemented and covered by frontend, IR, and native C/LLVM tests.**
+8. Preserve the four-platform CI gate for every extension; a new change is not verified until Ubuntu, Windows, macOS Intel, and macOS ARM all pass.
 
 The feature is complete only when construction, passing/returning, matching, layout, verifier checks, tests, and documentation work end to end in both backends.
 
 ## 8. Native runtime verification
 
-The `tests/fixtures/enums.vex` program is executed independently through `run-c` and `run-llvm` by the platform integration suites. It checks every variant, including a unit variant, a structure payload, a fixed-array payload, a dynamic-array payload, and a string payload. It also stores enum values in a structure field and in a fixed array of enum values, then matches values reached through those aggregate projections. The two backends must produce the same output; this runtime coverage complements the frontend, typed-IR, verifier, layout, and code-generation unit tests.
+The `tests/fixtures/enums.vex` program is executed independently through `run-c` and `run-llvm` by the platform integration suites. It checks every variant, including a unit variant, a structure payload, a fixed-array payload, a dynamic-array payload, and a string payload. It also stores enum values in a structure field, a fixed array, and a dynamic array. The dynamic enum array is returned from a function, passed to a mutating function, shared through an alias, reserved, iterated, indexed and updated, and popped; its payload includes a separately tracked dynamic array. The two backends must produce identical output, complementing frontend, typed-IR, verifier, layout, and code-generation tests.

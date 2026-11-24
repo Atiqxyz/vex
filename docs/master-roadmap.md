@@ -73,8 +73,8 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** Collections are central to algorithms, simulations, numerical work, and general programming. Their memory and aliasing behavior directly affect performance and correctness.
 
-- [x] Fixed-size one-dimensional primitive and structure arrays
-- [x] Dynamic one-dimensional primitive and structure arrays
+- [x] Fixed-size one-dimensional primitive, structure, and enum arrays
+- [x] Dynamic one-dimensional primitive, structure, and enum arrays, including nominal identity through construction, indexing, mutation, collection operations, iteration, aliases, and function parameters/returns in both backends
 - [x] Dynamic and mixed fixed/dynamic nested arrays (jagged collections) across semantic analysis, recursive IR verification, lowering, C/LLVM backends, and native runtime tests; all-fixed nested aggregates remain gated; see [design proposal](nested-array-design.md)
 - [x] All-fixed nested array aggregates with target-native object-size checks and a per-function nested-fixed storage budget (see [design proposal](nested-array-design.md))
 - [ ] Contiguous multidimensional arrays with documented storage order and strides
