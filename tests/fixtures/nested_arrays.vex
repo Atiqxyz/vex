@@ -34,6 +34,11 @@ make rhs_value(calls: int[]) -> int {
     return 5
 }
 
+make select_array(calls: int[], values: int[]) -> int[] {
+    push(calls, 1)
+    return values
+}
+
 make main() {
     let rows: int[][] = [[1, 2], [3, 4, 5]]
     say(length(rows))
@@ -111,4 +116,53 @@ make main() {
     ]
     points[1][0].x += 3
     say(points[1][0].x)
+
+    let iterator_calls: int[] = []
+    let growing: int[] = [1, 2]
+    let growing_alias = growing
+    let visited = 0
+    for value in select_array(iterator_calls, growing) {
+        say(value)
+        visited += value
+        if value == 1 {
+            push(growing_alias, 3)
+        }
+        if value == 2 {
+            growing_alias[2] = 30
+            reserve(growing_alias, 16)
+            push(growing_alias, 4)
+        }
+    }
+    say(length(iterator_calls))
+    say(length(growing))
+    say(visited)
+
+    let selected: int[] = [5, 6, 7]
+    let replacement: int[] = [90, 91, 92]
+    for value in selected {
+        say(value)
+        if value == 5 {
+            selected = replacement
+        }
+    }
+    say(selected[0])
+
+    let fixed_values = [8, 9, 10]
+    for value in fixed_values {
+        say(value)
+        if value == 8 {
+            fixed_values[1] = 99
+        }
+    }
+    say(fixed_values[1])
+
+    let shrinking: int[] = [11, 22, 33, 44]
+    let shrinking_alias = shrinking
+    for value in shrinking {
+        say(value)
+        pop(shrinking_alias)
+    }
+    say(length(shrinking))
+    say(shrinking[0])
+    say(shrinking[1])
 }

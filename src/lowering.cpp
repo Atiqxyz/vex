@@ -2442,14 +2442,12 @@ private:
         for (std::size_t index = 0; index < ids.size(); ++index)
             loop_environment[ids[index]] = header_parameters[index + 1];
 
-        IRValue current_array = *iterable;
-        if (const auto* name = std::get_if<NameExpr>(&iterable_expression->data)) {
-            const auto binding = semantic_model_.resolved_names.find(name);
-            if (binding != semantic_model_.resolved_names.end()) {
-                const auto current = loop_environment.find(binding->second);
-                if (current != loop_environment.end()) current_array = current->second;
-            }
-        }
+        // The iterable is evaluated once. Keep its SSA value for the whole loop:
+        // rebinding a source variable must not retarget an active iterator.
+        // Dynamic arrays still observe in-place alias mutations because this value
+        // is their stable shared header; ArrayLength and ArrayGet reload the
+        // current length and backing buffer on each iteration.
+        const IRValue current_array = *iterable;
 
         current_block_ = header;
         environment_ = loop_environment;

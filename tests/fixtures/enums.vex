@@ -46,11 +46,15 @@ make main() {
     let events = create_events()
     let alias = events
     append_event(events, create_samples())
-    reserve(alias, 8)
-
     let total = 0
+    let appended = false
     for event in events {
         total += inspect(event)
+        if !appended {
+            appended = true
+            reserve(alias, 8)
+            push(alias, Event.Started)
+        }
     }
     say(total)
     say(length(events))
