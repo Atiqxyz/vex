@@ -225,13 +225,13 @@ make main() {
     say(length(source_grid.rows[0]))
 
     let fixed_source = FixedOuterRows { rows: [[10, 20], [30, 40]] }
-    let fixed_copy = fixed_source
-    extend_fixed_rows(fixed_copy)
-    fixed_copy.rows[1] = [99, 100]
+    let fixed_struct_copy = fixed_source
+    extend_fixed_rows(fixed_struct_copy)
+    fixed_struct_copy.rows[1] = [99, 100]
     say(length(fixed_source.rows[0]))
     say(fixed_source.rows[0][2])
     say(fixed_source.rows[1][0])
-    say(fixed_copy.rows[1][0])
+    say(fixed_struct_copy.rows[1][0])
 
     let dynamic_source = DynamicOuterRows { rows: [[1, 2], [3, 4]] }
     let dynamic_copy = dynamic_source
