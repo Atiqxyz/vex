@@ -1,6 +1,6 @@
 # Nested arrays and collections of collections
 
-**Status:** Dynamic, mixed, and all-fixed jagged arrays are implemented across parsing, semantic analysis, recursive IR descriptors, verifier, lowering, and both C and LLVM backends. Native runtime tests cover 2D/3D ragged collections, mixed fixed/dynamic dimensions, all-fixed nested values, nested assignment, side-effecting indices, collection operations, function parameters/returns, structure fields, arrays of structures, and value-versus-reference behavior. Nested fixed inline storage is bounded by a target-native 256 KiB per-object limit and a 512 KiB per-function aggregate-storage budget; contiguous rectangular multidimensional arrays remain separate.
+**Status:** Dynamic, mixed, and all-fixed jagged arrays are implemented across parsing, semantic analysis, recursive IR descriptors, verifier, lowering, and both C and LLVM backends. Native runtime tests cover 2D/3D ragged collections, mixed fixed/dynamic dimensions, all-fixed nested values, nested assignment, side-effecting indices, collection operations, function parameters/returns, structure fields, arrays of structures, copied nested structures with array fields, recursive dynamic structure fields, and dimension-specific value-versus-reference behavior. Nested fixed inline storage is bounded by a target-native 256 KiB per-object limit and a 512 KiB per-function aggregate-storage budget; contiguous rectangular multidimensional arrays remain separate.
 
 This note records the semantic contract and remaining implementation boundaries. Repeated dimensions compile and execute for dynamic, mixed, and all-fixed jagged shapes. All-fixed inline storage is bounded by target-aware backend checks, with a conservative semantic lower-bound check before IR generation.
 
@@ -145,6 +145,14 @@ Use the existing representation recursively:
 - A dynamic array of dynamic arrays stores inner header pointers in its data buffer.
 - A structure element uses its target ABI allocation size, including padding. A fixed-array element uses its full aggregate allocation size. A dynamic-array element is pointer-sized.
 
+Structure values are copied recursively by value. Every fixed dimension embedded in a structure is copied inline, but every dynamic dimension remains a shared header reference. Consequently:
+
+- Copying a structure with an `int[][]` field shares the outer header and the inner row headers.
+- Copying one with an `int[2][]` copies its two fixed outer slots, while the dynamic row headers in those slots remain shared. Replacing one slot in the copy is local to that copy; mutating an existing row is shared.
+- Copying one with an `int[][2]` field shares the dynamic outer header. Its fixed rows are inline values in the shared buffer, so replacing a row through one alias is visible through the others; reading a row produces a value copy.
+
+These rules compose through nested structures, structure parameters and returns, and structures stored as elements of dynamic arrays. The C and LLVM backends must preserve the same per-dimension representation rather than applying an all-deep-copy or all-shared policy to the containing structure.
+
 All dynamic headers continue to be registered in the current program-lifetime allocation list. Cleanup can free each registered header and data buffer once; it does not need recursive ownership traversal because dynamic references are shared and there are no element destructors today. Popping or replacing an inner-array reference does not free that inner header. It remains tracked until normal generated-entry cleanup.
 
 This deliberately retains the existing limitation: allocations are not released when a lexical scope ends, when an element is popped, or when an alias becomes unreachable. Nested arrays can therefore retain more allocations until program exit. Do not add reference counting, recursive frees, or per-scope cleanup as an incidental part of this feature; those require a separate ownership/lifetime design. A runtime trap still terminates the process, leaving process reclamation to the operating system.
@@ -225,8 +233,8 @@ Minimum test coverage:
 
 - two and three dynamic dimensions; fixed, dynamic, and mixed dimension combinations, including all-fixed nested arrays;
 - rectangular and ragged nested literals, contextual empty inner rows, and invalid shape mismatches;
-- nested arrays in structure fields, arrays of structures, function parameters, returns, and recursive dynamic structure fields;
-- fixed outer copy isolation and dynamic inner alias sharing;
+- nested arrays in structure fields, arrays of structures, copied nested structures, function parameters/returns, and recursive dynamic structure fields;
+- fixed outer copy isolation and dynamic inner alias sharing, including `int[2][]` and `int[][2]` fields inside copied structures;
 - dynamic outer alias sharing after push, pop, reserve, and growth;
 - nested indexed reads/writes and compound assignment with side-effecting index functions evaluated exactly once;
 - nested push/pop/reserve/capacity, nested for-in loops, bounds failures, allocation-size overflow, and allocation failure;

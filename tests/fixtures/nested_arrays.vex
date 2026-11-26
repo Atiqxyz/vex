@@ -6,6 +6,23 @@ struct Grid {
     rows: int[][],
 }
 
+struct GridHolder {
+    grid: Grid,
+}
+
+struct FixedOuterRows {
+    rows: int[2][],
+}
+
+struct DynamicOuterRows {
+    rows: int[][2],
+}
+
+struct TreeNode {
+    value: int,
+    children: TreeNode[],
+}
+
 make total(rows: int[][]) -> int {
     let result = 0
     for row in rows {
@@ -37,6 +54,26 @@ make rhs_value(calls: int[]) -> int {
 make select_array(calls: int[], values: int[]) -> int[] {
     push(calls, 1)
     return values
+}
+
+make copy_grid(grid: Grid) -> Grid {
+    return grid
+}
+
+make extend_grid(grid: Grid) {
+    reserve(grid.rows, 8)
+    reserve(grid.rows[0], 8)
+    push(grid.rows[0], 9)
+    push(grid.rows, [5, 6])
+}
+
+make extend_fixed_rows(rows: FixedOuterRows) {
+    reserve(rows.rows[0], 8)
+    push(rows.rows[0], 30)
+}
+
+make extend_grid_array(grids: Grid[]) {
+    push(grids[0].rows[0], 60)
 }
 
 make main() {
@@ -165,4 +202,59 @@ make main() {
     say(length(shrinking))
     say(shrinking[0])
     say(shrinking[1])
+
+    let source_grid = Grid { rows: [[1, 2], [3, 4]] }
+    let returned_grid = copy_grid(source_grid)
+    let holder = GridHolder { grid: returned_grid }
+    let holder_copy = holder
+    extend_grid(holder_copy.grid)
+    say(length(source_grid.rows))
+    say(length(source_grid.rows[0]))
+    say(source_grid.rows[0][2])
+    say(source_grid.rows[1][0])
+    say(source_grid.rows[2][1])
+    say(capacity(source_grid.rows) >= 8)
+    say(capacity(source_grid.rows[0]) >= 8)
+    holder_copy.grid.rows[1] = [70, 71]
+    say(source_grid.rows[1][0])
+    let removed_grid_row = pop(holder_copy.grid.rows)
+    say(removed_grid_row[1])
+    say(length(source_grid.rows))
+    let removed_grid_value = pop(holder_copy.grid.rows[0])
+    say(removed_grid_value)
+    say(length(source_grid.rows[0]))
+
+    let fixed_source = FixedOuterRows { rows: [[10, 20], [30, 40]] }
+    let fixed_copy = fixed_source
+    extend_fixed_rows(fixed_copy)
+    fixed_copy.rows[1] = [99, 100]
+    say(length(fixed_source.rows[0]))
+    say(fixed_source.rows[0][2])
+    say(fixed_source.rows[1][0])
+    say(fixed_copy.rows[1][0])
+
+    let dynamic_source = DynamicOuterRows { rows: [[1, 2], [3, 4]] }
+    let dynamic_copy = dynamic_source
+    let detached_row = dynamic_source.rows[0]
+    reserve(dynamic_copy.rows, 8)
+    dynamic_copy.rows[0][0] = 50
+    dynamic_copy.rows[1] = [90, 91]
+    dynamic_copy.rows[0][1] = 55
+    say(capacity(dynamic_source.rows) >= 8)
+    say(dynamic_source.rows[0][0])
+    say(dynamic_source.rows[1][0])
+    say(detached_row[0])
+    say(detached_row[1])
+    say(dynamic_copy.rows[0][1])
+
+    let grid_array: Grid[] = [Grid { rows: [[4, 5],] },]
+    let grid_array_alias = grid_array
+    extend_grid_array(grid_array_alias)
+    say(grid_array[0].rows[0][2])
+
+    let root_node = TreeNode { value: 1, children: [] }
+    let root_node_copy = root_node
+    push(root_node_copy.children, TreeNode { value: 2, children: [] })
+    say(length(root_node.children))
+    say(root_node.children[0].value)
 }

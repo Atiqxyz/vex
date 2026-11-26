@@ -9,9 +9,11 @@
 #include "vex/semantic.hpp"
 #include "vex/target_layout.hpp"
 
+#include <cstdint>
 #include <sstream>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace {
 
@@ -456,6 +458,8 @@ void test_composed_structure_arrays_and_recursive_dynamic_fields(TestContext& te
         "struct Point { x: int, y: int }\n"
         "struct Group { fixed: Point[2], items: Point[] }\n"
         "struct Node { value: int, children: Node[] }\n"
+        "struct NestedGrid { rows: int[][] }\n"
+        "make clone_nested(grid: NestedGrid) -> NestedGrid { return grid }\n"
         "make identity(points: Point[]) -> Point[] { return points }\n"
         "make fixed_identity(points: Point[2]) -> Point[2] { return points }\n"
         "make main() {\n"
@@ -468,6 +472,9 @@ void test_composed_structure_arrays_and_recursive_dynamic_fields(TestContext& te
         "    for item in group.items { say(item.x) }\n"
         "    let node = Node { value: 1, children: [] }\n"
         "    push(node.children, node)\n"
+        "    let nested_grid = NestedGrid { rows: [[5, 6], [7,]] }\n"
+        "    let nested_copy = clone_nested(nested_grid)\n"
+        "    say(length(nested_copy.rows[0]))\n"
         "}\n"};
     const vex::LexResult lexed = vex::Lexer(source).scan();
     const vex::ParseResult parsed = vex::Parser(source, lexed.tokens).parse();
@@ -488,6 +495,57 @@ void test_composed_structure_arrays_and_recursive_dynamic_fields(TestContext& te
     tests.check(!verified.has_errors(),
                 "nominal array element identity and recursive pointer-backed fields verify in IR");
     if (verified.has_errors()) return;
+
+    bool has_nested_field_descriptor = false;
+    for (const vex::IRStructType& structure : lowered.module.struct_types) {
+        if (structure.name != "NestedGrid") continue;
+        for (const vex::IRStructField& field : structure.fields) {
+            if (field.name == "rows") {
+                has_nested_field_descriptor =
+                    field.type == vex::IRType::Array &&
+                    field.element_type == vex::IRType::Int &&
+                    field.array_dimensions == std::vector<std::uint32_t>{0u, 0u};
+            }
+        }
+    }
+    bool has_nested_field_read = false;
+    bool has_nested_row_read = false;
+    for (const vex::IRFunction& function : lowered.module.functions) {
+        for (const vex::IRBlock& block : function.blocks) {
+            for (const vex::IRInstruction& instruction : block.instructions) {
+                if (!instruction.result) continue;
+                if (instruction.op == vex::IROp::StructGet &&
+                    instruction.result->type == vex::IRType::Array &&
+                    instruction.result->array_dimensions ==
+                        std::vector<std::uint32_t>{0u, 0u})
+                    has_nested_field_read = true;
+                if (instruction.op == vex::IROp::ArrayGet &&
+                    instruction.result->type == vex::IRType::Array &&
+                    instruction.result->array_dimensions ==
+                        std::vector<std::uint32_t>{0u})
+                    has_nested_row_read = true;
+            }
+        }
+    }
+    tests.check(has_nested_field_descriptor && has_nested_field_read &&
+                has_nested_row_read,
+                "nested structure array-field dimensions survive StructGet and indexed element lowering");
+
+    vex::IRModule invalid_nested_field_shape = lowered.module;
+    bool changed_nested_field_shape = false;
+    for (vex::IRStructType& structure : invalid_nested_field_shape.struct_types) {
+        if (structure.name != "NestedGrid") continue;
+        for (vex::IRStructField& field : structure.fields) {
+            if (field.name == "rows") {
+                field.array_dimensions = {0u};
+                changed_nested_field_shape = true;
+            }
+        }
+    }
+    const vex::IRVerificationResult invalid_nested_field_result =
+        vex::IRVerifier{}.verify(invalid_nested_field_shape);
+    tests.check(changed_nested_field_shape && invalid_nested_field_result.has_errors(),
+                "IR verifier rejects a structure field descriptor that drops a nested dimension");
 
     vex::IRModule invalid_nominal_identity = lowered.module;
     bool changed_structure_array = false;
