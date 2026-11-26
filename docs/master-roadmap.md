@@ -335,10 +335,10 @@ Apply the [low-level foundations contract](low-level-foundations.md) throughout 
 This is a dependency-aware sequence, not a rigid promise. Reorder when source inspection or reference research reveals a better path.
 
 ### Milestone 1 — Data modelling foundation
-1. Structures / records: declaration, construction, field access, mutation.
-2. Struct semantics: value behavior, copy behavior, parameters, returns, nested fields.
+1. [x] Structures / records: declaration, construction, field access, and mutation for the implemented primitive, nested-structure, enum, and nested-array field subset. Pointer-valued fields, recursive by-value fields, and explicit layout controls remain unsupported.
+2. [x] Struct semantics: value copies, parameters, returns, and nested fields. Fixed fields copy inline; dynamic-array dimensions preserve shared headers through structure copies, parameters, and returns. Pointer-valued fields remain deferred.
 3. [x] Arrays of structs and structs containing fixed/dynamic nested arrays, including nested field/index updates and verified copy semantics: fixed dimensions copy inline while dynamic dimensions retain shared headers across nested structures, parameters, and returns.
-4. Struct layout and alignment decisions that are consistent across C and LLVM.
+4. [x] Shared target layout and alignment for the current 64-bit target model: C emits size, alignment, and field-offset assertions; LLVM uses target-derived alignments and validates nested aggregate sizes. Packed, custom, and foreign C-ABI layouts remain future work.
 5. [x] Enums and tagged unions: nominal declarations, typed values and constructors, payload projection, exhaustive statement matching, verified IR, and C/LLVM layout/backend support (see [design](enum-and-tagged-union-design.md)).
 6. Tuples and destructuring if they simplify multiple returns and data flow.
 
