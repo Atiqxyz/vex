@@ -45,8 +45,8 @@ if(NOT "${DUPLICATE_OUTPUT}${DUPLICATE_ERROR}" MATCHES "duplicate|already")
     message(FATAL_ERROR "duplicate source declaration did not produce a useful diagnostic")
 endif()
 
-# Recursive relative imports, repeated imports, and cycles share the current
-# merged-namespace translation-unit model.
+# Recursive imports retain independent module namespaces, exported visibility,
+# alias resolution, module-qualified types, and cycle-safe linking.
 execute_process(
     COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/main.vex"
     RESULT_VARIABLE IMPORT_CHECK_STATUS
@@ -66,8 +66,10 @@ execute_process(
 if(NOT IMPORT_IR_STATUS EQUAL 0)
     message(FATAL_ERROR "recursive import IR lowering failed:\n${IMPORT_IR_OUTPUT}\n${IMPORT_IR_ERROR}")
 endif()
-if(NOT IMPORT_IR_OUTPUT MATCHES "double_base" OR NOT IMPORT_IR_OUTPUT MATCHES "base_value")
-    message(FATAL_ERROR "recursive import declarations were not included in the IR")
+if(NOT IMPORT_IR_OUTPUT MATCHES "double_base" OR
+   NOT IMPORT_IR_OUTPUT MATCHES "base_value" OR
+   NOT IMPORT_IR_OUTPUT MATCHES "__vex_m")
+    message(FATAL_ERROR "module-qualified functions were not linked with distinct module symbols")
 endif()
 
 if(DEFINED VEX_HAS_C_COMPILER AND NOT VEX_HAS_C_COMPILER STREQUAL "")
@@ -81,7 +83,7 @@ if(DEFINED VEX_HAS_C_COMPILER AND NOT VEX_HAS_C_COMPILER STREQUAL "")
         message(FATAL_ERROR "native import execution failed:\n${IMPORT_RUN_OUTPUT}\n${IMPORT_RUN_ERROR}")
     endif()
     string(REPLACE "\r\n" "\n" IMPORT_RUN_OUTPUT "${IMPORT_RUN_OUTPUT}")
-    if(NOT IMPORT_RUN_OUTPUT STREQUAL "42\n")
+    if(NOT IMPORT_RUN_OUTPUT STREQUAL "42\n2\n2\n2\n22\n")
         message(FATAL_ERROR "C backend import execution returned unexpected output: ${IMPORT_RUN_OUTPUT}")
     endif()
 endif()
@@ -96,7 +98,7 @@ if(NOT IMPORT_LLVM_RUN_STATUS EQUAL 0)
     message(FATAL_ERROR "LLVM import execution failed:\n${IMPORT_LLVM_RUN_OUTPUT}\n${IMPORT_LLVM_RUN_ERROR}")
 endif()
 string(REPLACE "\r\n" "\n" IMPORT_LLVM_RUN_OUTPUT "${IMPORT_LLVM_RUN_OUTPUT}")
-if(NOT IMPORT_LLVM_RUN_OUTPUT STREQUAL "42\n")
+if(NOT IMPORT_LLVM_RUN_OUTPUT STREQUAL "42\n2\n2\n2\n22\n")
     message(FATAL_ERROR "LLVM backend import execution returned unexpected output: ${IMPORT_LLVM_RUN_OUTPUT}")
 endif()
 
@@ -124,4 +126,88 @@ if(MISSING_IMPORT_STATUS EQUAL 0 OR
    NOT MISSING_IMPORT_DIAGNOSTIC MATCHES "missing.vex:1" OR
    NOT MISSING_IMPORT_DIAGNOSTIC MATCHES "MOD001")
     message(FATAL_ERROR "missing imports must fail with a source-located MOD001 diagnostic:\n${MISSING_IMPORT_DIAGNOSTIC}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/private_main.vex"
+    RESULT_VARIABLE PRIVATE_FUNCTION_STATUS
+    OUTPUT_VARIABLE PRIVATE_FUNCTION_OUTPUT
+    ERROR_VARIABLE PRIVATE_FUNCTION_ERROR
+)
+set(PRIVATE_FUNCTION_DIAGNOSTIC "${PRIVATE_FUNCTION_OUTPUT}${PRIVATE_FUNCTION_ERROR}")
+if(PRIVATE_FUNCTION_STATUS EQUAL 0 OR
+   NOT PRIVATE_FUNCTION_DIAGNOSTIC MATCHES "SEM086")
+    message(FATAL_ERROR "a module-private function was unexpectedly callable:\n${PRIVATE_FUNCTION_DIAGNOSTIC}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/private_type_main.vex"
+    RESULT_VARIABLE PRIVATE_TYPE_STATUS
+    OUTPUT_VARIABLE PRIVATE_TYPE_OUTPUT
+    ERROR_VARIABLE PRIVATE_TYPE_ERROR
+)
+set(PRIVATE_TYPE_DIAGNOSTIC "${PRIVATE_TYPE_OUTPUT}${PRIVATE_TYPE_ERROR}")
+if(PRIVATE_TYPE_STATUS EQUAL 0 OR
+   NOT PRIVATE_TYPE_DIAGNOSTIC MATCHES "SEM082")
+    message(FATAL_ERROR "a module-private type was unexpectedly accessible:\n${PRIVATE_TYPE_DIAGNOSTIC}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/lib/leaky_public_api.vex"
+    RESULT_VARIABLE LEAKY_PUBLIC_API_STATUS
+    OUTPUT_VARIABLE LEAKY_PUBLIC_API_OUTPUT
+    ERROR_VARIABLE LEAKY_PUBLIC_API_ERROR
+)
+set(LEAKY_PUBLIC_API_DIAGNOSTIC "${LEAKY_PUBLIC_API_OUTPUT}${LEAKY_PUBLIC_API_ERROR}")
+if(LEAKY_PUBLIC_API_STATUS EQUAL 0 OR
+   NOT LEAKY_PUBLIC_API_DIAGNOSTIC MATCHES "SEM087")
+    message(FATAL_ERROR "public declarations unexpectedly exposed private types:\n${LEAKY_PUBLIC_API_DIAGNOSTIC}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/alias_conflict.vex"
+    RESULT_VARIABLE ALIAS_CONFLICT_STATUS
+    OUTPUT_VARIABLE ALIAS_CONFLICT_OUTPUT
+    ERROR_VARIABLE ALIAS_CONFLICT_ERROR
+)
+set(ALIAS_CONFLICT_DIAGNOSTIC "${ALIAS_CONFLICT_OUTPUT}${ALIAS_CONFLICT_ERROR}")
+if(ALIAS_CONFLICT_STATUS EQUAL 0 OR
+   NOT ALIAS_CONFLICT_DIAGNOSTIC MATCHES "MOD002")
+    message(FATAL_ERROR "conflicting aliases for different modules were unexpectedly accepted:\n${ALIAS_CONFLICT_DIAGNOSTIC}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/unknown_alias.vex"
+    RESULT_VARIABLE UNKNOWN_ALIAS_STATUS
+    OUTPUT_VARIABLE UNKNOWN_ALIAS_OUTPUT
+    ERROR_VARIABLE UNKNOWN_ALIAS_ERROR
+)
+set(UNKNOWN_ALIAS_DIAGNOSTIC "${UNKNOWN_ALIAS_OUTPUT}${UNKNOWN_ALIAS_ERROR}")
+if(UNKNOWN_ALIAS_STATUS EQUAL 0 OR
+   NOT UNKNOWN_ALIAS_DIAGNOSTIC MATCHES "SEM081")
+    message(FATAL_ERROR "an unknown module alias did not produce a useful diagnostic:\n${UNKNOWN_ALIAS_DIAGNOSTIC}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/invalid_default_alias.vex"
+    RESULT_VARIABLE INVALID_DEFAULT_ALIAS_STATUS
+    OUTPUT_VARIABLE INVALID_DEFAULT_ALIAS_OUTPUT
+    ERROR_VARIABLE INVALID_DEFAULT_ALIAS_ERROR
+)
+set(INVALID_DEFAULT_ALIAS_DIAGNOSTIC "${INVALID_DEFAULT_ALIAS_OUTPUT}${INVALID_DEFAULT_ALIAS_ERROR}")
+if(INVALID_DEFAULT_ALIAS_STATUS EQUAL 0 OR
+   NOT INVALID_DEFAULT_ALIAS_DIAGNOSTIC MATCHES "MOD004")
+    message(FATAL_ERROR "a reserved-word default module alias was unexpectedly accepted:\n${INVALID_DEFAULT_ALIAS_DIAGNOSTIC}")
+endif()
+
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" check "${SOURCE_DIR}/fixtures/imports/imported_top_level.vex"
+    RESULT_VARIABLE IMPORTED_TOP_LEVEL_STATUS
+    OUTPUT_VARIABLE IMPORTED_TOP_LEVEL_OUTPUT
+    ERROR_VARIABLE IMPORTED_TOP_LEVEL_ERROR
+)
+set(IMPORTED_TOP_LEVEL_DIAGNOSTIC "${IMPORTED_TOP_LEVEL_OUTPUT}${IMPORTED_TOP_LEVEL_ERROR}")
+if(IMPORTED_TOP_LEVEL_STATUS EQUAL 0 OR
+   NOT IMPORTED_TOP_LEVEL_DIAGNOSTIC MATCHES "SEM084")
+    message(FATAL_ERROR "executable top-level statements in an imported module were unexpectedly accepted:\n${IMPORTED_TOP_LEVEL_DIAGNOSTIC}")
 endif()

@@ -36,12 +36,24 @@ struct FunctionDeclStmt {
     std::vector<Parameter> parameters;
     std::optional<SourceSpan> return_type;
     StmtPtr body;
+    bool is_public{false};
 };
 struct StructFieldDecl { SourceSpan name{}; std::optional<SourceSpan> type_annotation; };
-struct StructDeclStmt { SourceSpan name{}; std::vector<StructFieldDecl> fields; };
+struct StructDeclStmt {
+    SourceSpan name{};
+    std::vector<StructFieldDecl> fields;
+    bool is_public{false};
+};
 struct EnumVariantDecl { SourceSpan name{}; std::vector<SourceSpan> payload_types; };
-struct EnumDeclStmt { SourceSpan name{}; std::vector<EnumVariantDecl> variants; };
-struct ImportDeclStmt { SourceSpan path_literal{}; };
+struct EnumDeclStmt {
+    SourceSpan name{};
+    std::vector<EnumVariantDecl> variants;
+    bool is_public{false};
+};
+struct ImportDeclStmt {
+    SourceSpan path_literal{};
+    std::optional<SourceSpan> alias;
+};
 struct VariableDeclStmt {
     SourceSpan name{};
     bool immutable{false};

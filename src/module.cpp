@@ -61,8 +61,18 @@ std::optional<SourceFile> load_source_bundle_with_imports(
 
     // Presence means a path is active in the DFS or already loaded.
     std::unordered_set<std::string> visited;
-    std::unordered_set<std::string> explicit_roots;
-    std::vector<std::pair<std::string, std::string>> files;
+    std::vector<SourceFileUnit> files;
+    std::unordered_set<std::string> explicit_root_paths;
+    std::unordered_set<std::string> seen_explicit_roots;
+    std::string root_module;
+
+    for (const std::string& path : paths) {
+        std::error_code root_error;
+        const fs::path canonical_root = fs::canonical(fs::path(path), root_error);
+        if (!root_error) explicit_root_paths.emplace(canonical_root.generic_string());
+        if (root_module.empty() && !root_error)
+            root_module = canonical_root.generic_string();
+    }
 
     const auto visit = [&](const auto& self, const fs::path& requested,
                            const SourceFile* importer, const SourceSpan import_span,
@@ -85,6 +95,8 @@ std::optional<SourceFile> load_source_bundle_with_imports(
         }
 
         const std::string key = canonical.generic_string();
+        const bool is_explicit_root = explicit_root_paths.find(key) != explicit_root_paths.end();
+        const std::string module = is_explicit_root ? root_module : key;
         if (visited.find(key) != visited.end()) {
             // Supplying the same root twice remains a duplicate-declaration error.
             if (!duplicate_explicit_root) return true;
@@ -102,7 +114,7 @@ std::optional<SourceFile> load_source_bundle_with_imports(
                             << canonical.string() << '\n';
                 return false;
             }
-            files.emplace_back(canonical.string(), std::move(duplicate_contents));
+            files.push_back(SourceFileUnit{canonical.string(), std::move(duplicate_contents), module});
             return true;
         }
         visited.emplace(key);
@@ -156,7 +168,7 @@ std::optional<SourceFile> load_source_bundle_with_imports(
                       &source, import->path_literal, false)) return false;
         }
 
-        files.emplace_back(canonical.string(), std::move(contents));
+        files.push_back(SourceFileUnit{canonical.string(), std::move(contents), module});
         return true;
     };
 
@@ -164,11 +176,11 @@ std::optional<SourceFile> load_source_bundle_with_imports(
         std::error_code error;
         const fs::path canonical_root = fs::canonical(fs::path(path), error);
         const bool duplicate_root = !error &&
-            !explicit_roots.emplace(canonical_root.generic_string()).second;
+            !seen_explicit_roots.emplace(canonical_root.generic_string()).second;
         if (!visit(visit, fs::path(path), nullptr, {}, duplicate_root))
             return std::nullopt;
     }
-    return SourceFile::from_files(std::move(files));
+    return SourceFile::from_modules(std::move(files), std::move(root_module));
 }
 
 void strip_resolved_imports(Program& program) {

@@ -7,29 +7,43 @@
 namespace vex {
 
 SourceFile::SourceFile(std::string path, std::string contents)
-    : path_(std::move(path)), contents_(std::move(contents)) {
+    : path_(std::move(path)), root_module_(path_), contents_(std::move(contents)) {
     index_lines();
-    Origin origin{path_, contents_, 0, {}};
+    Origin origin{path_, contents_, path_, 0, {}};
     index_origin(origin);
     origins_.push_back(std::move(origin));
 }
 
 SourceFile SourceFile::from_files(
     std::vector<std::pair<std::string, std::string>> files) {
-    return SourceFile(std::move(files), CombinedSourcesTag{});
+    std::vector<SourceFileUnit> units;
+    units.reserve(files.size());
+    const std::string root = files.empty() ? std::string{} : files.front().first;
+    for (auto& file : files)
+        units.push_back(SourceFileUnit{file.first, std::move(file.second), root});
+    SourceFile source(std::move(units), CombinedSourcesTag{});
+    source.root_module_ = root;
+    return source;
 }
 
-SourceFile::SourceFile(
-    std::vector<std::pair<std::string, std::string>> files, CombinedSourcesTag) {
+SourceFile SourceFile::from_modules(
+    std::vector<SourceFileUnit> files, std::string root_module) {
+    SourceFile source(std::move(files), CombinedSourcesTag{});
+    source.root_module_ = std::move(root_module);
+    if (!source.root_module_.empty()) source.path_ = source.root_module_;
+    return source;
+}
+
+SourceFile::SourceFile(std::vector<SourceFileUnit> files, CombinedSourcesTag) {
     if (files.empty()) {
         path_ = "<empty compilation unit>";
-        Origin origin{path_, {}, 0, {0}};
+        Origin origin{path_, {}, path_, 0, {0}};
         origins_.push_back(std::move(origin));
         line_starts_.push_back(0);
         return;
     }
 
-    path_ = files.front().first;
+    path_ = files.front().path;
     for (auto& file : files) {
         if (!contents_.empty() && contents_.back() != '\n' &&
             contents_.back() != '\r') {
@@ -37,8 +51,9 @@ SourceFile::SourceFile(
         }
 
         Origin origin;
-        origin.path = std::move(file.first);
-        origin.contents = std::move(file.second);
+        origin.path = std::move(file.path);
+        origin.contents = std::move(file.contents);
+        origin.module = file.module.empty() ? origin.path : std::move(file.module);
         origin.combined_offset = contents_.size();
         contents_ += origin.contents;
         index_origin(origin);
@@ -49,6 +64,10 @@ SourceFile::SourceFile(
 
 const std::string& SourceFile::path() const noexcept {
     return path_;
+}
+
+const std::string& SourceFile::root_module() const noexcept {
+    return root_module_;
 }
 
 std::string_view SourceFile::contents() const noexcept {
@@ -111,6 +130,24 @@ const std::string& SourceFile::path_at(std::size_t offset) const noexcept {
             return value < origin.combined_offset;
         });
     return (found == origins_.begin() ? origins_.front() : *std::prev(found)).path;
+}
+
+const std::string& SourceFile::module_at(std::size_t offset) const noexcept {
+    if (origins_.empty()) return path_;
+    offset = std::min(offset, contents_.size());
+    const auto found = std::upper_bound(
+        origins_.begin(), origins_.end(), offset,
+        [](const std::size_t value, const Origin& origin) {
+            return value < origin.combined_offset;
+        });
+    return (found == origins_.begin() ? origins_.front() : *std::prev(found)).module;
+}
+
+const std::string& SourceFile::module_for_path(const std::string_view path) const noexcept {
+    for (const Origin& origin : origins_) {
+        if (origin.path == path) return origin.module;
+    }
+    return path_;
 }
 
 SourcePosition SourceFile::origin_position(std::size_t offset) const noexcept {

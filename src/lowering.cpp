@@ -87,6 +87,7 @@ public:
                        declaration_.name);
                 function_.return_type = IRType::Void;
             } else {
+                function_.name = signature->second.name;
                 const auto return_type = to_ir_type(signature->second.return_type);
                 if (!return_type) {
                     report("IR101", "function has a type that cannot be represented in the initial IR",
@@ -2744,7 +2745,7 @@ public:
         for (const SemanticStructType& structure : semantic_model_.struct_types) {
             IRStructType converted;
             converted.id = structure.id;
-            converted.name = structure.name;
+            converted.name = structure.link_name.empty() ? structure.name : structure.link_name;
             for (const SemanticStructField& field : structure.fields) {
                 const auto type = to_ir_type(field.type);
                 if (!type || *type == IRType::Void) {
@@ -2777,7 +2778,7 @@ public:
         for (const SemanticEnumType& enumeration : semantic_model_.enum_types) {
             IREnumType converted;
             converted.id = enumeration.id;
-            converted.name = enumeration.name;
+            converted.name = enumeration.link_name.empty() ? enumeration.name : enumeration.link_name;
             for (const SemanticEnumVariant& variant : enumeration.variants) {
                 IREnumVariant converted_variant;
                 converted_variant.name = variant.name;
@@ -2833,7 +2834,9 @@ public:
                     top_level_statements.push_back(statement.get());
                 continue;
             }
-            if (source_.slice(function->name) == "main") has_explicit_main = true;
+            if (source_.slice(function->name) == "main" &&
+                source_.module_at(function->name.begin) == source_.root_module())
+                has_explicit_main = true;
             module_.functions.push_back(FunctionLowerer(
                 source_, semantic_model_, signatures, *function, module_.struct_types,
                 module_.enum_types, diagnostics_).lower());

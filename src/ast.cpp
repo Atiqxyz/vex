@@ -68,7 +68,7 @@ void print_statement(std::ostream& output, const SourceFile& source,
         using Node = std::decay_t<decltype(node)>;
         indent(output, depth);
         if constexpr (std::is_same_v<Node, FunctionDeclStmt>) {
-            output << "Function " << source.slice(node.name);
+            output << (node.is_public ? "PublicFunction " : "Function ") << source.slice(node.name);
             if (node.return_type) output << " -> " << source.slice(*node.return_type);
             output << '\n';
             for (const Parameter& parameter : node.parameters) {
@@ -80,7 +80,7 @@ void print_statement(std::ostream& output, const SourceFile& source,
             }
             if (node.body) print_statement(output, source, *node.body, depth + 1);
         } else if constexpr (std::is_same_v<Node, StructDeclStmt>) {
-            output << "Struct " << source.slice(node.name) << '\n';
+            output << (node.is_public ? "PublicStruct " : "Struct ") << source.slice(node.name) << '\n';
             for (const StructFieldDecl& field : node.fields) {
                 indent(output, depth + 1);
                 output << "Field " << source.slice(field.name);
@@ -88,7 +88,7 @@ void print_statement(std::ostream& output, const SourceFile& source,
                 output << '\n';
             }
         } else if constexpr (std::is_same_v<Node, EnumDeclStmt>) {
-            output << "Enum " << source.slice(node.name) << '\n';
+            output << (node.is_public ? "PublicEnum " : "Enum ") << source.slice(node.name) << '\n';
             for (const EnumVariantDecl& variant : node.variants) {
                 indent(output, depth + 1);
                 output << "Variant " << source.slice(variant.name);
@@ -103,7 +103,9 @@ void print_statement(std::ostream& output, const SourceFile& source,
                 output << '\n';
             }
         } else if constexpr (std::is_same_v<Node, ImportDeclStmt>) {
-            output << "Import " << source.slice(node.path_literal) << '\\n';
+            output << "Import " << source.slice(node.path_literal);
+            if (node.alias) output << " as " << source.slice(*node.alias);
+            output << '\n';
         } else if constexpr (std::is_same_v<Node, VariableDeclStmt>) {
             output << (node.immutable ? "Const " : "Let ") << source.slice(node.name);
             if (node.type_annotation) output << ": " << source.slice(*node.type_annotation);

@@ -1,5 +1,9 @@
-import "constants.vex"
+import "constants.vex" as constants
 
-make double_base(value: int) -> int {
-    return value * base_value()
+pub make double_base(value: int) -> int {
+    return value * constants.base_value()
+}
+
+make hidden() -> int {
+    return -1
 }

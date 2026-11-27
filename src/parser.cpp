@@ -66,6 +66,45 @@ ParseResult Parser::parse() {
     return ParseResult{std::move(program), diagnostics_.take()};
 }
 StmtPtr Parser::parse_statement(const bool top_level) {
+    if (match(TokenKind::KwPub)) {
+        const Token modifier = previous();
+        if (!top_level) {
+            report_current("PAR018", "'pub' declarations are only allowed at file scope");
+            synchronize();
+            return nullptr;
+        }
+        StmtPtr declaration;
+        if (match(TokenKind::KwMake)) {
+            declaration = parse_function(previous());
+            if (declaration) {
+                if (auto* function = std::get_if<FunctionDeclStmt>(&declaration->data))
+                    function->is_public = true;
+                declaration->span.begin = modifier.span.begin;
+            }
+            return declaration;
+        }
+        if (match(TokenKind::KwStruct)) {
+            declaration = parse_struct(previous());
+            if (declaration) {
+                if (auto* structure = std::get_if<StructDeclStmt>(&declaration->data))
+                    structure->is_public = true;
+                declaration->span.begin = modifier.span.begin;
+            }
+            return declaration;
+        }
+        if (match(TokenKind::KwEnum)) {
+            declaration = parse_enum(previous());
+            if (declaration) {
+                if (auto* enumeration = std::get_if<EnumDeclStmt>(&declaration->data))
+                    enumeration->is_public = true;
+                declaration->span.begin = modifier.span.begin;
+            }
+            return declaration;
+        }
+        report_current("PAR019", "'pub' must precede a function, structure, or enum declaration");
+        synchronize();
+        return nullptr;
+    }
     if (match(TokenKind::KwLet)) return parse_variable(previous(), false);
     if (match(TokenKind::KwConst)) return parse_variable(previous(), true);
     if (match(TokenKind::KwReturn)) return parse_return(previous());
@@ -150,9 +189,17 @@ StmtPtr Parser::parse_function(const Token& start) {
 StmtPtr Parser::parse_import(const Token& start) {
     const Token path = expect(TokenKind::String,
                               "expected a quoted relative source path after 'import'");
+    std::optional<SourceSpan> alias;
+    if (check(TokenKind::Identifier) && current().text(source_) == "as") {
+        static_cast<void>(advance());
+        const Token name = expect(TokenKind::Identifier,
+                                   "expected a module alias after 'as'");
+        alias = name.span;
+    }
+    const std::size_t end = alias ? alias->end : path.span.end;
     return std::make_unique<Statement>(Statement{
-        SourceSpan{start.span.begin, path.span.end},
-        ImportDeclStmt{path.span}});
+        SourceSpan{start.span.begin, end},
+        ImportDeclStmt{path.span, alias}});
 }
 
 StmtPtr Parser::parse_struct(const Token& start) {
@@ -308,12 +355,20 @@ StmtPtr Parser::parse_match(const Token& start) {
         if (source_.slice(first.span) == "_") {
             arm.wildcard = true;
         } else {
-            arm.enum_name = first.span;
             static_cast<void>(expect(TokenKind::Dot,
                                      "expected '.' between enum name and variant"));
-            const Token variant = expect(TokenKind::Identifier,
-                                         "expected an enum variant name");
-            arm.variant_name = variant.span;
+            const Token second = expect(TokenKind::Identifier,
+                                         "expected an enum type or variant name");
+            if (check(TokenKind::Dot)) {
+                static_cast<void>(advance());
+                const Token variant = expect(TokenKind::Identifier,
+                                              "expected an enum variant name");
+                arm.enum_name = SourceSpan{first.span.begin, second.span.end};
+                arm.variant_name = variant.span;
+            } else {
+                arm.enum_name = first.span;
+                arm.variant_name = second.span;
+            }
             if (match(TokenKind::LeftParen)) {
                 skip_newlines();
                 if (!check(TokenKind::RightParen) && !check(TokenKind::EndOfFile)) {
@@ -383,6 +438,11 @@ std::optional<SourceSpan> Parser::parse_type_annotation() {
 
     const Token type = advance();
     std::size_t end = type.span.end;
+    while (match(TokenKind::Dot)) {
+        const Token member = expect(TokenKind::Identifier,
+                                    "expected a type name after '.'");
+        end = member.span.end;
+    }
     bool saw_array_dimension = false;
     while (match(TokenKind::LeftBracket)) {
         saw_array_dimension = true;
@@ -427,8 +487,12 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
             if (field_token + 1 < tokens_.size() &&
                 tokens_[field_token].kind == TokenKind::Identifier &&
                 tokens_[field_token + 1].kind == TokenKind::Colon) {
-                const auto* type_name = std::get_if<NameExpr>(&left->data);
-                if (type_name) {
+                const bool is_type_expression =
+                    std::holds_alternative<NameExpr>(left->data) ||
+                    std::holds_alternative<MemberExpr>(left->data);
+                if (is_type_expression) {
+                    const SourceSpan type_name{
+                        left->span.begin, left->span.end};
                     static_cast<void>(advance());
                     std::vector<StructLiteralField> fields;
                     skip_newlines();
@@ -452,7 +516,7 @@ ExprPtr Parser::parse_expression(const bool allow_newlines, const int minimum_pr
                         "expected '}' after structure literal");
                     const std::size_t begin = left->span.begin;
                     left = make_expression(SourceSpan{begin, closing.span.end},
-                        StructLiteralExpr{type_name->name, std::move(fields)});
+                        StructLiteralExpr{type_name, std::move(fields)});
                     continue;
                 }
             }

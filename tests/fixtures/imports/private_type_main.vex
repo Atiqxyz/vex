@@ -1,0 +1,5 @@
+import "lib/geometry.vex" as geometry
+
+make main() {
+    let hidden: geometry.Secret = geometry.Secret { value: 7 }
+}

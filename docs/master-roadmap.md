@@ -254,11 +254,11 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 
 **Why it matters:** Multi-file programs and reuse require a compilation and dependency model, not just import syntax.
 
-- [ ] Multi-file compilation and cross-file name resolution (partial source-bundle expansion and cross-file calls exist; separate compilation remains open)
-- [ ] Modules, imports, and exports (quoted relative-import expansion exists, but module namespaces, visibility, and exports do not)
-- [ ] Public/private visibility
-- [ ] Namespace and package identity rules
-- [ ] Separate compilation and linking model
+- [x] Multi-file source resolution and cross-file name resolution (recursive relative imports, canonical identity, cycle handling, source-located diagnostics, and module-local symbols)
+- [x] Modules, imports, and exports (module aliases, qualified access, and explicit `pub` exports)
+- [x] Public/private visibility for functions, structures, and enums
+- [x] Namespace and module identity rules (canonical imported-file identity; explicit CLI roots share one root module)
+- [ ] Cached separate compilation and independent object linking
 - [ ] Build manifest and reproducible build configuration
 - [ ] Dependency/package manager and versioning
 - [ ] Static and dynamic library linking
@@ -373,9 +373,9 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 5. SIMD and performance-oriented numerical operations.
 
 ### Milestone 6 — Modules and ecosystem
-1. Multi-file compilation (initial merged-translation-unit expansion exists; separate compilation remains open).
-2. Module visibility and imports (relative import expansion exists; namespace and visibility semantics remain open).
-3. Separate compilation and linking.
+1. **Source-level module system:** implemented recursive imports, module identities, aliases, qualified names, independent namespaces, public/private functions and types, and deterministic linker names.
+2. **Cross-backend integration:** implemented lowering of the resolved module graph through the shared IR into both C11 and LLVM native paths.
+3. Cached separate compilation and independent object linking.
 4. Build manifests and package/dependency management.
 5. C ABI and foreign-library bindings.
 

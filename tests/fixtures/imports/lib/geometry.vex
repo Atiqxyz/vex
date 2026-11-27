@@ -1,0 +1,17 @@
+pub struct Point {
+    x: int,
+    y: int,
+}
+
+pub enum Status {
+    Ready,
+    Failed(Point),
+}
+
+struct Secret {
+    value: int,
+}
+
+pub make translate(point: Point) -> Point {
+    return point
+}

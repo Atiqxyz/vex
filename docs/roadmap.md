@@ -26,7 +26,7 @@ The language should not force every scientific feature into the compiler. Keep t
 - Keep `SPEC.md` authoritative for language syntax and semantics.
 - Define integer overflow, floating-point behavior, conversions, string representation, and error-handling conventions.
 - Finalize the hybrid memory model: ownership, borrowing, lifetimes, allocation, cleanup, and unsafe boundaries.
-- Defer module/import visibility, package boundaries, and public API conventions until the core type system and standard-library surface are mature enough to organize.
+- Keep the implemented source-level module contract stable: canonical module identities, relative imports, aliases, and explicit `pub` exports. Defer package boundaries and cached separate compilation until the build model is designed.
 - Define target platforms, ABI strategy, and C interoperability goals.
 - Establish compatibility and deprecation policies for the standard library.
 - Maintain a clear distinction between implemented, planned, and experimental features.
@@ -277,7 +277,7 @@ This is a conceptual target layout. Adopt it incrementally when the code justifi
 2. Define recoverable error values and deterministic resource cleanup; make OS-facing APIs return explicit errors and close resources predictably.
 3. Add byte buffers, file and directory access, process arguments, and environment access—the foundations needed for real tools and a future compiler written in VEX.
 4. Complete the core data model with enums/tagged unions, option/result types, richer numeric widths, bitwise operations, slices, maps, and generics in dependency-aware slices.
-5. Add multi-file compilation, modules/imports, visibility, separate compilation, linking, and a reproducible build workflow once public API boundaries are stable.
+5. Extend the implemented source-level module system with cached separate compilation, module interfaces, linking artifacts, and a reproducible build workflow once public API boundaries are stable.
 6. Expand scientific foundations through complex numbers, unit-aware quantities, multidimensional arrays, vectors/matrices, statistics, and numerical methods.
 7. Validate with substantial end-to-end programs, benchmarks, sanitizer/fuzz testing, and the full cross-platform CI matrix.
 

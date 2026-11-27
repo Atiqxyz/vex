@@ -1,0 +1,5 @@
+say(9)
+
+pub make value() -> int {
+    return 9
+}

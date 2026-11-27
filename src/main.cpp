@@ -42,8 +42,8 @@ void print_help() {
         << "  vex run-llvm <file.vex> Build and execute using LLVM\n"
         << "  vex --version           Show compiler version\n"
         << "  vex --help              Show this help message\n\n"
-        << "Explicit source files and recursively imported files are combined into one translation unit and global namespace.\n"
-        << "Imports use quoted paths relative to the importing file; namespaces and separate compilation are not implemented yet.\n"
+        << "Explicit source files form the root module; recursively imported files are separate modules.\n"
+        << "Use import \"path.vex\" as alias and pub declarations to expose module members.\n"
         << "emit-c and emit-llvm write generated source to standard output.\n"
         << "build/run use the bundled Zig/LLVM toolchain (or installed Clang); build-c/run-c require a C11 compiler.\n";
 }
@@ -110,7 +110,6 @@ int run_check(const std::vector<std::string>& paths) {
         vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
         return 1;
     }
-    vex::strip_resolved_imports(parsed.program);
     const vex::SemanticResult checked =
         vex::SemanticAnalyzer(source, parsed.program).analyze();
     vex::print_diagnostics(std::cerr, source, checked.diagnostics);
@@ -133,7 +132,6 @@ int run_ir(const std::vector<std::string>& paths) {
         vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
         return 1;
     }
-    vex::strip_resolved_imports(parsed.program);
     const vex::SemanticResult checked =
         vex::SemanticAnalyzer(source, parsed.program).analyze();
     vex::print_diagnostics(std::cerr, source, checked.diagnostics);
@@ -166,7 +164,6 @@ int run_emit_backend(const std::vector<std::string>& paths, const vex::BackendKi
         vex::print_diagnostics(std::cerr, source, parsed.diagnostics);
         return 1;
     }
-    vex::strip_resolved_imports(parsed.program);
     const vex::SemanticResult checked =
         vex::SemanticAnalyzer(source, parsed.program).analyze();
     vex::print_diagnostics(std::cerr, source, checked.diagnostics);

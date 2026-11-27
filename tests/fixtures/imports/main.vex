@@ -1,6 +1,26 @@
 import "lib/math.vex"
-import "lib/math.vex"
+import "lib/math.vex" as calculations
+import "lib/other.vex" as other
+import "lib/geometry.vex" as geometry
 
 make main() {
-    say(double_base(21))
+    let point: geometry.Point = geometry.Point { x: 21, y: 1 }
+    let other_point: other.Point = other.Point { value: 9 }
+    let moved: geometry.Point = geometry.translate(point)
+    let state: geometry.Status = geometry.Status.Failed(point)
+    let extra: int = other.double_base(1)
+    let via_alias: int = calculations.double_base(1)
+    let via_default: int = math.double_base(1)
+    say(calculations.double_base(moved.x))
+    say(extra)
+    say(via_alias)
+    say(via_default)
+    match state {
+        geometry.Status.Ready => {
+            say(0)
+        }
+        geometry.Status.Failed(failed_point) => {
+            say(failed_point.x + failed_point.y)
+        }
+    }
 }

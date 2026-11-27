@@ -1,0 +1,6 @@
+import "lib/math.vex" as shared
+import "lib/other.vex" as shared
+
+make main() {
+    say(1)
+}

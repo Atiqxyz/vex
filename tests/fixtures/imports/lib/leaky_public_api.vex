@@ -1,0 +1,15 @@
+struct Hidden {
+    value: int,
+}
+
+pub struct PublicContainer {
+    hidden: Hidden,
+}
+
+pub make leak(value: Hidden) -> Hidden {
+    return value
+}
+
+pub enum PublicEnvelope {
+    Item(Hidden),
+}

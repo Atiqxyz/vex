@@ -444,6 +444,53 @@ void test_import_declarations(TestContext& tests) {
     tests.check(import && source.slice(import->path_literal) == "\"math.vex\"",
                 "the import node preserves its quoted path literal span");
 
+    const vex::SourceFile modules{"module_syntax.vex",
+        "import \"math.vex\" as math\n"
+        "pub struct Point { x: int }\n"
+        "pub enum State { Ready }\n"
+        "pub make use_modules() {\n"
+        "    let point: math.Point = math.Point { x: 1 }\n"
+        "    let state: math.State = math.State.Ready\n"
+        "}\n"};
+    const vex::ParseResult module_parsed = parse(modules);
+    tests.check(!module_parsed.has_errors(),
+                "module aliases, public declarations, and qualified nominal syntax parse");
+    if (!module_parsed.has_errors() && module_parsed.program.statements.size() == 4u) {
+        const auto* aliased = std::get_if<vex::ImportDeclStmt>(
+            &module_parsed.program.statements[0]->data);
+        tests.check(aliased && aliased->alias &&
+                    modules.slice(*aliased->alias) == "math",
+                    "an import alias is retained in the import AST");
+        const auto* structure = std::get_if<vex::StructDeclStmt>(
+            &module_parsed.program.statements[1]->data);
+        const auto* enumeration = std::get_if<vex::EnumDeclStmt>(
+            &module_parsed.program.statements[2]->data);
+        const auto* public_function = std::get_if<vex::FunctionDeclStmt>(
+            &module_parsed.program.statements[3]->data);
+        tests.check(structure && structure->is_public,
+                    "pub is retained on structure declarations");
+        tests.check(enumeration && enumeration->is_public,
+                    "pub is retained on enum declarations");
+        tests.check(public_function && public_function->is_public,
+                    "pub is retained on function declarations");
+        const auto* body = public_function && public_function->body
+            ? std::get_if<vex::BlockStmt>(&public_function->body->data) : nullptr;
+        const auto* point = body && !body->statements.empty()
+            ? std::get_if<vex::VariableDeclStmt>(&body->statements[0]->data) : nullptr;
+        tests.check(point && point->type_annotation &&
+                    modules.slice(*point->type_annotation) == "math.Point",
+                    "qualified type annotations preserve the full alias path");
+        const auto* literal = point && point->initializer
+            ? std::get_if<vex::StructLiteralExpr>(&point->initializer->data) : nullptr;
+        tests.check(literal && modules.slice(literal->type_name) == "math.Point",
+                    "qualified structure literals preserve the full type path");
+    }
+
+    const vex::SourceFile nested_public{"nested_pub.vex",
+        "make main() {\n    pub make hidden() { }\n}\n"};
+    tests.check(parse(nested_public).has_errors(),
+                "public declarations are restricted to module scope");
+
     const vex::SourceFile nested{"nested_import.vex",
         "make main() {\n    import \"math.vex\"\n}\n"};
     const vex::ParseResult rejected = parse(nested);

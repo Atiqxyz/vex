@@ -2,9 +2,15 @@
 #include "vex/stack_policy.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <limits>
+#include <filesystem>
+#include <system_error>
+#include <iomanip>
+#include <sstream>
 #include <string_view>
 #include <optional>
 #include <string>
@@ -18,6 +24,72 @@ namespace {
 using Type = SemanticType;
 
 constexpr std::string_view int64_min_magnitude = "9223372036854775808";
+
+std::string module_symbol_key(const std::string& module, const std::string& name) {
+    std::string key = module;
+    key.push_back('\x1f');
+    key += name;
+    return key;
+}
+
+std::string module_link_prefix(const std::string& module, const std::string& root_module) {
+    if (module == root_module) return {};
+    std::string stable_path = module;
+    std::error_code error;
+    const std::filesystem::path relative = std::filesystem::relative(
+        std::filesystem::path(module),
+        std::filesystem::path(root_module).parent_path(), error);
+    if (!error) stable_path = relative.generic_string();
+    std::uint64_t hash = 14695981039346656037ull;
+    for (const unsigned char value : stable_path) {
+        hash ^= value;
+        hash *= 1099511628211ull;
+    }
+    std::ostringstream output;
+    output << "__vex_m" << std::hex << std::setw(16) << std::setfill('0') << hash << "_";
+    return output.str();
+}
+
+bool decode_module_import_path(std::string_view literal, std::string& decoded) {
+    if (literal.size() < 2u || literal.front() != '"' || literal.back() != '"')
+        return false;
+    decoded.clear();
+    for (std::size_t index = 1u; index + 1u < literal.size(); ++index) {
+        char value = literal[index];
+        if (value == '\\') {
+            if (++index + 1u >= literal.size()) return false;
+            switch (literal[index]) {
+            case 'n': value = '\n'; break;
+            case 'r': value = '\r'; break;
+            case 't': value = '\t'; break;
+            case '0': value = '\0'; break;
+            case '\\': value = '\\'; break;
+            case '"': value = '"'; break;
+            case '\'': value = '\''; break;
+            default: return false;
+            }
+        }
+        if (value == '\0') return false;
+        decoded.push_back(value);
+    }
+    return !decoded.empty();
+}
+
+bool valid_identifier(std::string_view value) {
+    if (value.empty()) return false;
+    const auto first = static_cast<unsigned char>(value.front());
+    if (!(std::isalpha(first) || first == '_')) return false;
+    if (!std::all_of(value.begin() + 1, value.end(), [](const unsigned char character) {
+            return std::isalnum(character) || character == '_';
+        })) return false;
+    static constexpr std::array<std::string_view, 26> reserved{{
+        "make", "struct", "enum", "let", "const", "if", "else", "while",
+        "break", "continue", "repeat", "times", "for", "in", "return",
+        "true", "false", "null", "int", "byte", "float", "bool", "string",
+        "import", "match", "pub"
+    }};
+    return std::find(reserved.begin(), reserved.end(), value) == reserved.end();
+}
 
 const Expr* unwrap_grouped_expression(const Expr* expression) noexcept {
     while (expression) {
@@ -132,6 +204,8 @@ struct Symbol {
     std::optional<SemanticPointerType> return_pointer_type;
     std::optional<std::uint32_t> return_pointer_parameter_index;
     std::vector<std::pair<std::uint32_t, std::uint32_t>> pointer_parameter_stores;
+    std::string emitted_name;
+    bool is_public{false};
 };
 
 using Scope = std::unordered_map<std::string, Symbol>;
@@ -144,14 +218,30 @@ public:
     }
 
     SemanticResult run() {
+        root_module_ = source_.root_module();
+        current_module_ = root_module_;
         install_builtins();
+        collect_module_imports();
         collect_struct_type_names();
         collect_enum_type_names();
         collect_struct_types();
         collect_enum_types();
+        validate_exported_type_visibility();
         collect_function_signatures();
         for (const StmtPtr& statement : program_.statements) {
-            if (statement && !std::holds_alternative<StructDeclStmt>(statement->data) &&
+            if (!statement) continue;
+            current_module_ = source_.module_at(statement->span.begin);
+            if (current_module_ != root_module_ &&
+                !std::holds_alternative<FunctionDeclStmt>(statement->data) &&
+                !std::holds_alternative<StructDeclStmt>(statement->data) &&
+                !std::holds_alternative<EnumDeclStmt>(statement->data) &&
+                !std::holds_alternative<ImportDeclStmt>(statement->data)) {
+                report("SEM084",
+                       "non-root modules may contain declarations only; move executable statements into a function",
+                       statement->span);
+                continue;
+            }
+            if (!std::holds_alternative<StructDeclStmt>(statement->data) &&
                 !std::holds_alternative<EnumDeclStmt>(statement->data))
                 analyze_statement(*statement);
         }
@@ -178,6 +268,259 @@ private:
 
     [[nodiscard]] std::string spelling(const SourceSpan span) const {
         return std::string(source_.slice(span));
+    }
+
+    struct ResolvedModuleName {
+        std::string module;
+        std::string name;
+        bool imported{false};
+    };
+
+    [[nodiscard]] std::optional<ResolvedModuleName> resolve_module_name(
+        const std::string& spelling_value, const SourceSpan span) {
+        const std::size_t separator = spelling_value.find('.');
+        if (separator == std::string::npos)
+            return ResolvedModuleName{source_.module_at(span.begin), spelling_value, false};
+        if (spelling_value.find('.', separator + 1u) != std::string::npos) {
+            report("SEM080", "a qualified name must contain one module alias and one member name",
+                   span);
+            return std::nullopt;
+        }
+        const std::string importer = source_.module_at(span.begin);
+        const std::string alias = spelling_value.substr(0, separator);
+        const std::string member = spelling_value.substr(separator + 1u);
+        const auto module = module_aliases_.find(importer);
+        if (module == module_aliases_.end() || module->second.find(alias) == module->second.end()) {
+            report("SEM081", "unknown module alias '" + alias + "'; add an import for that module",
+                   span);
+            return std::nullopt;
+        }
+        const std::string target_module = module->second.at(alias);
+        return ResolvedModuleName{
+            target_module, member, target_module != importer};
+    }
+
+    [[nodiscard]] std::optional<ResolvedModuleName> try_resolve_imported_name(
+        const std::string& spelling_value, const SourceSpan span) {
+        const std::size_t separator = spelling_value.find('.');
+        if (separator == std::string::npos) return std::nullopt;
+        const std::string importer = source_.module_at(span.begin);
+        const std::string alias = spelling_value.substr(0, separator);
+        const auto module = module_aliases_.find(importer);
+        if (module == module_aliases_.end() ||
+            module->second.find(alias) == module->second.end()) return std::nullopt;
+        return resolve_module_name(spelling_value, span);
+    }
+
+    [[nodiscard]] std::optional<std::pair<Type, std::uint32_t>>
+    resolve_enum_type_expression(const Expr* expression) {
+        if (!expression) return std::nullopt;
+        if (const auto* name = std::get_if<NameExpr>(&expression->data)) {
+            const auto nominal = resolve_nominal_type(spelling(name->name), name->name);
+            if (nominal && nominal->first == Type::Enum) return nominal;
+            return std::nullopt;
+        }
+        const auto* member = std::get_if<MemberExpr>(&expression->data);
+        const auto* alias = member && member->object
+            ? std::get_if<NameExpr>(&member->object->data) : nullptr;
+        if (!member || !alias) return std::nullopt;
+        const std::string qualified =
+            spelling(alias->name) + "." + spelling(member->member);
+        const auto imported = try_resolve_imported_name(qualified, expression->span);
+        if (!imported) return std::nullopt;
+        const auto nominal = resolve_nominal_type(qualified, expression->span);
+        if (nominal && nominal->first == Type::Enum) return nominal;
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<std::pair<Type, std::uint32_t>> resolve_nominal_type(
+        const std::string& spelling_value, const SourceSpan span) {
+        const auto resolved = resolve_module_name(spelling_value, span);
+        if (!resolved) return std::nullopt;
+        const std::string key = module_symbol_key(resolved->module, resolved->name);
+        const auto structure = struct_ids_.find(key);
+        if (structure != struct_ids_.end()) {
+            if (resolved->imported &&
+                !model_.struct_types[structure->second - 1u].is_public) {
+                report("SEM082", "structure '" + resolved->name +
+                       "' is private to its module", span);
+                return std::nullopt;
+            }
+            return std::pair<Type, std::uint32_t>{Type::Struct, structure->second};
+        }
+        const auto enumeration = enum_ids_.find(key);
+        if (enumeration != enum_ids_.end()) {
+            if (resolved->imported &&
+                !model_.enum_types[enumeration->second - 1u].is_public) {
+                report("SEM083", "enum '" + resolved->name +
+                       "' is private to its module", span);
+                return std::nullopt;
+            }
+            return std::pair<Type, std::uint32_t>{Type::Enum, enumeration->second};
+        }
+        return std::nullopt;
+    }
+
+    void validate_exported_nominal_reference(
+        const std::string& owner_module, const Type type,
+        const std::uint32_t struct_type_id, const std::uint32_t enum_type_id,
+        const std::optional<SemanticArrayType>& array_type,
+        const std::optional<SemanticPointerType>& pointer_type,
+        const SourceSpan span, const std::string& owner_name) {
+        Type referenced_type = type;
+        std::uint32_t referenced_struct_id = struct_type_id;
+        std::uint32_t referenced_enum_id = enum_type_id;
+        if (type == Type::Array && array_type) {
+            referenced_type = array_type->element_type;
+            referenced_struct_id = array_type->element_struct_type_id;
+            referenced_enum_id = array_type->element_enum_type_id;
+        } else if (type == Type::Pointer && pointer_type) {
+            referenced_type = pointer_type->pointee_type;
+            referenced_struct_id = pointer_type->pointee_struct_type_id;
+            referenced_enum_id = pointer_type->pointee_enum_type_id;
+        }
+
+        bool private_type = false;
+        std::string private_name;
+        if (referenced_type == Type::Struct && referenced_struct_id != 0u &&
+            referenced_struct_id <= model_.struct_types.size()) {
+            const SemanticStructType& structure =
+                model_.struct_types[referenced_struct_id - 1u];
+            private_type = source_.module_at(structure.declaration.begin) == owner_module &&
+                           !structure.is_public;
+            private_name = structure.name;
+        } else if (referenced_type == Type::Enum && referenced_enum_id != 0u &&
+                   referenced_enum_id <= model_.enum_types.size()) {
+            const SemanticEnumType& enumeration =
+                model_.enum_types[referenced_enum_id - 1u];
+            private_type = source_.module_at(enumeration.declaration.begin) == owner_module &&
+                           !enumeration.is_public;
+            private_name = enumeration.name;
+        }
+        if (private_type) {
+            report("SEM087", "public declaration '" + owner_name +
+                   "' exposes private type '" + private_name +
+                   "'; mark the type 'pub' or keep the declaration private", span);
+        }
+    }
+
+    void validate_exported_type_visibility() {
+        for (const SemanticStructType& structure : model_.struct_types) {
+            if (!structure.is_public) continue;
+            const std::string module = source_.module_at(structure.declaration.begin);
+            for (const SemanticStructField& field : structure.fields) {
+                validate_exported_nominal_reference(
+                    module, field.type, field.struct_type_id, field.enum_type_id,
+                    field.array_type, std::nullopt, field.declaration, structure.name);
+            }
+        }
+        for (const SemanticEnumType& enumeration : model_.enum_types) {
+            if (!enumeration.is_public) continue;
+            const std::string module = source_.module_at(enumeration.declaration.begin);
+            for (const SemanticEnumVariant& variant : enumeration.variants) {
+                for (const SemanticEnumPayloadField& field : variant.fields) {
+                    validate_exported_nominal_reference(
+                        module, field.type, field.struct_type_id, field.enum_type_id,
+                        field.array_type, std::nullopt, field.declaration, enumeration.name);
+                }
+            }
+        }
+    }
+
+    void collect_module_imports() {
+        namespace fs = std::filesystem;
+        for (const StmtPtr& statement : program_.statements) {
+            const auto* import = statement
+                ? std::get_if<ImportDeclStmt>(&statement->data) : nullptr;
+            if (!import) continue;
+            std::string relative_path;
+            if (!decode_module_import_path(source_.slice(import->path_literal), relative_path)) {
+                report("MOD001", "import path must be a nonempty quoted relative path without NUL bytes",
+                       import->path_literal);
+                continue;
+            }
+            const fs::path relative(relative_path);
+            if (relative.is_absolute() || relative.has_root_name() ||
+                relative.has_root_directory()) {
+                report("MOD001", "import paths must be relative to the importing file",
+                       import->path_literal);
+                continue;
+            }
+            const fs::path importer_path(source_.path_at(import->path_literal.begin));
+            std::error_code error;
+            const fs::path canonical = fs::canonical(
+                importer_path.parent_path() / relative, error);
+            if (error) {
+                report("MOD001", "could not identify imported module: " + error.message(),
+                       import->path_literal);
+                continue;
+            }
+            std::string alias = import->alias
+                ? spelling(*import->alias) : canonical.stem().string();
+            if (!valid_identifier(alias)) {
+                report("MOD004", "the default module name '" + alias +
+                       "' is not a valid identifier; provide an explicit 'as' alias",
+                       import->alias.value_or(import->path_literal));
+                continue;
+            }
+            const std::string target_module =
+                source_.module_for_path(canonical.string());
+            auto& aliases = module_aliases_[source_.module_at(import->path_literal.begin)];
+            const auto [found, inserted] = aliases.emplace(alias, target_module);
+            if (!inserted && found->second != target_module) {
+                report("MOD002", "module alias '" + alias +
+                       "' refers to more than one imported module",
+                       import->alias.value_or(import->path_literal));
+            }
+        }
+    }
+
+    [[nodiscard]] std::string emitted_name(
+        const std::string& module, const std::string& name) const {
+        return module_link_prefix(module, root_module_) + name;
+    }
+
+    [[nodiscard]] std::string expression_name_path(const Expr* expression) const {
+        while (expression) {
+            if (const auto* group = std::get_if<GroupExpr>(&expression->data)) {
+                expression = group->expression.get();
+                continue;
+            }
+            if (const auto* name = std::get_if<NameExpr>(&expression->data))
+                return spelling(name->name);
+            if (const auto* member = std::get_if<MemberExpr>(&expression->data)) {
+                const std::string prefix = expression_name_path(member->object.get());
+                return prefix.empty() ? std::string{} :
+                    prefix + "." + spelling(member->member);
+            }
+            return {};
+        }
+        return {};
+    }
+
+    [[nodiscard]] std::optional<ResolvedModuleName> function_reference(
+        const Expr* expression) const {
+        expression = unwrap_grouped_expression(expression);
+        if (!expression) return std::nullopt;
+        if (const auto* name = std::get_if<NameExpr>(&expression->data)) {
+            return ResolvedModuleName{
+                source_.module_at(name->name.begin), spelling(name->name), false};
+        }
+        if (!std::holds_alternative<MemberExpr>(expression->data))
+            return std::nullopt;
+        const std::string qualified = expression_name_path(expression);
+        const std::size_t separator = qualified.find('.');
+        if (separator == std::string::npos ||
+            qualified.find('.', separator + 1u) != std::string::npos)
+            return std::nullopt;
+        const std::string importer = source_.module_at(expression->span.begin);
+        const auto aliases = module_aliases_.find(importer);
+        if (aliases == module_aliases_.end()) return std::nullopt;
+        const auto target = aliases->second.find(qualified.substr(0, separator));
+        if (target == aliases->second.end()) return std::nullopt;
+        return ResolvedModuleName{
+            target->second, qualified.substr(separator + 1u),
+            target->second != importer};
     }
 
     [[nodiscard]] Type annotation_type(
@@ -208,14 +551,10 @@ private:
             else if (pointee_name == "float") pointee = Type::Float;
             else if (pointee_name == "bool") pointee = Type::Bool;
             else if (pointee_name == "string") pointee = Type::String;
-            else if (const auto structure = struct_ids_.find(pointee_name);
-                     structure != struct_ids_.end()) {
-                pointee = Type::Struct;
-                pointee_struct_type_id = structure->second;
-            } else if (const auto enumeration = enum_ids_.find(pointee_name);
-                       enumeration != enum_ids_.end()) {
-                pointee = Type::Enum;
-                pointee_enum_type_id = enumeration->second;
+            else if (const auto nominal = resolve_nominal_type(pointee_name, span)) {
+                pointee = nominal->first;
+                if (pointee == Type::Struct) pointee_struct_type_id = nominal->second;
+                if (pointee == Type::Enum) pointee_enum_type_id = nominal->second;
             } else {
                 report("SEM070", "pointer pointee must be a supported primitive or declared nominal type", span);
                 return Type::Error;
@@ -253,14 +592,13 @@ private:
             else if (element_name == "bool") element_type = Type::Bool;
             else if (element_name == "string") element_type = Type::String;
             else {
-                const auto structure = struct_ids_.find(element_name);
-                const auto enumeration = enum_ids_.find(element_name);
-                if (structure != struct_ids_.end()) {
+                const auto nominal = resolve_nominal_type(element_name, span);
+                if (nominal && nominal->first == Type::Struct) {
                     element_type = Type::Struct;
-                    element_struct_type_id = structure->second;
-                } else if (enumeration != enum_ids_.end()) {
+                    element_struct_type_id = nominal->second;
+                } else if (nominal && nominal->first == Type::Enum) {
                     element_type = Type::Enum;
-                    element_enum_type_id = enumeration->second;
+                    element_enum_type_id = nominal->second;
                 } else {
                     report("SEM003", "array element type must be a primitive or a declared nominal type", span);
                     return Type::Error;
@@ -331,15 +669,13 @@ private:
         if (name == "float") return Type::Float;
         if (name == "bool") return Type::Bool;
         if (name == "string") return Type::String;
-        const auto structure = struct_ids_.find(name);
-        if (structure != struct_ids_.end()) {
-            if (struct_type_id) *struct_type_id = structure->second;
-            return Type::Struct;
-        }
-        const auto enumeration = enum_ids_.find(name);
-        if (enumeration != enum_ids_.end()) {
-            if (enum_type_id) *enum_type_id = enumeration->second;
-            return Type::Enum;
+        const auto nominal = resolve_nominal_type(name, span);
+        if (nominal) {
+            if (nominal->first == Type::Struct && struct_type_id)
+                *struct_type_id = nominal->second;
+            if (nominal->first == Type::Enum && enum_type_id)
+                *enum_type_id = nominal->second;
+            return nominal->first;
         }
         if (allow_void && name == "void") return Type::Void;
         report("SEM003", "unknown or unsupported type name '" + name + "'", span);
@@ -509,21 +845,25 @@ private:
             const auto* structure = std::get_if<StructDeclStmt>(&statement->data);
             if (!structure) continue;
             const std::string name = spelling(structure->name);
+            const std::string module = source_.module_at(structure->name.begin);
+            const std::string key = module_symbol_key(module, name);
             if (name == "int" || name == "byte" || name == "float" || name == "bool" ||
                 name == "string" || name == "void") {
                 report("SEM002", "structure name '" + name + "' conflicts with a built-in type",
                        structure->name);
                 continue;
             }
-            if (struct_ids_.find(name) != struct_ids_.end() ||
-                scopes_.front().find(name) != scopes_.front().end()) {
-                report("SEM002", "duplicate global declaration of '" + name + "'",
+            if (struct_ids_.find(key) != struct_ids_.end() ||
+                enum_ids_.find(key) != enum_ids_.end() ||
+                (module == root_module_ && scopes_.front().find(name) != scopes_.front().end())) {
+                report("SEM002", "duplicate declaration of '" + name + "' in this module",
                        structure->name);
                 continue;
             }
             const std::uint32_t id = static_cast<std::uint32_t>(model_.struct_types.size() + 1u);
-            struct_ids_.emplace(name, id);
-            model_.struct_types.push_back(SemanticStructType{id, name, {}, structure->name});
+            struct_ids_.emplace(key, id);
+            model_.struct_types.push_back(SemanticStructType{
+                id, name, {}, structure->name, emitted_name(module, name), structure->is_public});
             struct_declarations_.push_back(structure);
         }
     }
@@ -531,7 +871,9 @@ private:
     void collect_struct_types() {
         for (const StructDeclStmt* declaration : struct_declarations_) {
             const std::string name = spelling(declaration->name);
-            const auto found = struct_ids_.find(name);
+            const std::string key = module_symbol_key(
+                source_.module_at(declaration->name.begin), name);
+            const auto found = struct_ids_.find(key);
             if (found == struct_ids_.end()) continue;
             SemanticStructType& structure = model_.struct_types[found->second - 1u];
             if (declaration->fields.empty())
@@ -600,23 +942,26 @@ private:
             const auto* enumeration = std::get_if<EnumDeclStmt>(&statement->data);
             if (!enumeration) continue;
             const std::string name = spelling(enumeration->name);
+            const std::string module = source_.module_at(enumeration->name.begin);
+            const std::string key = module_symbol_key(module, name);
             if (name == "int" || name == "byte" || name == "float" || name == "bool" ||
                 name == "string" || name == "void") {
                 report("SEM061", "enum name '" + name + "' conflicts with a built-in type",
                        enumeration->name);
                 continue;
             }
-            if (struct_ids_.find(name) != struct_ids_.end() ||
-                enum_ids_.find(name) != enum_ids_.end() ||
-                scopes_.front().find(name) != scopes_.front().end()) {
-                report("SEM002", "duplicate global declaration of '" + name + "'",
+            if (struct_ids_.find(key) != struct_ids_.end() ||
+                enum_ids_.find(key) != enum_ids_.end() ||
+                (module == root_module_ && scopes_.front().find(name) != scopes_.front().end())) {
+                report("SEM002", "duplicate declaration of '" + name + "' in this module",
                        enumeration->name);
                 continue;
             }
             const std::uint32_t id =
                 static_cast<std::uint32_t>(model_.enum_types.size() + 1u);
-            enum_ids_.emplace(name, id);
-            model_.enum_types.push_back(SemanticEnumType{id, name, {}, enumeration->name});
+            enum_ids_.emplace(key, id);
+            model_.enum_types.push_back(SemanticEnumType{
+                id, name, {}, enumeration->name, emitted_name(module, name), enumeration->is_public});
             enum_declarations_.push_back(enumeration);
         }
     }
@@ -624,7 +969,9 @@ private:
     void collect_enum_types() {
         for (const EnumDeclStmt* declaration : enum_declarations_) {
             const std::string name = spelling(declaration->name);
-            const auto found = enum_ids_.find(name);
+            const std::string key = module_symbol_key(
+                source_.module_at(declaration->name.begin), name);
+            const auto found = enum_ids_.find(key);
             if (found == enum_ids_.end()) continue;
             SemanticEnumType& enumeration = model_.enum_types[found->second - 1u];
             if (declaration->variants.empty()) {
@@ -719,13 +1066,22 @@ private:
             ? std::get_if<CallExpr>(&expression->data) : nullptr;
         const Expr* callee_expression = call
             ? unwrap_grouped_expression(call->callee.get()) : nullptr;
-        const auto* callee_name = callee_expression
-            ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
-        if (!callee_name) return false;
-        const Symbol* function = lookup(spelling(callee_name->name));
-        return function && function->is_function &&
-            function->return_pointer_parameter_index &&
-            *function->return_pointer_parameter_index == 0u;
+        if (const auto* callee_name = callee_expression
+                ? std::get_if<NameExpr>(&callee_expression->data) : nullptr) {
+            const Symbol* function = lookup(spelling(callee_name->name));
+            return function && function->is_function &&
+                function->return_pointer_parameter_index &&
+                *function->return_pointer_parameter_index == 0u;
+        }
+        const auto reference = function_reference(callee_expression);
+        if (!reference) return false;
+        const auto module = module_functions_.find(reference->module);
+        if (module == module_functions_.end()) return false;
+        const auto function = module->second.find(reference->name);
+        return function != module->second.end() &&
+            (!reference->imported || function->second.is_public) &&
+            function->second.return_pointer_parameter_index &&
+            *function->second.return_pointer_parameter_index == 0u;
     }
 
     [[nodiscard]] const UnaryExpr* member_root_dereference(const Expr* expression) const {
@@ -790,10 +1146,10 @@ private:
             if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
                 const Expr* callee_expression =
                     unwrap_grouped_expression(call->callee.get());
-                const auto* callee_name = callee_expression
-                    ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
-                if (!callee_name) return std::nullopt;
-                const auto callee = functions.find(spelling(callee_name->name));
+                const auto reference = function_reference(callee_expression);
+                if (!reference) return std::nullopt;
+                const auto callee = functions.find(module_symbol_key(
+                    reference->module, reference->name));
                 if (callee == functions.end()) return std::nullopt;
                 const auto summary = return_summaries.find(callee->second);
                 if (summary == return_summaries.end() || !summary->second)
@@ -897,7 +1253,9 @@ private:
             const auto* function = statement
                 ? std::get_if<FunctionDeclStmt>(&statement->data) : nullptr;
             if (!function) continue;
-            functions.emplace(spelling(function->name), function);
+            functions.emplace(module_symbol_key(
+                source_.module_at(function->name.begin),
+                spelling(function->name)), function);
             const bool returns_pointer = function->return_type &&
                 !spelling(*function->return_type).empty() &&
                 spelling(*function->return_type).front() == '*';
@@ -961,10 +1319,10 @@ private:
                 return parameter_index(name->name);
             if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
                 const Expr* callee_expression = unwrap_group(call->callee.get());
-                const auto* callee_name = callee_expression
-                    ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
-                if (!callee_name) return std::nullopt;
-                const auto callee = functions.find(spelling(callee_name->name));
+                const auto reference = function_reference(callee_expression);
+                if (!reference) return std::nullopt;
+                const auto callee = functions.find(module_symbol_key(
+                    reference->module, reference->name));
                 if (callee == functions.end()) return std::nullopt;
                 const auto summary = return_summaries.find(callee->second);
                 if (summary == return_summaries.end() || !summary->second ||
@@ -1120,7 +1478,9 @@ private:
             const auto* function = statement
                 ? std::get_if<FunctionDeclStmt>(&statement->data) : nullptr;
             if (!function) continue;
-            functions.emplace(spelling(function->name), function);
+            functions.emplace(module_symbol_key(
+                source_.module_at(function->name.begin),
+                spelling(function->name)), function);
             declarations.push_back(function);
         }
         for (const FunctionDeclStmt* function : declarations) {
@@ -1166,10 +1526,10 @@ private:
                         return parameter_index(name->name);
                     if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
                         const Expr* callee_expression = unwrap_group(call->callee.get());
-                        const auto* callee_name = callee_expression
-                            ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
-                        if (!callee_name) return std::nullopt;
-                        const auto callee = functions.find(spelling(callee_name->name));
+                        const auto reference = function_reference(callee_expression);
+                        if (!reference) return std::nullopt;
+                        const auto callee = functions.find(module_symbol_key(
+                            reference->module, reference->name));
                         if (callee == functions.end()) return std::nullopt;
                         const auto summary = return_summaries.find(callee->second);
                         if (summary == return_summaries.end() || !summary->second ||
@@ -1225,10 +1585,10 @@ private:
                     if (!expression) return;
                     if (const auto* call = std::get_if<CallExpr>(&expression->data)) {
                         const Expr* callee_expression = unwrap_group(call->callee.get());
-                        const auto* callee_name = callee_expression
-                            ? std::get_if<NameExpr>(&callee_expression->data) : nullptr;
-                        if (callee_name) {
-                            const auto callee = functions.find(spelling(callee_name->name));
+                        const auto reference = function_reference(callee_expression);
+                        if (reference) {
+                            const auto callee = functions.find(module_symbol_key(
+                                reference->module, reference->name));
                             if (callee != functions.end()) {
                                 const auto callee_summaries = summaries.find(callee->second);
                                 if (callee_summaries != summaries.end()) {
@@ -1395,17 +1755,40 @@ private:
                 signature.pointer_parameter_stores = pointer_summaries->second;
 
             const std::string name = spelling(function->name);
-            const auto existing = scopes_.front().find(name);
-            if (struct_ids_.find(name) != struct_ids_.end() ||
-                enum_ids_.find(name) != enum_ids_.end() ||
-                existing != scopes_.front().end()) {
-                report("SEM002", "duplicate global declaration of '" + name + "'",
+            const std::string module = source_.module_at(function->name.begin);
+            if (function->is_public) {
+                for (std::size_t index = 0; index < signature.parameters.size(); ++index) {
+                    validate_exported_nominal_reference(
+                        module, signature.parameters[index],
+                        signature.parameter_struct_type_ids[index],
+                        signature.parameter_enum_type_ids[index],
+                        signature.parameter_array_types[index],
+                        signature.parameter_pointer_types[index],
+                        function->parameters[index].type_annotation.value_or(
+                            function->parameters[index].name), name);
+                }
+                validate_exported_nominal_reference(
+                    module, signature.type, signature.return_struct_type_id,
+                    signature.return_enum_type_id, signature.return_array_type,
+                    signature.return_pointer_type,
+                    function->return_type.value_or(function->name), name);
+            }
+            const std::string key = module_symbol_key(module, name);
+            signature.emitted_name = emitted_name(module, name);
+            signature.is_public = function->is_public;
+            const auto existing = module_functions_[module].find(name);
+            const bool conflicts_with_builtin =
+                module == root_module_ && scopes_.front().find(name) != scopes_.front().end();
+            if (struct_ids_.find(key) != struct_ids_.end() ||
+                enum_ids_.find(key) != enum_ids_.end() ||
+                existing != module_functions_[module].end() || conflicts_with_builtin) {
+                report("SEM002", "duplicate declaration of '" + name + "' in this module",
                        function->name);
             } else {
-                scopes_.front().emplace(name, signature);
+                module_functions_[module].emplace(name, signature);
             }
             SemanticFunctionSignature public_signature;
-            public_signature.name = name;
+            public_signature.name = signature.emitted_name;
             public_signature.parameter_types = signature.parameters;
             public_signature.parameter_array_types = signature.parameter_array_types;
             public_signature.return_type = signature.type;
@@ -1536,6 +1919,13 @@ private:
     [[nodiscard]] Symbol* lookup(const std::string& name) {
         for (std::size_t index = scopes_.size(); index > 0; --index) {
             Scope& scope = scopes_[index - 1];
+            if (index == 1) {
+                const auto module = module_functions_.find(current_module_);
+                if (module != module_functions_.end()) {
+                    const auto function = module->second.find(name);
+                    if (function != module->second.end()) return &function->second;
+                }
+            }
             const auto found = scope.find(name);
             if (found == scope.end()) continue;
 
@@ -1832,22 +2222,23 @@ private:
 
         if (const auto* literal = std::get_if<StructLiteralExpr>(&expression.data)) {
             const std::string type_name = spelling(literal->type_name);
-            const auto structure_id = struct_ids_.find(type_name);
-            if (structure_id == struct_ids_.end()) {
+            const auto nominal = resolve_nominal_type(type_name, literal->type_name);
+            if (!nominal || nominal->first != Type::Struct) {
                 report("SEM001", "undefined structure type '" + type_name + "'",
                        literal->type_name);
                 for (const StructLiteralField& field : literal->fields)
                     if (field.value) static_cast<void>(analyze_expression(*field.value));
                 return Type::Error;
             }
-            const SemanticStructType& structure = model_.struct_types[structure_id->second - 1u];
+            const std::uint32_t structure_id = nominal->second;
+            const SemanticStructType& structure = model_.struct_types[structure_id - 1u];
             std::vector<bool> seen(structure.fields.size(), false);
             std::vector<std::uint32_t> field_indices;
             field_indices.reserve(literal->fields.size());
             for (const StructLiteralField& field : literal->fields) {
                 std::uint32_t field_index = 0;
                 const auto* expected = find_struct_field(
-                    structure_id->second, spelling(field.name), &field_index);
+                    structure_id, spelling(field.name), &field_index);
                 if (!expected) {
                     report("SEM051", "structure '" + type_name +
                            "' has no field named '" + spelling(field.name) + "'",
@@ -1897,19 +2288,17 @@ private:
                     report("SEM053", "missing initializer for field '" +
                            structure.fields[index].name + "'", expression.span);
             }
-            model_.struct_expression_types[&expression] = structure_id->second;
+            model_.struct_expression_types[&expression] = structure_id;
             model_.struct_literal_field_indices[literal] = std::move(field_indices);
             return Type::Struct;
         }
 
         if (const auto* member = std::get_if<MemberExpr>(&expression.data)) {
-            const auto* enum_name = member->object
-                ? std::get_if<NameExpr>(&member->object->data) : nullptr;
-            if (enum_name) {
-                const auto enum_id = enum_ids_.find(spelling(enum_name->name));
-                if (enum_id != enum_ids_.end()) {
+            const auto enum_nominal = resolve_enum_type_expression(member->object.get());
+            if (enum_nominal && enum_nominal->first == Type::Enum) {
+                    const std::uint32_t enum_id = enum_nominal->second;
                     const SemanticEnumType& enumeration =
-                        model_.enum_types[enum_id->second - 1u];
+                        model_.enum_types[enum_id - 1u];
                     const std::string variant_name = spelling(member->member);
                     const auto variant = std::find_if(
                         enumeration.variants.begin(), enumeration.variants.end(),
@@ -1933,7 +2322,6 @@ private:
                     model_.enum_expression_types[&expression] = enumeration.id;
                     model_.enum_expression_variants[&expression] = variant_index;
                     return Type::Enum;
-                }
             }
             const Type object_type = member->object
                 ? analyze_expression(*member->object) : Type::Error;
@@ -2564,13 +2952,13 @@ private:
             const auto* name = callee ? std::get_if<NameExpr>(&callee->data) : nullptr;
             const auto* enum_variant = callee
                 ? std::get_if<MemberExpr>(&callee->data) : nullptr;
-            const auto* enum_name = enum_variant && enum_variant->object
-                ? std::get_if<NameExpr>(&enum_variant->object->data) : nullptr;
-            if (enum_variant && enum_name) {
-                const auto enum_id = enum_ids_.find(spelling(enum_name->name));
-                if (enum_id != enum_ids_.end()) {
+            const auto enum_nominal = enum_variant
+                ? resolve_enum_type_expression(enum_variant->object.get())
+                : std::optional<std::pair<Type, std::uint32_t>>{};
+            if (enum_variant && enum_nominal && enum_nominal->first == Type::Enum) {
+                    const std::uint32_t enum_id = enum_nominal->second;
                     const SemanticEnumType& enumeration =
-                        model_.enum_types[enum_id->second - 1u];
+                        model_.enum_types[enum_id - 1u];
                     const std::string variant_name = spelling(enum_variant->member);
                     const auto variant = std::find_if(
                         enumeration.variants.begin(), enumeration.variants.end(),
@@ -2637,7 +3025,6 @@ private:
                     model_.enum_expression_types[&expression] = enumeration.id;
                     model_.enum_expression_variants[&expression] = variant_index;
                     return Type::Enum;
-                }
             }
             Symbol* function = nullptr;
             if (name) {
@@ -2651,9 +3038,42 @@ private:
                            name->name);
                     function = nullptr;
                 }
+            } else if (const auto* qualified = callee
+                           ? std::get_if<MemberExpr>(&callee->data) : nullptr) {
+                const std::string qualified_name = expression_name_path(callee);
+                const auto target = try_resolve_imported_name(qualified_name, callee->span);
+                if (!target) {
+                    const NameExpr* object_root = member_root_name(qualified->object.get());
+                    const Symbol* object_symbol = object_root
+                        ? lookup(spelling(object_root->name)) : nullptr;
+                    if (object_symbol) {
+                        report("SEM019", "only named functions and imported module functions can be called",
+                               call->callee->span);
+                    } else {
+                        report("SEM081", "unknown module alias in qualified call",
+                               qualified->member);
+                    }
+                } else {
+                    const auto module = module_functions_.find(target->module);
+                    if (module == module_functions_.end()) {
+                        report("SEM085", "module has no function named '" +
+                               target->name + "'", qualified->member);
+                    } else {
+                        const auto found = module->second.find(target->name);
+                        if (found == module->second.end()) {
+                            report("SEM085", "module has no function named '" +
+                                   target->name + "'", qualified->member);
+                        } else if (target->imported && !found->second.is_public) {
+                            report("SEM086", "function '" + target->name +
+                                   "' is private to its module", qualified->member);
+                        } else {
+                            function = &found->second;
+                        }
+                    }
+                }
             } else if (call->callee) {
                 static_cast<void>(analyze_expression(*call->callee));
-                report("SEM019", "only named functions can be called in this VEX version",
+                report("SEM019", "only named functions and imported module functions can be called",
                        call->callee->span);
             }
 
@@ -2703,7 +3123,9 @@ private:
             }
 
             if (!function) return Type::Error;
-            if (name) model_.resolved_calls[call] = spelling(name->name);
+            model_.resolved_calls[call] = function->emitted_name.empty()
+                ? (name ? spelling(name->name) : expression_name_path(callee))
+                : function->emitted_name;
 
             const std::string builtin_name = name ? spelling(name->name) : std::string{};
 
@@ -3610,7 +4032,9 @@ private:
                 if (wildcard_seen)
                     report("SEM071", "no match arm may follow a wildcard arm", arm.enum_name);
                 const std::string named_enum = spelling(arm.enum_name);
-                if (named_enum != enumeration.name)
+                const auto pattern_type = resolve_nominal_type(named_enum, arm.enum_name);
+                if (!pattern_type || pattern_type->first != Type::Enum ||
+                    pattern_type->second != enum_id)
                     report("SEM073", "match pattern names enum '" + named_enum +
                            "' but the scrutinee has type '" + enumeration.name + "'",
                            arm.enum_name);
@@ -3688,12 +4112,7 @@ private:
             analyze_variable(*variable);
             return;
         }
-        if (const auto* import = std::get_if<ImportDeclStmt>(&statement.data)) {
-            report("SEM061",
-                   "import declarations are not yet supported; module resolution is not implemented",
-                   import->path_literal);
-            return;
-        }
+        if (std::holds_alternative<ImportDeclStmt>(statement.data)) return;
         if (std::holds_alternative<StructDeclStmt>(statement.data)) return;
         if (std::holds_alternative<BlockStmt>(statement.data)) {
             analyze_block(statement, true);
@@ -3944,6 +4363,12 @@ private:
     std::vector<Diagnostic> diagnostics_;
     std::vector<Scope> scopes_;
     std::unordered_map<const FunctionDeclStmt*, Symbol> signatures_;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>>
+        module_aliases_;
+    std::unordered_map<std::string, std::unordered_map<std::string, Symbol>>
+        module_functions_;
+    std::string root_module_;
+    std::string current_module_;
     std::unordered_map<std::string, std::uint32_t> struct_ids_;
     std::unordered_map<std::string, std::uint32_t> enum_ids_;
     std::vector<const StructDeclStmt*> struct_declarations_;

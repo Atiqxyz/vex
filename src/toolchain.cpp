@@ -160,7 +160,6 @@ bool generate_with_backend(const std::vector<std::string>& paths,
         print_diagnostics(std::cerr, source, parsed.diagnostics);
         return false;
     }
-    strip_resolved_imports(parsed.program);
 
     const SemanticResult checked =
         SemanticAnalyzer(source, parsed.program).analyze();

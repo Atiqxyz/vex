@@ -59,9 +59,9 @@ Top-level function signatures are collected before function bodies are checked, 
 
 ### Source files and imports
 
-Compilation commands accept one or more explicit root files. A top-level declaration such as `import "math/geometry.vex"` recursively adds the referenced file to the same compilation unit. The path is resolved relative to the file containing the import, not the process working directory; absolute paths are rejected. String-literal escapes are decoded before lookup. Each canonical file is loaded once, so repeated imports are deduplicated and import cycles terminate. Imported files are placed before their importers, and diagnostics retain each original file path and line location.
+Compilation commands accept one or more explicit root files. A top-level declaration such as `import "math/geometry.vex" as geometry` recursively adds the referenced file to the module graph. The path is resolved relative to the file containing the import, not the process working directory; absolute paths are rejected. String-literal escapes are decoded before lookup. Each canonical file is loaded once, so repeated imports are deduplicated and import cycles terminate. Diagnostics retain each original file path and line location. If `as alias` is omitted, the file stem is used as the alias.
 
-This is source expansion into one translation unit, not a module system: imported declarations share the global namespace, and there are no import aliases, exports, private visibility, module identities, or separate compilation. Passing the same root file more than once remains a duplicate-declaration error. The `lex` and `parse` commands inspect only the explicitly named file; `check`, `ir`, backend emission, and native build/run commands resolve imports. See [the import-resolution implementation note](docs/import-resolution.md).
+Each imported file has its own module identity and namespace. Functions, structures, and enums are private unless declared with `pub`; imported members are accessed through the module alias, such as `geometry.distance(point)` or `geometry.Point`. The root module retains existing top-level entry behavior. Explicit source files passed together on the command line form one root module, while recursively imported files form separate modules. The compiler currently resolves the full graph and lowers it into one typed IR program, then emits a single native executable through the selected backend. Cached separate-object compilation, build manifests, package management, and re-exports are not implemented. The `lex` and `parse` commands inspect only the explicitly named file; `check`, `ir`, backend emission, and native build/run commands resolve imports. See [the module-system implementation note](docs/import-resolution.md).
 
 
 ### User-defined structures
@@ -210,9 +210,11 @@ A newline ends an expression unless it is inside the explicit square-bracket gro
 The parser currently accepts this subset:
 
 ~~~text
-program          := newline* (import_decl | function | statement)* EOF
-import_decl      := "import" string_literal
-function         := "make" identifier "(" parameters? ")" ("->" type)? block
+program          := newline* (import_decl | function | struct_decl | enum_decl | statement)* EOF
+import_decl      := "import" string_literal ("as" identifier)?
+function         := "pub"? "make" identifier "(" parameters? ")" ("->" type)? block
+struct_decl      := "pub"? "struct" identifier "{" field* "}"
+enum_decl        := "pub"? "enum" identifier "{" variant* "}"
 parameters       := parameter ("," parameter)*
 parameter        := identifier (":" type)?
 statement        := variable | return | if | while | repeat | for
@@ -397,6 +399,6 @@ The C backend can emit C11 source; the compiler's build/run commands can invoke 
 - function overloading and default arguments;
 - array and structure layout;
 - ownership, borrowing, and pointer safety;
-- module namespaces, import aliases, visibility/exports, package identity, and separate compilation (initial quoted relative-import expansion into a merged translation unit is implemented; see [import resolution](docs/import-resolution.md));
+- cached separate compilation, module interfaces, package identity/build manifests, re-exports, and dependency/package management (the source-level module system with aliases and `pub` visibility is implemented; see [modules and import resolution](docs/import-resolution.md));
 - ABI and foreign-function interface;
 - target architectures and optimization strategy.

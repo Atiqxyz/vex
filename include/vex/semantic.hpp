@@ -149,6 +149,8 @@ struct SemanticStructType {
     std::string name;
     std::vector<SemanticStructField> fields;
     SourceSpan declaration{};
+    std::string link_name;
+    bool is_public{false};
 };
 
 struct SemanticEnumPayloadField {
@@ -170,6 +172,8 @@ struct SemanticEnumType {
     std::string name;
     std::vector<SemanticEnumVariant> variants;
     SourceSpan declaration{};
+    std::string link_name;
+    bool is_public{false};
 };
 
 struct SemanticMatchArmInfo {

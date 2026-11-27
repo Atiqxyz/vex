@@ -1,0 +1,7 @@
+pub make double_base(value: int) -> int {
+    return value + 1
+}
+
+pub struct Point {
+    value: int,
+}
