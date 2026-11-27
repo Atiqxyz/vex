@@ -113,4 +113,32 @@ make main() {
     let child = Node { value: 2, children: [] }
     push(root.children, child)
     say(root.children[0].value)
+
+    // A self-cycle keeps a copied Node's children header pointed at the same
+    // registry-owned dynamic array, even after its backing buffer is reserved.
+    let self_cycle = Node { value: 6, children: [] }
+    push(self_cycle.children, self_cycle)
+    say(self_cycle.children[0].value)
+    say(length(self_cycle.children[0].children))
+    reserve(self_cycle.children, 16)
+    say(self_cycle.children[0].children[0].value)
+    let self_alias = self_cycle
+    push(self_alias.children, Node { value: 7, children: [] })
+    say(length(self_cycle.children))
+    say(self_cycle.children[1].value)
+
+    // Two independently registered headers can point back to one another.
+    let alpha = Node { value: 3, children: [] }
+    let beta = Node { value: 4, children: [] }
+    push(alpha.children, beta)
+    push(beta.children, alpha)
+    let beta_alias = alpha.children[0]
+    push(beta_alias.children, Node { value: 5, children: [] })
+    say(alpha.children[0].value)
+    say(alpha.children[0].children[0].value)
+    say(alpha.children[0].children[1].value)
+    let detached = pop(alpha.children)
+    say(detached.value)
+    say(detached.children[0].value)
+    say(length(alpha.children))
 }

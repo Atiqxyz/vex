@@ -19,6 +19,7 @@ A failed `realloc` leaves the old buffer pointer valid under the C allocation co
 - It then releases every tracked concatenation/join string block.
 - C and LLVM perform the same cleanup before returning a valid process status and before trapping on an integer `main` result outside 0 through 255.
 - Nested dynamic arrays do not require recursive destruction: each header is independently registered. Releasing an outer buffer does not dereference its elements; each inner header is later released from the same registry. This also handles shared aliases and recursive dynamic-array fields without double-free traversal.
+- The native structure fixture now constructs both a self-referential `Node` graph and a two-node cycle. It reserves a cyclic node's child array, mutates through a copied alias, and pops one edge before normal entry return. C and LLVM both complete registry cleanup without recursively traversing the object graph. This verifies cleanup against cyclic topology; it does not measure retained memory in a long-running process.
 - A runtime trap does not run VEX cleanup or unwind lexical scopes. The C runtime exits the process; the LLVM runtime emits a trap. The operating system reclaims process memory. Runtime trap wording and process-level termination details are not specified as a portable user-facing error API.
 
 ## Deliberate retention policy

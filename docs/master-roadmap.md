@@ -150,7 +150,7 @@ For a significant feature, compare at least two approaches. Record what VEX adop
 - [ ] Address-of stable aggregate projections with root-storage provenance; dynamic-array element addresses remain deferred until reallocation invalidation is defined
 - [ ] Path-aware pointer-cell summaries and field/element provenance joins across aliases and control flow
 - [ ] Ownership and move/copy semantics
-- [x] Program-exit cleanup of compiler-tracked dynamic-array headers/buffers and allocated string blocks in both backends
+- [x] Program-exit cleanup of compiler-tracked dynamic-array headers/buffers and allocated string blocks in both backends (native structure tests include self- and mutually-referential dynamic-array graphs; cleanup releases registry entries independently rather than recursively following graph edges)
 - [ ] Deterministic destruction and resource cleanup
 - [ ] RAII-like resource management if it fits VEX's model
 - [ ] Arena, pool, and region allocation
