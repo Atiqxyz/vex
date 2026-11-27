@@ -438,10 +438,12 @@ std::optional<SourceSpan> Parser::parse_type_annotation() {
 
     const Token type = advance();
     std::size_t end = type.span.end;
+    bool saw_qualified_type = false;
     while (match(TokenKind::Dot)) {
         const Token member = expect(TokenKind::Identifier,
                                     "expected a type name after '.'");
         end = member.span.end;
+        saw_qualified_type = true;
     }
     bool saw_array_dimension = false;
     while (match(TokenKind::LeftBracket)) {
@@ -466,7 +468,7 @@ std::optional<SourceSpan> Parser::parse_type_annotation() {
         end = closing.span.end;
     }
 
-    return (saw_array_dimension || pointer_depth != 0u)
+    return (saw_array_dimension || saw_qualified_type || pointer_depth != 0u)
         ? std::optional<SourceSpan>{SourceSpan{annotation_begin, end}}
         : std::optional<SourceSpan>{type.span};
 }
