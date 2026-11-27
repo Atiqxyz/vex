@@ -143,6 +143,19 @@ if(OVERRIDE_OUTPUT_COLLISION_STATUS EQUAL 0 OR
     message(FATAL_ERROR "a -o override that overwrites the entry source was accepted: ${OVERRIDE_OUTPUT_COLLISION_DIAGNOSTIC}")
 endif()
 
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" build -o vex.toml
+    WORKING_DIRECTORY "${WORK_DIR}"
+    RESULT_VARIABLE MANIFEST_OUTPUT_COLLISION_STATUS
+    OUTPUT_VARIABLE MANIFEST_OUTPUT_COLLISION
+    ERROR_VARIABLE MANIFEST_OUTPUT_COLLISION_ERROR
+)
+set(MANIFEST_OUTPUT_COLLISION_DIAGNOSTIC "${MANIFEST_OUTPUT_COLLISION}${MANIFEST_OUTPUT_COLLISION_ERROR}")
+if(MANIFEST_OUTPUT_COLLISION_STATUS EQUAL 0 OR
+   NOT MANIFEST_OUTPUT_COLLISION_DIAGNOSTIC MATCHES "must not overwrite")
+    message(FATAL_ERROR "a -o override that overwrites the project manifest was accepted: ${MANIFEST_OUTPUT_COLLISION_DIAGNOSTIC}")
+endif()
+
 # init must never silently replace existing project files.
 execute_process(
     COMMAND "${VEX_EXECUTABLE}" init replacement

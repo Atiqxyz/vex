@@ -288,7 +288,7 @@ int main(const int argc, char* argv[]) {
                 resolved_output.lexically_normal();
             if (normalized_output == project->entry.lexically_normal() ||
                 normalized_output == project->manifest.lexically_normal()) {
-                std::cerr << "error: build output must not overwrite the project manifest or entry source\\n";
+                std::cerr << "error: build output must not overwrite the project manifest or entry source\n";
                 return 2;
             }
             std::error_code error;
