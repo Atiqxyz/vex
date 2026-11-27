@@ -376,7 +376,7 @@ This is a dependency-aware sequence, not a rigid promise. Reorder when source in
 1. **Source-level module system:** implemented recursive imports, module identities, aliases, qualified names, independent namespaces, public/private functions and types, and deterministic linker names.
 2. **Cross-backend integration:** implemented lowering of the resolved module graph through the shared IR into both C11 and LLVM native paths.
 3. Cached separate compilation and independent object linking.
-4. Build manifests and package/dependency management.
+4. **Local project configuration:** implemented `vex.toml` entry-point/backend/output settings, project initialization, and manifest-driven check/build/run. Dependency manifests, package management, version resolution, registries, and lockfiles remain future work.
 5. C ABI and foreign-library bindings.
 
 ### Milestone 7 — Concurrency and advanced execution

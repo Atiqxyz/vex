@@ -62,8 +62,27 @@ A module alias must be unique within the importing module unless repeated import
 
 The `check`, `ir`, `emit-c`, `emit-llvm`, `build`, `build-c`, `build-llvm`, `run`, `run-c`, and `run-llvm` commands use the import-aware source-bundle loader. The standalone `lex` and `parse` commands inspect only the file explicitly named on the command line.
 
-All modules in a program are currently compiled together into one typed IR module and linked into one native executable. Independent cached object compilation, module interfaces, build manifests, package/dependency management, re-exports, and dynamic library packaging are not part of this version. This is a real source-level module and visibility system, but not yet an incremental separate-compilation or package ecosystem.
+All modules in a program are currently compiled together into one typed IR module and linked into one native executable. Independent cached object compilation, module interfaces, package/dependency management, re-exports, and dynamic library packaging are not part of this version. A lightweight `vex.toml` project manifest configures the local entry file, backend, and executable output; it does not resolve external dependencies. This is a real source-level module and visibility system, but not yet an incremental separate-compilation or package ecosystem.
 
 ## Regression coverage
 
 The integration suite covers nested relative imports, repeated imports, import cycles, alias resolution, separate namespaces for identically named functions, exported and private functions/types, qualified structure and enum use, alias conflicts, source-located diagnostics, duplicate explicit roots, and native execution through the C11 and LLVM backends.
+
+
+## Project configuration
+
+A project manifest gives the module graph an explicit entry point and native build target. Run `vex init [name]` to create a starter `vex.toml` and `src/main.vex`. Project commands invoked without source paths search the current directory and its parents for the nearest manifest, then compile its configured entry and all recursively imported modules.
+
+The supported manifest subset is:
+
+~~~toml
+[project]
+name = "geometry_app"
+entry = "src/main.vex"
+backend = "llvm"
+output = "build/geometry_app"
+~~~
+
+`name` defaults to the project directory name, `entry` defaults to `src/main.vex`, `backend` defaults to `llvm`, and `output` defaults to `build/<name>`. Entry and output paths are relative to the manifest and cannot contain `..` path components or be absolute. The backend is either `llvm` or `c`. Output directories are created by project builds. `build-c` / `run-c` and `build-llvm` / `run-llvm` can explicitly override the configured backend.
+
+The manifest parser intentionally supports one `[project]` table and the four quoted string settings shown above. Duplicate and unknown keys, unknown sections, invalid paths, and unsupported backend values are errors. This provides reproducible local project entry/backend/output selection, but is not yet a package manifest: dependency declarations, version resolution, registries, lockfiles, and cached independent object compilation remain outside this implementation.

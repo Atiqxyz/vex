@@ -33,6 +33,7 @@ endif()
 add_library(vex_frontend STATIC
     src/source.cpp
     src/module.cpp
+    src/project.cpp
     src/diagnostic.cpp
     src/token.cpp
     src/lexer.cpp
@@ -136,6 +137,13 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/multifile_compilation_integration.cmake
     )
     set_tests_properties(vex_frontend_tests PROPERTIES TIMEOUT 15)
+    add_test(NAME vex_project_manifest_integration
+        COMMAND ${CMAKE_COMMAND}
+            -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+            "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/project manifest integration"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/project_manifest_integration.cmake
+    )
+    set_tests_properties(vex_project_manifest_integration PROPERTIES TIMEOUT 90)
 
     add_executable(vex_toolchain_stub tests/toolchain_stub.cpp)
     target_link_libraries(vex_toolchain_stub PRIVATE vex_build_options)

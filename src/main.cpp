@@ -5,11 +5,13 @@
 #include "vex/ir.hpp"
 #include "vex/lowering.hpp"
 #include "vex/module.hpp"
+#include "vex/project.hpp"
 #include "vex/parser.hpp"
 #include "vex/semantic.hpp"
 #include "vex/source.hpp"
 #include "vex/token.hpp"
 #include "vex/toolchain.hpp"
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -17,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 #ifndef VEX_VERSION
@@ -27,25 +30,25 @@ void print_help() {
     std::cout
         << "VEX compiler " << VEX_VERSION << "\n"
         << "Usage:\n"
-        << "  vex lex <file.vex>      Tokenize a VEX source file\n"
-        << "  vex parse <file.vex>    Parse a VEX source file and print its AST\n"
-        << "  vex check <file.vex> [more.vex ...] Check a multi-file translation unit\n"
-        << "  vex ir <file.vex>       Lower a valid program to typed SSA IR\n"
-        << "  vex emit-c <file.vex>   Emit portable C11 from verified VEX IR\n"
-        << "  vex emit-llvm <file.vex> Emit LLVM IR from verified VEX IR\n"
-        << "  vex build <file.vex> [more.vex ...] Build a multi-file program using LLVM\n"
-        << "  vex run <file.vex>      Build and execute using the bundled LLVM toolchain\n"
-        << "  vex build-c <file.vex>  Build using the optional C11 backend\n"
-        << "  vex run-c <file.vex>    Build and execute using the optional C11 backend\n"
-        << "  vex build-llvm <file.vex> Build a native executable using LLVM\n"
-        << "  vex build-llvm <file.vex> -o <output>  Choose executable path\n"
-        << "  vex run-llvm <file.vex> Build and execute using LLVM\n"
-        << "  vex --version           Show compiler version\n"
-        << "  vex --help              Show this help message\n\n"
-        << "Explicit source files form the root module; recursively imported files are separate modules.\n"
-        << "Use import \"path.vex\" as alias and pub declarations to expose module members.\n"
-        << "emit-c and emit-llvm write generated source to standard output.\n"
-        << "build/run use the bundled Zig/LLVM toolchain (or installed Clang); build-c/run-c require a C11 compiler.\n";
+        << "  vex init [name]        Create a project with vex.toml and src/main.vex\n"
+        << "  vex lex <file.vex>     Tokenize a VEX source file\n"
+        << "  vex parse <file.vex>   Parse a VEX source file and print its AST\n"
+        << "  vex check [files...]   Check source files or the discovered project\n"
+        << "  vex ir [files...]      Lower a valid program to typed SSA IR\n"
+        << "  vex emit-c [files...]  Emit portable C11 from verified VEX IR\n"
+        << "  vex emit-llvm [files...] Emit LLVM IR from verified VEX IR\n"
+        << "  vex build [files...]   Build using the project backend or default LLVM\n"
+        << "  vex run [files...]     Build and execute using the project backend or LLVM\n"
+        << "  vex build-c [files...] Build using the optional C11 backend\n"
+        << "  vex run-c [files...]   Build and execute using the optional C11 backend\n"
+        << "  vex build-llvm [files...] Build using LLVM\n"
+        << "  vex run-llvm [files...] Build and execute using LLVM\n"
+        << "  vex --version          Show compiler version\n"
+        << "  vex --help             Show this help message\n\n"
+        << "With no source files, project commands discover vex.toml in the current directory or a parent.\n"
+        << "Project settings: name, entry, backend (llvm or c), and output.\n"
+        << "Imports are relative to the importing file; use 'as alias' and 'pub' to expose members.\n"
+        << "build/run use the bundled Zig/LLVM toolchain by default; build-c/run-c require a C11 compiler.\n";
 }
 bool read_source_file(const std::string& path, std::string& contents) {
     std::ifstream input(path, std::ios::binary);
@@ -205,40 +208,99 @@ int main(const int argc, char* argv[]) {
             return 0;
         }
         if (argument == "--version" || argument == "-v") {
-            std::cout << "VEX compiler " << VEX_VERSION << '\\n';
+            std::cout << "VEX compiler " << VEX_VERSION << '\n';
             return 0;
         }
     }
-    if (argc >= 3) {
-        const std::string command = argv[1];
-        if (command == "lex" && argc == 3) return run_lexer(argv[2]);
-        if (command == "parse" && argc == 3) return run_parser(argv[2]);
-
-        int input_end = argc;
-        std::string output_path;
-        if ((command == "build" || command == "build-c" || command == "build-llvm") &&
-            argc >= 5 && std::string(argv[argc - 2]) == "-o") {
-            input_end = argc - 2;
-            output_path = argv[argc - 1];
-        }
-        std::vector<std::string> paths;
-        for (int index = 2; index < input_end; ++index)
-            paths.emplace_back(argv[index]);
-        if (paths.empty()) return 2;
-        if (command == "check") return run_check(paths);
-        if (command == "ir") return run_ir(paths);
-        if (command == "emit-c") return run_emit_c(paths);
-        if (command == "emit-llvm") return run_emit_llvm(paths);
-        if (command == "build") return output_path.empty()
-            ? vex::build_llvm_program(paths) : vex::build_llvm_program(paths, output_path);
-        if (command == "run") return vex::run_llvm_program(paths);
-        if (command == "build-c") return output_path.empty()
-            ? vex::build_program(paths) : vex::build_program(paths, output_path);
-        if (command == "run-c") return vex::run_program(paths);
-        if (command == "build-llvm") return output_path.empty()
-            ? vex::build_llvm_program(paths) : vex::build_llvm_program(paths, output_path);
-        if (command == "run-llvm") return vex::run_llvm_program(paths);
+    if (argc < 2) {
+        print_help();
+        return 2;
     }
+
+    const std::string command = argv[1];
+    if (command == "init" && argc <= 3)
+        return vex::initialize_project(argc == 3 ? argv[2] : "", std::cerr) ? 0 : 1;
+
+    const bool build_command = command == "build" ||
+        command == "build-c" || command == "build-llvm";
+    const bool known_command = command == "lex" || command == "parse" ||
+        command == "check" || command == "ir" || command == "emit-c" ||
+        command == "emit-llvm" || build_command || command == "run" ||
+        command == "run-c" || command == "run-llvm";
+    if (!known_command) {
+        print_help();
+        return 2;
+    }
+
+    if (command == "lex" || command == "parse") {
+        if (argc != 3) {
+            print_help();
+            return 2;
+        }
+        return command == "lex" ? run_lexer(argv[2]) : run_parser(argv[2]);
+    }
+
+    std::vector<std::string> paths;
+    std::string output_argument;
+    for (int index = 2; index < argc; ++index) {
+        const std::string argument = argv[index];
+        if (build_command && argument == "-o") {
+            if (index + 1 >= argc || !output_argument.empty()) {
+                std::cerr << "error: -o requires exactly one output path\n";
+                return 2;
+            }
+            output_argument = argv[++index];
+        } else {
+            paths.push_back(argument);
+        }
+    }
+
+    std::optional<vex::ProjectConfig> project;
+    const bool project_mode = paths.empty();
+    if (project_mode) {
+        project = vex::discover_project_config(std::cerr);
+        if (!project) return 2;
+        paths.push_back(project->entry.string());
+    }
+    if (paths.empty()) return 2;
+
+    if (command == "check") return run_check(paths);
+    if (command == "ir") return run_ir(paths);
+    if (command == "emit-c") return run_emit_c(paths);
+    if (command == "emit-llvm") return run_emit_llvm(paths);
+
+    const bool force_c = command == "build-c" || command == "run-c";
+    const bool force_llvm = command == "build-llvm" || command == "run-llvm";
+    const bool use_c = force_c ||
+        (!force_llvm && command == "build" && project_mode &&
+         project->backend == "c") ||
+        (!force_llvm && command == "run" && project_mode &&
+         project->backend == "c");
+
+    if (command == "build" || command == "build-c" || command == "build-llvm") {
+        std::string output_path = output_argument;
+        if (output_path.empty() && project_mode) output_path = project->output.string();
+        if (project_mode && !output_path.empty()) {
+            std::filesystem::path resolved_output(output_path);
+            if (!resolved_output.is_absolute())
+                resolved_output = project->root / resolved_output;
+            std::error_code error;
+            std::filesystem::create_directories(resolved_output.parent_path(), error);
+            if (error) {
+                std::cerr << "error: cannot create project build directory: "
+                          << error.message() << '\n';
+                return 1;
+            }
+            output_path = resolved_output.string();
+        }
+        return use_c
+            ? vex::build_program(paths, output_path)
+            : vex::build_llvm_program(paths, output_path);
+    }
+
+    if (command == "run" || command == "run-c" || command == "run-llvm")
+        return use_c ? vex::run_program(paths) : vex::run_llvm_program(paths);
+
     print_help();
     return 2;
 }

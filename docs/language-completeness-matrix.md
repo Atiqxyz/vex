@@ -271,7 +271,7 @@ Do not upgrade a status based on syntax alone. A feature counts as implemented o
 | Module resolution and imported declarations | Implemented | Relative imports, optional aliases, default file-stem aliases, canonical deduplication, cycle termination, qualified calls/types/enums, and source-located diagnostics. |
 | Visibility / export rules | Implemented | Functions, structures, and enums are private by default; `pub` exposes them to importing modules. Module-level executable statements are rejected in imported modules. |
 | Package manager | Not implemented | Dependency resolution, versions and registries. |
-| Build manifest | Not implemented | Build configuration and reproducibility. |
+| Build manifest | Implemented (local project subset) | `vex.toml` configures project name, entry file, C11/LLVM backend, and project-relative executable output; `vex init` and manifest-driven check/build/run are covered. Dependency declarations, version resolution, lockfiles, and reproducible dependency graphs remain open. |
 | C ABI / FFI | Design undecided | Important for scientific and systems libraries. |
 | C library linking | Partial | Toolchain integration exists; VEX-level FFI not established. |
 | Dynamic library loading | Not implemented | Runtime/OS API. |

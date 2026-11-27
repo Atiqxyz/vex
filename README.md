@@ -24,10 +24,11 @@ The current C++20 development build has:
 - C11 and textual LLVM IR backends for functions, control flow, primitive values, checked fixed/dynamic-array access, dynamic allocation and cleanup, the `say` output intrinsic, and mathematical intrinsics (`sqrt`, `sin`, `cos`, `pow`, and `abs`);
 - a command-line interface for token inspection, AST printing, semantic checking, IR inspection, C source emission, LLVM IR emission, native builds, and program execution;
 - source-level modules with recursive relative imports, module aliases, module-local namespaces, and public/private function and type declarations;
+- project manifests (`vex.toml`) with a configured entry file, backend, and build output, plus project initialization and manifest-driven check/build/run commands;
 - cross-platform process launching and temporary-build management;
 - unit tests plus cross-platform integration tests for the public CLI and portable compiler discovery.
 
-An import such as `import "math/geometry.vex" as geometry` creates a module boundary. Imported declarations are private by default; mark a function, structure, or enum with `pub` to expose it, then access it through the module alias (for example, `geometry.Point` or `geometry.calculate()`). Explicit source files passed together on the command line form one root module. The current compiler resolves and links the complete module graph into one IR program; cached separate-object compilation, build manifests, and package management remain future work.
+An import such as `import "math/geometry.vex" as geometry` creates a module boundary. Imported declarations are private by default; mark a function, structure, or enum with `pub` to expose it, then access it through the module alias (for example, `geometry.Point` or `geometry.calculate()`). Explicit source files passed together on the command line form one root module. The compiler resolves and links the complete module graph into one IR program. Local project entry/backend/output settings are available through `vex.toml`; cached separate-object compilation and package/dependency management remain future work.
 
 The binary file helpers operate on complete files rather than exposing streaming handles. `read_file` appends to a mutable byte array and returns the appended byte count or `-1`; `write_file` replaces the destination file and returns the byte count or `-1`. The default `build` and `run` commands use the LLVM backend and a Clang driver. Release packages include a pinned Zig toolchain, which supplies the bundled Clang/LLVM driver. This removes the need for users to separately install a C compiler or LLVM for ordinary VEX development. The optional `emit-c`, `build-c`, and `run-c` commands explicitly select the C11 backend.
 
@@ -100,6 +101,22 @@ On Linux or macOS:
 - `build` and `run` compile through the LLVM backend and bundled Zig/Clang toolchain.
 - `build-llvm` and `run-llvm` are explicit aliases for the default LLVM path.
 - `build-c` and `run-c` explicitly select the optional C11 backend; `emit-c` emits its portable C source.
+
+### Project workflow
+
+Start a project with `vex init my_app`. This creates `vex.toml` and `src/main.vex` without overwriting existing project files. From the project directory (or any subdirectory), `vex check`, `vex build`, and `vex run` discover the nearest project manifest automatically. Commands that receive explicit source paths keep their existing behavior.
+
+A project manifest uses this supported subset:
+
+```toml
+[project]
+name = "my_app"
+entry = "src/main.vex"
+backend = "llvm"
+output = "build/my_app"
+```
+
+`entry` and `output` are relative to the manifest. `backend` is `llvm` or `c`; `build-c` / `run-c` and `build-llvm` / `run-llvm` explicitly override it. The `vex.toml` parser rejects unknown settings and unsupported values instead of silently ignoring mistakes. This is a project build configuration, not yet a dependency manifest: package registries, version constraints, and lockfiles are not implemented. See [project configuration](docs/project-configuration.md).
 
 The compiler remains implemented in C++. Self-hosting is not a release requirement, but VEX is being designed so its language, runtime, and tooling can eventually support implementing the complete compiler in VEX.
 
