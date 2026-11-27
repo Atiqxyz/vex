@@ -211,6 +211,12 @@ std::optional<ProjectConfig> load_project_config(
             "output must be a project-relative path without '..' components");
         return std::nullopt;
     }
+    if (output_path.lexically_normal() == entry_path.lexically_normal() ||
+        output_path.lexically_normal() == fs::path("vex.toml")) {
+        report_manifest_error(diagnostics, 1u,
+            "output must not overwrite the project manifest or entry source");
+        return std::nullopt;
+    }
 #ifdef _WIN32
     if (!output_path.has_extension()) output_path += ".exe";
 #endif
@@ -274,7 +280,19 @@ bool initialize_project(
 
     const fs::path manifest = root / "vex.toml";
     const fs::path entry = root / "src" / "main.vex";
-    if (fs::exists(manifest, error) || fs::exists(entry, error)) {
+    const bool manifest_exists = fs::exists(manifest, error);
+    if (error) {
+        diagnostics << "error: cannot inspect project manifest path: "
+                    << error.message() << '\n';
+        return false;
+    }
+    const bool entry_exists = fs::exists(entry, error);
+    if (error) {
+        diagnostics << "error: cannot inspect project entry path: "
+                    << error.message() << '\n';
+        return false;
+    }
+    if (manifest_exists || entry_exists) {
         diagnostics << "error: refusing to overwrite an existing vex.toml or src/main.vex\n";
         return false;
     }

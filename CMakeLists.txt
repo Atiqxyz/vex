@@ -140,6 +140,7 @@ if(BUILD_TESTING)
     add_test(NAME vex_project_manifest_integration
         COMMAND ${CMAKE_COMMAND}
             -DVEX_EXECUTABLE=$<TARGET_FILE:vex>
+            -DVEX_HAS_C_COMPILER=$<BOOL:${CMAKE_C_COMPILER}>
             "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/project manifest integration"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/project_manifest_integration.cmake
     )

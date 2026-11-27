@@ -284,6 +284,13 @@ int main(const int argc, char* argv[]) {
             std::filesystem::path resolved_output(output_path);
             if (!resolved_output.is_absolute())
                 resolved_output = project->root / resolved_output;
+            const std::filesystem::path normalized_output =
+                resolved_output.lexically_normal();
+            if (normalized_output == project->entry.lexically_normal() ||
+                normalized_output == project->manifest.lexically_normal()) {
+                std::cerr << "error: build output must not overwrite the project manifest or entry source\\n";
+                return 2;
+            }
             std::error_code error;
             std::filesystem::create_directories(resolved_output.parent_path(), error);
             if (error) {

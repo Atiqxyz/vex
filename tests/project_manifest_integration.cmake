@@ -92,6 +92,57 @@ if(NOT PARENT_CHECK_STATUS EQUAL 0)
     message(FATAL_ERROR "project discovery from a subdirectory failed: ${PARENT_CHECK_OUTPUT}${PARENT_CHECK_ERROR}")
 endif()
 
+# The configured backend controls the generic run command.
+if(DEFINED VEX_HAS_C_COMPILER AND VEX_HAS_C_COMPILER)
+    file(WRITE "${WORK_DIR}/vex.toml"
+    "[project]\nname = \"module_app\"\nentry = \"src/main.vex\"\nbackend = \"c\"\noutput = \"build/module_app\"\n")
+    execute_process(
+        COMMAND "${VEX_EXECUTABLE}" run
+        WORKING_DIRECTORY "${WORK_DIR}"
+        RESULT_VARIABLE C_BACKEND_RUN_STATUS
+        OUTPUT_VARIABLE C_BACKEND_RUN_OUTPUT
+        ERROR_VARIABLE C_BACKEND_RUN_ERROR
+    )
+    if(NOT C_BACKEND_RUN_STATUS EQUAL 0)
+        message(FATAL_ERROR "project-selected C backend run failed: ${C_BACKEND_RUN_OUTPUT}${C_BACKEND_RUN_ERROR}")
+    endif()
+    string(REPLACE "\r\n" "\n" C_BACKEND_RUN_OUTPUT "${C_BACKEND_RUN_OUTPUT}")
+    if(NOT C_BACKEND_RUN_OUTPUT STREQUAL "42\n")
+        message(FATAL_ERROR "project-selected C backend returned unexpected output: ${C_BACKEND_RUN_OUTPUT}")
+    endif()
+endif()
+
+# A configured output may not overwrite the entry source or manifest.
+file(WRITE "${WORK_DIR}/vex.toml"
+"[project]\nname = \"module_app\"\nentry = \"src/main.vex\"\nbackend = \"llvm\"\noutput = \"src/main.vex\"\n")
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" build
+    WORKING_DIRECTORY "${WORK_DIR}"
+    RESULT_VARIABLE CONFIG_OUTPUT_COLLISION_STATUS
+    OUTPUT_VARIABLE CONFIG_OUTPUT_COLLISION
+    ERROR_VARIABLE CONFIG_OUTPUT_COLLISION_ERROR
+)
+set(CONFIG_OUTPUT_COLLISION_DIAGNOSTIC "${CONFIG_OUTPUT_COLLISION}${CONFIG_OUTPUT_COLLISION_ERROR}")
+if(CONFIG_OUTPUT_COLLISION_STATUS EQUAL 0 OR
+   NOT CONFIG_OUTPUT_COLLISION_DIAGNOSTIC MATCHES "must not overwrite")
+    message(FATAL_ERROR "a configured output that overwrites its entry source was accepted: ${CONFIG_OUTPUT_COLLISION_DIAGNOSTIC}")
+endif()
+
+file(WRITE "${WORK_DIR}/vex.toml"
+"[project]\nname = \"module_app\"\nentry = \"src/main.vex\"\nbackend = \"llvm\"\noutput = \"build/module_app\"\n")
+execute_process(
+    COMMAND "${VEX_EXECUTABLE}" build -o src/main.vex
+    WORKING_DIRECTORY "${WORK_DIR}"
+    RESULT_VARIABLE OVERRIDE_OUTPUT_COLLISION_STATUS
+    OUTPUT_VARIABLE OVERRIDE_OUTPUT_COLLISION
+    ERROR_VARIABLE OVERRIDE_OUTPUT_COLLISION_ERROR
+)
+set(OVERRIDE_OUTPUT_COLLISION_DIAGNOSTIC "${OVERRIDE_OUTPUT_COLLISION}${OVERRIDE_OUTPUT_COLLISION_ERROR}")
+if(OVERRIDE_OUTPUT_COLLISION_STATUS EQUAL 0 OR
+   NOT OVERRIDE_OUTPUT_COLLISION_DIAGNOSTIC MATCHES "must not overwrite")
+    message(FATAL_ERROR "a -o override that overwrites the entry source was accepted: ${OVERRIDE_OUTPUT_COLLISION_DIAGNOSTIC}")
+endif()
+
 # init must never silently replace existing project files.
 execute_process(
     COMMAND "${VEX_EXECUTABLE}" init replacement
